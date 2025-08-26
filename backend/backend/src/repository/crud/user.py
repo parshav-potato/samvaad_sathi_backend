@@ -37,4 +37,27 @@ class UserCRUDRepository(BaseCRUDRepository):
             raise PasswordDoesNotMatch("Password does not match!")
         return user
 
+    async def update_resume_data(
+        self,
+        *,
+        user_id: int,
+        resume_text: str | None,
+        years_experience: float | None,
+        skills: list[str] | None,
+    ) -> User:
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(statement=stmt)
+        user: User | None = query.scalar()  # type: ignore
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+
+        user.resume_text = resume_text
+        user.years_experience = years_experience
+        # Store skills as JSON; keep shape flexible
+        user.skills = {"items": skills or []}
+
+        await self.async_session.commit()
+        await self.async_session.refresh(user)
+        return user
+
 

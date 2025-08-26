@@ -1,4 +1,5 @@
 import fastapi
+from dotenv import load_dotenv
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,6 +9,8 @@ from src.config.manager import settings
 
 
 def initialize_backend_application() -> fastapi.FastAPI:
+    # Load environment variables from .env if present
+    load_dotenv()
     app = fastapi.FastAPI(**settings.set_backend_app_attributes)  # type: ignore
 
     app.add_middleware(

@@ -86,6 +86,23 @@ Covers:
 - Users: register, login, me, duplicate, wrong password, missing auth
 - Accounts: signup, signin, list, get by id, patch, delete
 
+## Resume Extraction Test (Repo-Local Asset)
+We include a sample resume so tests work after cloning.
+
+Prereqs:
+- Set in `backend/backend/.env`:
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Run the test:
+```powershell
+cd D:\samvaad_sathi_backend\backend\backend
+.\nvenv\Scripts\python.exe scripts\test_resume_upload.py
+```
+This will upload `assets/sample_resume.txt` to `/api/extract-resume` using an authenticated request and print the JSON response (`validated` fields and `saved: true`).
+
 ## Troubleshooting
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
 - Env errors (decouple): ensure `.env` exists at `backend/backend/.env`.

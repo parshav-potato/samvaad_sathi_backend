@@ -80,6 +80,23 @@ def main() -> None:
         r, err = safe_call(client, "GET", f"{API}/me")
         print_result("GET /api/me (no auth)", r, err)
 
+        # Resume upload (requires auth)
+        if token:
+            files_txt = {"file": ("sample.txt", b"hello resume", "text/plain")}
+            r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_txt)
+            print_result("POST /api/extract-resume (text)", r, err)
+
+            files_pdf = {"file": ("sample.pdf", b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "application/pdf")}
+            r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_pdf)
+            print_result("POST /api/extract-resume (pdf)", r, err)
+
+            files_bad = {"file": ("sample.bin", b"\x00\x01\x02", "application/octet-stream")}
+            r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_bad)
+            print_result("POST /api/extract-resume (unsupported type)", r, err)
+
+            r, err = safe_call(client, "POST", f"{API}/extract-resume", files=files_txt)
+            print_result("POST /api/extract-resume (no auth)", r, err)
+
         # Negative: wrong password login
         r, err = safe_call(client, "POST", f"{API}/login", json={"email": email, "password": "wrong"})
         print_result("POST /api/login (wrong password)", r, err)

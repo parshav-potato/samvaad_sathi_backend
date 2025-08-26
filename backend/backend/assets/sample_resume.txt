@@ -1,0 +1,15 @@
+Sample Candidate
+Email: candidate@example.com | Phone: +1 555-123-4567
+
+Summary
+Machine Learning engineer with experience in NLP, deep learning, and data science.
+
+Skills: Python, C++, Java, Machine Learning, Data Science, Deep Learning, NLP, Linear Algebra, Probability
+
+Experience
+- Example Corp (2024 – Present): Built ML pipelines and deployed models to production.
+
+Education
+- B.S. in Computer Science
+
+Total professional experience: 1 year
