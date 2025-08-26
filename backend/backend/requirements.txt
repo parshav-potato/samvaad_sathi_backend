@@ -7,7 +7,7 @@ bcrypt
 black
 colorama
 email-validator
-fastapi
+fastapi<0.100
 greenlet
 httpx
 isort
@@ -26,6 +26,7 @@ pytest-asyncio
 pytest-cov
 pytest-xdist
 PyPDF2
-SQLAlchemy==2.0.0b3
+SQLAlchemy>=2.0.22,<2.1
 trio
 uvicorn
+pydantic<2
