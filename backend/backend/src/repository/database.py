@@ -22,7 +22,10 @@ class AsyncDatabase:
             pool_size=settings.DB_POOL_SIZE,
             max_overflow=settings.DB_POOL_OVERFLOW,
         )
-        self.async_session: SQLAlchemyAsyncSession = SQLAlchemyAsyncSession(bind=self.async_engine)
+        self.async_session: SQLAlchemyAsyncSession = SQLAlchemyAsyncSession(
+            bind=self.async_engine,
+            expire_on_commit=settings.IS_DB_EXPIRE_ON_COMMIT,
+        )
         self.pool: SQLAlchemyPool = self.async_engine.pool
 
     @property

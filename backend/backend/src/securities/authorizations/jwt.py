@@ -5,6 +5,7 @@ from jose import jwt as jose_jwt, JWTError as JoseJWTError
 
 from src.config.manager import settings
 from src.models.db.account import Account
+from src.models.db.user import User
 from src.models.schemas.jwt import JWTAccount, JWToken
 from src.utilities.exceptions.database import EntityDoesNotExist
 
@@ -37,6 +38,15 @@ class JWTGenerator:
 
         return self._generate_jwt_token(
             jwt_data=JWTAccount(username=account.username, email=account.email).dict(),  # type: ignore
+            expires_delta=datetime.timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRATION_TIME),
+        )
+
+    def generate_access_token_for_user(self, user: User) -> str:
+        if not user:
+            raise EntityDoesNotExist("Cannot generate JWT token without User entity!")
+
+        return self._generate_jwt_token(
+            jwt_data={"username": user.email, "email": user.email},
             expires_delta=datetime.timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRATION_TIME),
         )
 

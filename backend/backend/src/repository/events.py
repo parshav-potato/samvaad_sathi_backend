@@ -7,6 +7,7 @@ from sqlalchemy.pool.base import _ConnectionRecord
 
 from src.repository.database import async_db
 from src.repository.table import Base
+import src.models.db  # noqa: F401  # Ensure all ORM models are imported before metadata operations
 
 
 @event.listens_for(target=async_db.async_engine.sync_engine, identifier="connect")
