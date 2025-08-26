@@ -60,6 +60,8 @@ JWT_DAY=1
 HASHING_ALGORITHM_LAYER_1=bcrypt
 HASHING_ALGORITHM_LAYER_2=argon2
 HASHING_SALT=change_this_salt
+OPENAI_API_KEY= 
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 ## API Overview
