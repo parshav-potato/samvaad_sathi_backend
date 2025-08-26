@@ -1,0 +1,145 @@
+<context>
+# Overview  
+Samvaad Sathi is an AI-powered interview practice platform tailored for students preparing for technical roles in Data Science, Machine Learning Engineer, Frontend Engineer, or Backend Engineer tracks. It addresses the challenge of limited access to personalized, affordable interview coaching by generating exactly five questions per session, customized based on the user’s resume, selected track, and inferred years of experience. The platform provides real-time feedback on pacing, pauses, domain knowledge, and communication, enabling students to build confidence and improve skills. Its value lies in delivering a streamlined, monolithic MVP backend using the Aeternalis-Ingenium/FastAPI-Backend-Template, optimized for rapid deployment and containerization via Docker, making it ideal for educational settings.
+
+# Core Features  
+- **User Registration and Profile Management**:  
+  - **What it does**: Allows users to create accounts, upload resumes (PDF or text), and store profiles with extracted skills and experience.  
+  - **Why it’s important**: Enables personalized question generation and tracks progress for tailored practice.  
+  - **How it works**: Users POST to /users for signup; /extract-resume processes resumes using OpenAI LLM to extract resume_text, skills, and years_experience, stored in the User model.  
+- **Session-Based Authentication**:  
+  - **What it does**: Secures access with JWT tokens for login and session management.  
+  - **Why it’s important**: Ensures data privacy and seamless session continuity.  
+  - **How it works**: POST /login issues tokens; validated on protected endpoints like /interviews.  
+- **Interview Creation and Resumption**:  
+  - **What it does**: Starts sessions with five track-specific questions based on resume and experience; supports resuming incomplete sessions.  
+  - **Why it’s important**: Provides structured, flexible practice tailored to user needs.  
+  - **How it works**: POST /interviews/create with track and user_id triggers /generate-questions; session state saved in Interview model.  
+- **LLM-Based Question Generation**:  
+  - **What it does**: Generates five interview questions using OpenAI, customized for track (Data Science, ML, Frontend, Backend), resume content, and experience level.  
+  - **Why it’s important**: Ensures relevant, role-specific questions for realistic practice.  
+  - **How it works**: POST /generate-questions uses resume_text and years_of_exp in LLM prompts to produce JSON with five questions.  
+- **Audio Transcription and Analysis**:  
+  - **What it does**: Transcribes audio answers via OpenAI Whisper; analyzes pacing (/pace-analysis) and pauses (/pauses-analysis).  
+  - **Why it’s important**: Delivers actionable feedback on communication skills.  
+  - **How it works**: POST /transcribe_whisper processes audio; analysis endpoints use transcription output for metrics.  
+- **Feedback and Report Generation**:  
+  - **What it does**: Provides immediate feedback via /complete-analysis (domain, communication, pace, pauses); compiles session reports via /final-report.  
+  - **Why it’s important**: Helps users identify strengths and areas for improvement.  
+  - **How it works**: Aggregates analysis outputs synchronously; LLM generates summaries with scores, stored in Report model.
+
+# User Experience  
+- **User Personas**:  
+  - *Rahul, 22, CS student (Data Science track)*: Limited experience, seeks beginner-friendly questions and feedback on clarity.  
+  - *Sneha, 23, ML intern (ML Engineer track)*: 1-year internship, needs resume-aligned technical questions to refine responses.  
+- **Key User Flows**:  
+  1. Register via /users; upload resume via /extract-resume.  
+  2. Select track (Data Science, ML, Frontend, Backend) and start interview (/interviews/create).  
+  3. Answer five questions via audio uploads (/transcribe_whisper).  
+  4. Receive feedback per answer (/complete-analysis).  
+  5. View session report (/final-report); resume incomplete sessions.  
+- **UI/UX Considerations**: Assumes minimal frontend (e.g., React for MVP). Features track selection dropdown, resume upload field, progress bar for five questions, and feedback display with scores (e.g., pacing: 80/100). Prioritizes mobile responsiveness, clear error messages for upload failures, and accessibility (e.g., screen-reader-compatible feedback text).
+
+</context>
+
+<PRD>
+# Technical Architecture  
+Built as a monolithic FastAPI backend using the Aeternalis-Ingenium/FastAPI-Backend-Template (https://github.com/Aeternalis-Ingenium/FastAPI-Backend-Template/tree/trunk), with synchronous processing for simplicity, PostgreSQL for persistence, and Docker for deployment. Incorporates resume parsing and question generation from the provided OpenAPI spec and repository analyses.
+
+- **System Components**:  
+  - FastAPI server (src/main.py) for routing and API logic.  
+  - SQLAlchemy ORM (src/repository/database.py) for database interactions.  
+  - Alembic (repository/migrations/) for schema migrations.  
+  - Docker (Dockerfile, docker-compose.yaml) for containerization with PostgreSQL and Adminer for DB management.  
+- **Data Models**:  
+  - *User*: id (PK, int), email (unique, str), password_hash (str), name (str), resume_text (str), years_experience (float, LLM-inferred), skills (JSON, from /get_knowledgeset), created_at (datetime).  
+  - *Session*: id (PK, int), user_id (FK, int), token (str), expiry (datetime), last_active (datetime).  
+  - *Interview*: id (PK, int), user_id (FK, int), track (enum: ['Data Science', 'Machine Learning Engineer', 'Frontend Engineer', 'Backend Engineer'], str), status (enum: ['active', 'completed'], str), created_at (datetime).  
+  - *QuestionAttempt*: id (PK, int), interview_id (FK, int), question_text (str), audio_url (str), transcription (JSON from /transcribe_whisper), analysis_json (JSON from /complete-analysis), feedback (str), created_at (datetime).  
+  - *Report*: id (PK, int), interview_id (FK, int), summary (JSON), knowledge_competence (JSON), speech_structure_fluency (JSON), overall_score (float).  
+- **APIs and Integrations**:  
+  - */users*: POST for registration; stores email, password_hash, name.  
+  - */login*: POST for JWT token issuance.  
+  - */extract-resume*: POST, accepts PDF, uses OpenAI to extract resume_text, years_experience, skills; returns JSON.  
+  - */get_knowledgeset*: POST, extracts skills from User profile into JSON format.  
+  - */interviews/create*: POST, initiates session, triggers /generate-questions (five questions), stores in Interview model.  
+  - */generate-questions*: POST, takes resume_text, track, years_of_exp; returns five questions via OpenAI LLM.  
+  - */transcribe_whisper*: POST, processes audio (.mp3, .wav, .m4a, .flac) with OpenAI Whisper; returns transcription JSON with word-level timestamps.  
+  - */pace-analysis*: POST, takes transcription JSON; returns pacing score (0-100) and feedback.  
+  - */pauses-analysis*: POST, uses transcription timestamps; returns pause feedback.  
+  - */domain-base-analysis*: POST, evaluates answer for domain knowledge using user_profile, years_of_experience, job_role.  
+  - */communication-based-analysis*: POST, assesses answer for clarity, vocabulary, grammar, structure.  
+  - */complete-analysis*: POST, aggregates domain, communication, pace, pauses analyses; returns JSON.  
+  - */final-report*: POST, compiles session-level report from QuestionAttempt analyses; returns summary, competence, fluency JSON.  
+  - **Integration**: OpenAI SDK for Whisper transcription and LLM prompts; PyPDF2 or pdf2text for resume parsing.  
+- **Infrastructure Requirements**:  
+  - PostgreSQL (containerized, port 5432) for data storage.  
+  - Docker for API and DB; Adminer for DB access (port 8080).  
+  - Environment variables: OPENAI_API_KEY, DATABASE_URL.  
+  - Deployable to AWS, Heroku, or local testing (port 8001 for API).  
+
+# Development Roadmap  
+- **MVP Requirements**:  
+  - Set up database with models (User, Session, Interview, QuestionAttempt, Report) using SQLAlchemy and Alembic migrations.  
+  - Implement authentication (/users, /login) with JWT for secure access.  
+  - Build resume parsing (/extract-resume, /get_knowledgeset) with OpenAI to extract skills and experience.  
+  - Develop interview management (/interviews/create, /generate-questions) to generate five track-specific questions per session.  
+  - Create audio processing pipeline (/transcribe_whisper, /pace-analysis, /pauses-analysis, /domain-base-analysis, /communication-based-analysis, /complete-analysis).  
+  - Implement report generation (/final-report) for session summaries.  
+  - Use template’s PyTest suite for testing; enable Swagger docs (/docs) for frontend integration.  
+- **Future Enhancements**:  
+  - Enhance resume parsing with NLP libraries (e.g., spaCy for named entity recognition).  
+  - Add support for additional tracks (e.g., DevOps, Cloud Engineering).  
+  - Introduce asynchronous processing for scalability using queues (e.g., Redis).  
+  - Develop full frontend with visualizations (e.g., Chart.js for score graphs).  
+  - Support multi-language transcription and question generation.  
+  - Add admin endpoints for usage monitoring and prompt tuning.  
+
+# Logical Dependency Chain  
+- **Foundation**:  
+  - Configure database (src/repository/database.py), define models (src/models/db/), and run Alembic migrations (repository/migrations/). Ensures data persistence for all features.  
+- **Authentication Layer**:  
+  - Implement /users and /login (src/api/routes/authentication.py, src/security/) with JWT. Required for secure access to all endpoints.  
+- **Resume Parsing**:  
+  - Build /extract-resume and /get_knowledgeset (src/api/routes/users.py, src/core/llm.py) using OpenAI to populate User.resume_text, years_experience, skills. Necessary for personalized questions.  
+- **Interview Management**:  
+  - Develop /interviews/create and /generate-questions (src/api/routes/interviews.py) to create sessions with five questions based on track, resume, and experience. Enables core user flow.  
+- **Analysis Pipeline**:  
+  - Implement /transcribe_whisper, /pace-analysis, /pauses-analysis, /domain-base-analysis, /communication-based-analysis, /complete-analysis (src/api/routes/answers.py). Depends on transcription output and resume data.  
+- **Reporting**:  
+  - Build /final-report (src/api/routes/reports.py) to aggregate QuestionAttempt analyses. Last step, relies on analysis pipeline.  
+- **Quick to Usable Frontend**:  
+  - Prioritize Swagger docs (/docs) for immediate API testing. Resume parsing and question generation enable early prototype after auth; incremental analysis additions create visible feedback loops.  
+
+# Risks and Mitigations  
+- **Technical Challenges**:  
+  - *Resume parsing inaccuracies*: OpenAI may misinterpret years of experience or skills; mitigate with structured prompts (e.g., "Extract years of experience as a number from resume") and regex validation for numbers.  
+  - *Synchronous processing delays*: Long audio transcriptions may slow endpoints; set timeouts (e.g., 30 seconds) and optimize LLM calls with caching.  
+  - *Question relevance*: Five questions may not cover all resume aspects; use detailed prompts incorporating skills and track specifics.  
+- **Figuring Out the MVP**:  
+  - Risk of scope creep by adding non-essential analyses; focus strictly on five questions, four tracks, and core feedback (pacing, pauses, domain, communication). Use template’s modular structure to isolate features.  
+- **Resource Constraints**:  
+  - OpenAI API costs for transcription and prompts; implement response caching and usage monitoring to control expenses.  
+  - Limited development time; leverage template’s pre-built authentication, testing, and Docker setup to accelerate implementation.  
+
+# Appendix  
+- **Research Findings**:  
+  - OpenAPI spec confirms resume parsing (/extract-resume, /get_knowledgeset) and five-question generation, aligning with repository focus on personalization.  
+  - OpenAI Whisper offers 95%+ transcription accuracy, suitable for MVP needs.  
+  - FastAPI template supports synchronous endpoints, compatible with MVP’s simplicity requirements.  
+  - Resume parsing via LLM is effective for extracting skills and experience, as seen in similar platforms.  
+- **Technical Specifications**:  
+  - **Languages**: Python 3.10+.  
+  - **Frameworks**: FastAPI, SQLAlchemy (synchronous mode), Alembic.  
+  - **Libraries**: openai (for Whisper and LLM), pydantic, passlib (password hashing), pyjwt (JWT), PyPDF2 (resume parsing).  
+  - **Deployment**: Docker-compose with FastAPI (port 8001), PostgreSQL (port 5432), Adminer (port 8080); cloud-ready for AWS/Heroku.  
+  - **Testing**: PyTest with template’s fixtures; pre-commit hooks (Black, MyPy) for code quality.  
+
+### Key Citations
+- [GitHub - Barabari-Project/Samvad-Sathi-AI](https://github.com/Barabari-Project/Samvad-Sathi-AI)
+- [GitHub - Asiyaa22/Samvad-Sathi-AI at my-branch](https://github.com/Asiyaa22/Samvad-Sathi-AI/tree/my-branch)
+- [Top Speech Recognition API Free Options in 2025 - AnotherWrapper](https://anotherwrapper.com/blog/speech-recognition-api-free)
+- [GitHub - Aeternalis-Ingenium/FastAPI-Backend-Template](https://github.com/Aeternalis-Ingenium/FastAPI-Backend-Template)
+</PRD>
+
+
