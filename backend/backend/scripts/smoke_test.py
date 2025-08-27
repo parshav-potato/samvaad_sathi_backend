@@ -73,12 +73,15 @@ def main() -> None:
 
         token = login_token or user_token
         headers = {"Authorization": f"Bearer {token}"} if token else {}
+        headers_invalid = {"Authorization": "Bearer invalid"}
         r, err = safe_call(client, "GET", f"{API}/me", headers=headers)
         print_result("GET /api/me", r, err)
 
-        # Negative: missing auth
+        # Negative: missing/invalid auth
         r, err = safe_call(client, "GET", f"{API}/me")
         print_result("GET /api/me (no auth)", r, err)
+        r, err = safe_call(client, "GET", f"{API}/me", headers=headers_invalid)
+        print_result("GET /api/me (invalid token)", r, err)
 
         # Resume upload (requires auth)
         if token:
@@ -120,8 +123,12 @@ def main() -> None:
             r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers)
             print_result("POST /api/interviews/generate-questions", r, err)
 
-            # Interviews: list sessions
-            r, err = safe_call(client, "GET", f"{API}/interviews?limit=2", headers=headers)
+            # Create another interview (different track) for pagination
+            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "ml_engineering"})
+            print_result("POST /api/interviews/create (second track)", r, err)
+
+            # Interviews: list sessions (cursor pagination)
+            r, err = safe_call(client, "GET", f"{API}/interviews?limit=1", headers=headers)
             print_result("GET /api/interviews", r, err)
             body = safe_json(r) if r else {}
             if isinstance(body, dict) and body.get("items"):
@@ -136,10 +143,33 @@ def main() -> None:
                     nc = qb.get("next_cursor")
                     r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2&cursor={nc}", headers=headers)
                     print_result("GET /api/interviews/{id}/questions (page 2)", r, err)
+                    qb2 = safe_json(r) if r else {}
+                    if isinstance(qb2, dict) and qb2.get("next_cursor") is not None:
+                        nc2 = qb2.get("next_cursor")
+                        r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2&cursor={nc2}", headers=headers)
+                        print_result("GET /api/interviews/{id}/questions (page 3)", r, err)
+
+                # If we have a next_cursor for interviews, follow it once
+                if next_cursor is not None:
+                    r, err = safe_call(client, "GET", f"{API}/interviews?limit=1&cursor={next_cursor}", headers=headers)
+                    print_result("GET /api/interviews (page 2)", r, err)
 
             # Interviews: complete session
             r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)
             print_result("POST /api/interviews/complete", r, err)
+
+            # Cross-user access negative: second user should not access first user's interview/questions
+            email2 = f"{rand_str()}@example.com"
+            r, err = safe_call(client, "POST", f"{API}/users", json={"email": email2, "password": password, "name": "User2"})
+            print_result("POST /api/users (u2)", r, err)
+            r, err = safe_call(client, "POST", f"{API}/login", json={"email": email2, "password": password})
+            print_result("POST /api/login (u2)", r, err)
+            t2 = extract_token(safe_json(r) if r else {}) if (r and 200 <= r.status_code < 300) else None
+            headers2 = {"Authorization": f"Bearer {t2}"} if t2 else {}
+            if isinstance(body, dict) and body.get("items"):
+                # first_id from earlier
+                r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions", headers=headers2)
+                print_result("GET /api/interviews/{id}/questions (cross-user)", r, err)
 
         # Negative: wrong password login
         r, err = safe_call(client, "POST", f"{API}/login", json={"email": email, "password": "wrong"})
