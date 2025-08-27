@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, GenerateQuestionsRequest
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
@@ -61,10 +61,12 @@ async def create_or_resume_interview(
     summary="Generate interview questions for the active session",
     description=(
         "Generates and persists a set of questions for the current user's active interview. Uses an LLM when available, "
-        "falls back to static questions otherwise."
+        "falls back to static questions otherwise. Accepts optional 'use_resume' boolean (default true) to control whether "
+        "resume text is used for question generation."
     ),
 )
 async def generate_questions(
+    payload: GenerateQuestionsRequest = GenerateQuestionsRequest(),
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
@@ -73,20 +75,21 @@ async def generate_questions(
     if active is None:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
 
-    # In-memory cache keyed by interview id to avoid re-generation in the same session
+    # In-memory cache keyed by interview id and use_resume flag to avoid re-generation in the same session
     global _questions_cache  # type: ignore
     try:
         _questions_cache
     except NameError:
         _questions_cache = {}
 
+    cache_key = f"{active.id}_{payload.use_resume}"
     cached = False
-    if active.id in _questions_cache:
+    if cache_key in _questions_cache:
         cached = True
-        qs = _questions_cache[active.id]
+        qs = _questions_cache[cache_key]
     else:
-        # Use resume context if present on user
-        resume_context = getattr(current_user, "resume_text", None)
+        # Use resume context if present on user and use_resume is True
+        resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
         questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
             track=active.track,
             context_text=resume_context,
@@ -108,7 +111,7 @@ async def generate_questions(
             "llm_model": llm_model,
             "items": items,
         }
-        _questions_cache[active.id] = qs
+        _questions_cache[cache_key] = qs
 
     # Persist question attempts only if they don't exist yet for this interview (idempotent-ish)
     existing = await question_repo.list_by_interview(interview_id=active.id)
@@ -119,7 +122,7 @@ async def generate_questions(
             "llm_latency_ms": qs.get("latency_ms"),
             "llm_error": qs.get("llm_error"),
             "track": active.track,
-            "used_resume": bool(getattr(current_user, "resume_text", None)),
+            "used_resume": payload.use_resume and bool(getattr(current_user, "resume_text", None)),
         }
         persisted = await question_repo.create_batch(
             interview_id=active.id,

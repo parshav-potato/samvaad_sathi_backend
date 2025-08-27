@@ -123,6 +123,10 @@ def main() -> None:
             r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers)
             print_result("POST /api/interviews/generate-questions", r, err)
 
+            # Test generate questions without resume
+            r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json={"use_resume": False})
+            print_result("POST /api/interviews/generate-questions (no resume)", r, err)
+
             # Create another interview (different track) for pagination
             r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "ml_engineering", "difficulty": "easy"})
             print_result("POST /api/interviews/create (second track)", r, err)

@@ -14,6 +14,10 @@ class InterviewCreate(BaseSchemaModel):
     difficulty: str | None = None  # easy | medium | hard
 
 
+class GenerateQuestionsRequest(BaseSchemaModel):
+    use_resume: bool = True  # Whether to use resume text for question generation
+
+
 class InterviewInResponse(BaseSchemaModel):
     id: int
     track: str
