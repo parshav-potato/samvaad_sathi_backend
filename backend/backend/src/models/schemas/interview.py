@@ -11,11 +11,13 @@ class QuestionItem(BaseSchemaModel):
 
 class InterviewCreate(BaseSchemaModel):
     track: str
+    difficulty: str | None = None  # easy | medium | hard
 
 
 class InterviewInResponse(BaseSchemaModel):
     id: int
     track: str
+    difficulty: str
     status: str
     created_at: datetime.datetime
     resumed: bool
@@ -36,6 +38,7 @@ class GeneratedQuestionsInResponse(BaseSchemaModel):
 class InterviewItem(BaseSchemaModel):
     id: int
     track: str
+    difficulty: str
     status: str
     created_at: datetime.datetime
 

@@ -19,7 +19,7 @@ router = fastapi.APIRouter(prefix="", tags=["interviews"])
     summary="Create or resume an interview session",
     description=(
         "Starts a new interview session for the current user with the specified track, or resumes the active session "
-        "if one already exists for that track."
+        "if one already exists for that track. Accepts optional 'difficulty' (easy|medium|hard), default 'medium'."
     ),
 )
 async def create_or_resume_interview(
@@ -33,15 +33,20 @@ async def create_or_resume_interview(
         return InterviewInResponse(
             id=active.id,
             track=active.track,
+            difficulty=active.difficulty,
             status=active.status,
             created_at=active.created_at,
             resumed=True,
         )
 
-    interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track)
+    difficulty = (payload.difficulty or "medium").lower()
+    if difficulty not in ("easy", "medium", "hard"):
+        difficulty = "medium"
+    interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty)
     return InterviewInResponse(
         id=interview.id,
         track=interview.track,
+        difficulty=interview.difficulty,
         status=interview.status,
         created_at=interview.created_at,
         resumed=False,
@@ -86,6 +91,7 @@ async def generate_questions(
             track=active.track,
             context_text=resume_context,
             count=5,
+            difficulty=active.difficulty,
         )
         if not questions:
             questions = [
@@ -176,7 +182,7 @@ async def list_my_interviews(
     safe_limit = max(1, min(100, int(limit)))
     rows, next_cursor = await interview_repo.list_by_user_cursor(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
     return InterviewsListResponse(
-        items=[InterviewItem(id=r.id, track=r.track, status=r.status, created_at=r.created_at) for r in rows],
+        items=[InterviewItem(id=r.id, track=r.track, difficulty=r.difficulty, status=r.status, created_at=r.created_at) for r in rows],
         next_cursor=next_cursor,
         limit=safe_limit,
     )

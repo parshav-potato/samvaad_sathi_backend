@@ -15,6 +15,9 @@ class Interview(Base):  # type: ignore
         sqlalchemy.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
     )
     track: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=64), nullable=False, index=True)
+    difficulty: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=16), nullable=False, index=True, default="medium"
+    )
     status: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=32), nullable=False, index=True)
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()

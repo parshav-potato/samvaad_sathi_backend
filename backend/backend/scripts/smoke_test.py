@@ -112,8 +112,8 @@ def main() -> None:
             r, err = safe_call(client, "POST", f"{API}/extract-resume", files=files_txt)
             print_result("POST /api/extract-resume (no auth)", r, err)
 
-            # Interviews: create/resume
-            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science"})
+            # Interviews: create/resume with difficulty
+            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science", "difficulty": "hard"})
             print_result("POST /api/interviews/create", r, err)
             # Repeat to verify resume path
             r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science"})
@@ -124,7 +124,7 @@ def main() -> None:
             print_result("POST /api/interviews/generate-questions", r, err)
 
             # Create another interview (different track) for pagination
-            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "ml_engineering"})
+            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "ml_engineering", "difficulty": "easy"})
             print_result("POST /api/interviews/create (second track)", r, err)
 
             # Interviews: list sessions (cursor pagination)

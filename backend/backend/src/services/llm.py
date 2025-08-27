@@ -65,7 +65,7 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     return skills, years, error, latency_ms, model
 
 
-def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
+def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3, difficulty: str | None = None) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
     """
     Generate interview questions using an LLM given a track and optional context (e.g., resume_text).
     Returns (questions, error, latency_ms, model). On missing API key, returns empty questions and no error.
@@ -88,6 +88,7 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
         "track": track,
         "count": max(1, min(10, int(count or 3))),
         "context": (context_text or "")[:4000],
+        "difficulty": (difficulty or "medium"),
         "constraints": [
             "No preambles, no numbering in the JSON itself",
             "Questions should be single sentences when possible",
