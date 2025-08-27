@@ -5,7 +5,7 @@ FastAPI backend with PostgreSQL (async SQLAlchemy), JWT auth, and containerized 
 ## Quick Start
 
 1) Environment
-- Create `.env` at `backend/backend/.env` (see Environment below).
+- Create `.env` at `backend/.env` (see Environment below).
 
 2) Database (Docker)
 ```powershell
@@ -18,13 +18,15 @@ docker exec -it db psql -U postgres -d postgres -c "CREATE DATABASE app;"
 3) Run API (local)
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
+python -m venv venv
 .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 python -m uvicorn src.main:backend_app --reload
 ```
 - Swagger: http://127.0.0.1:8000/docs
 
 ## Environment
-Place this in `backend/backend/.env`:
+Place this in `backend/.env`:
 ```env
 ENVIRONMENT=DEV
 BACKEND_SERVER_HOST=127.0.0.1
@@ -104,7 +106,7 @@ Covers:
 We include a sample resume so tests work after cloning.
 
 Prereqs:
-- Set in `backend/backend/.env`:
+- Set in `backend/.env`:
 ```env
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
@@ -113,13 +115,14 @@ OPENAI_MODEL=gpt-4o-mini
 Run the test:
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
-.\nvenv\Scripts\python.exe scripts\test_resume_upload.py
+.\venv\Scripts\python.exe scripts\test_resume_upload.py
 ```
 This will upload `assets/sample_resume.txt` to `/api/extract-resume` using an authenticated request and print the JSON response (`validated` fields and `saved: true`).
 
 ## Troubleshooting
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
 - Env errors (decouple): ensure `.env` exists at `backend/backend/.env`.
+- Env errors (decouple): ensure `.env` exists at `backend/.env`.
 - DB connect errors: confirm docker db is running and `POSTGRES_*` match; DB `app` exists.
 - Port conflicts: change Adminer port in `backend/docker-compose.yaml` if 8081 is taken.
 
