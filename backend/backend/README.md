@@ -79,6 +79,18 @@ Base prefix: `/api`
   - `PATCH /api/accounts/{id}` (query params)
   - `DELETE /api/accounts?id=`
 
+- Resume (Auth Required)
+  - `POST /api/extract-resume`: Upload a PDF or plain text resume (Authorization: Bearer <token>). The extracted `resume_text`, `skills`, and `years_experience` are saved to the authenticated user's profile only.
+  - `GET /api/me/resume`: Returns the authenticated user's own resume metadata and fields (no cross-user access).
+  - `GET /api/get_knowledgeset`: Returns normalized skills derived from the authenticated user's stored `resume_text`. Results are cached in-memory keyed by user and resume content hash.
+
+- Interviews (Auth Required)
+  - `POST /api/interviews/create`: Create or resume an active interview session by `track` for the current user.
+  - `POST /api/interviews/generate-questions`: Generate questions for the active interview (LLM-backed with fallback); persists them as QuestionAttempts.
+  - `POST /api/interviews/complete`: Mark the current active interview as completed.
+  - `GET /api/interviews?limit=20&cursor=<lastId>`: Cursor-based listing (newest first). Response: `{ items: [...], next_cursor, limit }`.
+  - `GET /api/interviews/{id}/questions?limit=20&cursor=<lastQuestionId>`: Cursor-based listing (oldest first). Response: `{ interview_id, items, next_cursor, limit }`.
+
 ## Smoke Tests
 Run quick end-to-end checks:
 ```powershell

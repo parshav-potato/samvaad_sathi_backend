@@ -2,6 +2,8 @@ import io
 import re
 import os
 import time
+import hashlib
+from typing import Any, Dict, Tuple
 
 import fastapi
 import PyPDF2
@@ -10,18 +12,30 @@ from src.repository.crud.user import UserCRUDRepository
 from src.services.llm import extract_resume_entities_with_llm
 
 from src.api.dependencies.auth import get_current_user
+from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
 
 
 router = fastapi.APIRouter(prefix="", tags=["resume"])
+
+# Simple in-memory cache for knowledge set results keyed by (user_id, resume_hash)
+_knowledge_cache: Dict[Tuple[int, str], dict] = {}
 
 
 @router.post(
     path="/extract-resume",
     name="resume:extract-resume",
+    response_model=ResumeExtractionResponse,
     status_code=fastapi.status.HTTP_202_ACCEPTED,
+    summary="Upload a resume and extract skills/experience",
+    description=(
+        "Accepts a PDF or plain text file (<=5MB). Extracts text, calls an LLM to detect raw skills and years of "
+        "experience, validates and normalizes results, and persists them to the authenticated user's profile."
+    ),
 )
 async def extract_resume(
-    file: fastapi.UploadFile = fastapi.File(...),
+    file: fastapi.UploadFile = fastapi.File(
+        ..., description="Resume file to upload. Allowed types: application/pdf, text/plain (max 5MB)"
+    ),
     current_user=fastapi.Depends(get_current_user),
     user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
 ):
@@ -156,4 +170,107 @@ async def extract_resume(
 
     return response
 
+
+
+@router.get(
+    path="/me/resume",
+    name="resume:get-my-resume",
+    response_model=MyResumeResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Get my saved resume data",
+    description="Returns only the authenticated user's saved resume fields and basic metadata.",
+)
+async def get_my_resume(
+    current_user=fastapi.Depends(get_current_user),
+):
+    skills_field = current_user.skills if isinstance(current_user.skills, dict) else None
+    items = skills_field.get("items", []) if skills_field else []
+    if not isinstance(items, list):
+        items = []
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "years_experience": current_user.years_experience,
+        "skills": items,
+        "has_resume_text": bool(current_user.resume_text),
+        "text_length": len(current_user.resume_text or ""),
+    }
+
+
+@router.get(
+    path="/get_knowledgeset",
+    name="resume:get-knowledge-set",
+    response_model=KnowledgeSetResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Derive a knowledge set from my resume",
+    description=(
+        "Uses the authenticated user's saved resume_text to produce a normalized skills list (knowledge set). "
+        "Results are cached in-memory per user and resume content hash."
+    ),
+)
+async def get_knowledge_set(
+    current_user=fastapi.Depends(get_current_user),
+):
+    """
+    Returns a knowledge set (normalized list of skills) derived from the authenticated user's resume.
+    Access control: self-only (uses current_user from auth). Results are cached in-memory per resume hash.
+    """
+    # Use stored resume text if available
+    resume_text = current_user.resume_text or ""
+    normalized_text = re.sub(r"\s+", " ", resume_text).strip()
+
+    if not normalized_text:
+        return {
+            "ok": False,
+            "error": "No resume_text available for current user",
+            "knowledge_set": {"items": []},
+            "cached": False,
+        }
+
+    # Cache key by user and content hash
+    text_hash = hashlib.sha256(normalized_text.encode("utf-8", errors="ignore")).hexdigest()
+    cache_key = (int(current_user.id), text_hash)
+    cached = False
+
+    if cache_key in _knowledge_cache:
+        cached = True
+        result = _knowledge_cache[cache_key]
+    else:
+        # Reuse LLM extraction service to get skills; ignore years here
+        from src.services.llm import extract_resume_entities_with_llm  # local import to avoid cycles
+
+        skills, _years, llm_error, llm_latency_ms, llm_model = extract_resume_entities_with_llm(normalized_text)
+
+        # Normalize and validate
+        def _norm_skill(s: str) -> str:
+            return re.sub(r"\s+", " ", str(s)).strip().lower()
+
+        normalized_skills: list[str] = []
+        seen: set[str] = set()
+        warnings: list[str] = []
+        for s in skills or []:
+            s_norm = _norm_skill(s)
+            if not s_norm:
+                continue
+            if not re.search(r"[a-z]", s_norm):
+                warnings.append(f"dropped skill without letters: '{s}'")
+                continue
+            if len(s_norm) < 2 or len(s_norm) > 64:
+                warnings.append(f"dropped skill length out of range: '{s}'")
+                continue
+            if s_norm not in seen:
+                seen.add(s_norm)
+                normalized_skills.append(s_norm)
+
+        result = {
+            "knowledge_set": {"items": normalized_skills},
+            "llm_model": llm_model,
+            "llm_latency_ms": llm_latency_ms,
+            "llm_error": llm_error,
+            "warnings": warnings,
+        }
+        _knowledge_cache[cache_key] = result
+
+    return {"ok": True, "cached": cached, **result}
 

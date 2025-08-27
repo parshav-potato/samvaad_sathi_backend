@@ -3,7 +3,7 @@ asgi_lifespan
 argon2_cffi
 asyncio
 asyncpg
-bcrypt
+bcrypt==3.2.2
 black
 colorama
 email-validator
@@ -14,7 +14,7 @@ isort
 loguru
 mypy
 openai
-passlib
+passlib==1.7.4
 pathlib
 pre-commit
 python-dotenv

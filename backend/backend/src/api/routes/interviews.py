@@ -1,0 +1,216 @@
+import fastapi
+
+from src.api.dependencies.auth import get_current_user
+from src.api.dependencies.repository import get_repository
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse
+from src.repository.crud.interview import InterviewCRUDRepository
+from src.repository.crud.question import QuestionAttemptCRUDRepository
+from src.services.llm import generate_interview_questions_with_llm
+
+
+router = fastapi.APIRouter(prefix="", tags=["interviews"])
+
+
+@router.post(
+    path="/interviews/create",
+    name="interviews:create",
+    response_model=InterviewInResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Create or resume an interview session",
+    description=(
+        "Starts a new interview session for the current user with the specified track, or resumes the active session "
+        "if one already exists for that track."
+    ),
+)
+async def create_or_resume_interview(
+    payload: InterviewCreate,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+) -> InterviewInResponse:
+    # Check if the user has an active session; if so, resume instead of creating a new one
+    active = await interview_repo.get_active_by_user(user_id=current_user.id)
+    if active is not None and active.track == payload.track:
+        return InterviewInResponse(
+            id=active.id,
+            track=active.track,
+            status=active.status,
+            created_at=active.created_at,
+            resumed=True,
+        )
+
+    interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track)
+    return InterviewInResponse(
+        id=interview.id,
+        track=interview.track,
+        status=interview.status,
+        created_at=interview.created_at,
+        resumed=False,
+    )
+
+
+@router.post(
+    path="/interviews/generate-questions",
+    name="interviews:generate-questions",
+    response_model=GeneratedQuestionsInResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Generate interview questions for the active session",
+    description=(
+        "Generates and persists a set of questions for the current user's active interview. Uses an LLM when available, "
+        "falls back to static questions otherwise."
+    ),
+)
+async def generate_questions(
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+) -> GeneratedQuestionsInResponse:
+    active = await interview_repo.get_active_by_user(user_id=current_user.id)
+    if active is None:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
+
+    # In-memory cache keyed by interview id to avoid re-generation in the same session
+    global _questions_cache  # type: ignore
+    try:
+        _questions_cache
+    except NameError:
+        _questions_cache = {}
+
+    cached = False
+    if active.id in _questions_cache:
+        cached = True
+        qs = _questions_cache[active.id]
+    else:
+        # Use resume context if present on user
+        resume_context = getattr(current_user, "resume_text", None)
+        questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
+            track=active.track,
+            context_text=resume_context,
+            count=5,
+        )
+        if not questions:
+            questions = [
+                f"Describe your recent project in {active.track}.",
+                f"What core concepts are essential in {active.track}?",
+                f"Explain a challenging problem you solved in {active.track} and how.",
+                f"How do you evaluate models in {active.track}?",
+                f"Discuss trade-offs between common methods in {active.track}.",
+            ]
+        qs = {
+            "questions": questions,
+            "llm_error": llm_error,
+            "latency_ms": latency_ms,
+            "llm_model": llm_model,
+            "items": items,
+        }
+        _questions_cache[active.id] = qs
+
+    # Persist question attempts only if they don't exist yet for this interview (idempotent-ish)
+    existing = await question_repo.list_by_interview(interview_id=active.id)
+    persisted = existing
+    if not existing:
+        md = {
+            "llm_model": qs.get("llm_model"),
+            "llm_latency_ms": qs.get("latency_ms"),
+            "llm_error": qs.get("llm_error"),
+            "track": active.track,
+            "used_resume": bool(getattr(current_user, "resume_text", None)),
+        }
+        persisted = await question_repo.create_batch(
+            interview_id=active.id,
+            questions=qs["questions"],  # type: ignore[index]
+            metadata=md,
+        )
+
+    return GeneratedQuestionsInResponse(
+        interview_id=active.id,
+        track=active.track,
+        count=len(persisted),
+        questions=[q.question_text for q in persisted],
+        items=qs.get("items"),
+        cached=cached,
+        llm_model=qs.get("llm_model"),  # type: ignore[union-attr]
+        llm_latency_ms=qs.get("latency_ms"),  # type: ignore[union-attr]
+        llm_error=qs.get("llm_error"),  # type: ignore[union-attr]
+    )
+
+
+@router.post(
+    path="/interviews/complete",
+    name="interviews:complete",
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Complete the active interview session",
+    description="Marks the current user's active interview as completed.",
+)
+async def complete_interview(
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+):
+    active = await interview_repo.get_active_by_user(user_id=current_user.id)
+    if active is None:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to complete")
+    updated = await interview_repo.mark_completed(interview_id=active.id)
+    return {
+        "id": updated.id if updated else None,
+        "status": updated.status if updated else None,
+        "message": "Interview marked as completed" if updated else "No update performed",
+    }
+
+
+@router.get(
+    path="/interviews",
+    name="interviews:list",
+    response_model=InterviewsListResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="List my interviews (cursor-based)",
+    description=(
+        "Returns the user's interviews in reverse chronological order using id-based cursor pagination. "
+        "Use the returned next_cursor to fetch the next page."
+    ),
+)
+async def list_my_interviews(
+    limit: int = 20,
+    cursor: int | None = None,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+) -> InterviewsListResponse:
+    safe_limit = max(1, min(100, int(limit)))
+    rows, next_cursor = await interview_repo.list_by_user_cursor(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
+    return InterviewsListResponse(
+        items=[InterviewItem(id=r.id, track=r.track, status=r.status, created_at=r.created_at) for r in rows],
+        next_cursor=next_cursor,
+        limit=safe_limit,
+    )
+
+
+@router.get(
+    path="/interviews/{interview_id}/questions",
+    name="interviews:list-questions",
+    response_model=QuestionsListResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="List questions for an interview (cursor-based)",
+    description=(
+        "Returns the questions for the given interview in ascending order using id-based cursor pagination. "
+        "Use the returned next_cursor to fetch the next page."
+    ),
+)
+async def list_interview_questions(
+    interview_id: int,
+    limit: int = 20,
+    cursor: int | None = None,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+) -> QuestionsListResponse:
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    safe_limit = max(1, min(100, int(limit)))
+    items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
+    return QuestionsListResponse(
+        interview_id=interview_id,
+        items=[q.question_text for q in items],
+        next_cursor=next_cursor,
+        limit=safe_limit,
+    )
+
+

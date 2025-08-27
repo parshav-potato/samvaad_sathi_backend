@@ -86,6 +86,18 @@ def main() -> None:
             r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_txt)
             print_result("POST /api/extract-resume (text)", r, err)
 
+            # New: self-only read of resume fields
+            r, err = safe_call(client, "GET", f"{API}/me/resume", headers=headers)
+            print_result("GET /api/me/resume", r, err)
+
+            # New: knowledge set extraction (cached on repeat calls)
+            r, err = safe_call(client, "GET", f"{API}/get_knowledgeset", headers=headers)
+            print_result("GET /api/get_knowledgeset", r, err)
+
+            # Repeat call to check caching flag path
+            r, err = safe_call(client, "GET", f"{API}/get_knowledgeset", headers=headers)
+            print_result("GET /api/get_knowledgeset (cached)", r, err)
+
             files_pdf = {"file": ("sample.pdf", b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "application/pdf")}
             r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_pdf)
             print_result("POST /api/extract-resume (pdf)", r, err)
@@ -96,6 +108,38 @@ def main() -> None:
 
             r, err = safe_call(client, "POST", f"{API}/extract-resume", files=files_txt)
             print_result("POST /api/extract-resume (no auth)", r, err)
+
+            # Interviews: create/resume
+            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science"})
+            print_result("POST /api/interviews/create", r, err)
+            # Repeat to verify resume path
+            r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science"})
+            print_result("POST /api/interviews/create (resume)", r, err)
+
+            # Interviews: generate questions
+            r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers)
+            print_result("POST /api/interviews/generate-questions", r, err)
+
+            # Interviews: list sessions
+            r, err = safe_call(client, "GET", f"{API}/interviews?limit=2", headers=headers)
+            print_result("GET /api/interviews", r, err)
+            body = safe_json(r) if r else {}
+            if isinstance(body, dict) and body.get("items"):
+                first_id = body["items"][0]["id"]
+                next_cursor = body.get("next_cursor")
+                # Interviews: list questions for the first interview
+                r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2", headers=headers)
+                print_result("GET /api/interviews/{id}/questions", r, err)
+                qb = safe_json(r) if r else {}
+                if isinstance(qb, dict) and qb.get("next_cursor") is not None:
+                    # follow next_cursor once
+                    nc = qb.get("next_cursor")
+                    r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2&cursor={nc}", headers=headers)
+                    print_result("GET /api/interviews/{id}/questions (page 2)", r, err)
+
+            # Interviews: complete session
+            r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)
+            print_result("POST /api/interviews/complete", r, err)
 
         # Negative: wrong password login
         r, err = safe_call(client, "POST", f"{API}/login", json={"email": email, "password": "wrong"})
