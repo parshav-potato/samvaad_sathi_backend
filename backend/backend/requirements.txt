@@ -3,6 +3,7 @@ asgi_lifespan
 argon2_cffi
 asyncio
 asyncpg
+psycopg2-binary
 bcrypt==3.2.2
 black
 colorama

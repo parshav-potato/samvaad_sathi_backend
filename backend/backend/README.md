@@ -1,13 +1,23 @@
 # Samvaad Sathi Backend
 
-FastAPI backend with PostgreSQL (async SQLAlchemy), JWT auth, and containerized local dev.
+FastAPI backend with AWS Aurora PostgreSQL (async SQLAlchemy), JWT auth, and containerized local dev.
 
 ## Quick Start
 
 1) Environment
 - Create `.env` at `backend/.env` (see Environment below).
 
-2) Database (Docker)
+2) Database (AWS Aurora)
+Configure your Aurora cluster details in `backend/.env`:
+```env
+POSTGRES_HOST=your-aurora-cluster.cluster-xxxxxxxxx.us-west-2.rds.amazonaws.com
+POSTGRES_PORT=5432
+POSTGRES_DB=app
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=your-secure-password
+```
+
+For local development with Docker (optional):
 ```powershell
 cd D:\samvaad_sathi_backend\backend
 docker compose up -d db
@@ -34,11 +44,11 @@ BACKEND_SERVER_PORT=8000
 BACKEND_SERVER_WORKERS=1
 
 POSTGRES_SCHEMA=postgresql
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433
+POSTGRES_HOST=your-aurora-cluster.cluster-xxxxxxxxx.us-west-2.rds.amazonaws.com
+POSTGRES_PORT=5432
 POSTGRES_DB=app
 POSTGRES_USERNAME=postgres
-POSTGRES_PASSWORD=postgres
+POSTGRES_PASSWORD=your-secure-password
 DB_TIMEOUT=30
 DB_POOL_SIZE=5
 DB_MAX_POOL_CON=5
@@ -123,7 +133,8 @@ This will upload `assets/sample_resume.txt` to `/api/extract-resume` using an au
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
 - Env errors (decouple): ensure `.env` exists at `backend/backend/.env`.
 - Env errors (decouple): ensure `.env` exists at `backend/.env`.
-- DB connect errors: confirm docker db is running and `POSTGRES_*` match; DB `app` exists.
+- Aurora connect errors: confirm Aurora cluster is running and `POSTGRES_*` credentials are correct.
+- SSL errors: Aurora requires SSL by default; connection automatically includes `sslmode=require`.
 - Port conflicts: change Adminer port in `backend/docker-compose.yaml` if 8081 is taken.
 
 ## Developer Notes

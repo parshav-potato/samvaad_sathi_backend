@@ -1,6 +1,7 @@
 version: '3.9'
 
 services:
+  # Local PostgreSQL for development (fallback)
   db:
     image: postgres:latest
     container_name: db
@@ -16,6 +17,7 @@ services:
       - 5432
     ports:
       - 5433:5432
+    # Only use this for local dev; production uses Aurora
 
   db_editor:
     image: adminer
