@@ -15,7 +15,8 @@ async def get_async_session() -> typing.AsyncGenerator[SQLAlchemyAsyncSession, N
     try:
         yield async_db.async_session
     except Exception as e:
-        print(e)
+        print(f"Database session error: {e}")
         await async_db.async_session.rollback()
+        raise  # Re-raise the exception so FastAPI can handle it properly
     finally:
         await async_db.async_session.close()
