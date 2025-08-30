@@ -1,34 +1,51 @@
+# Core FastAPI and async dependencies
 alembic
 asgi_lifespan
-argon2_cffi
 asyncio
 asyncpg
 psycopg2-binary
+fastapi>=0.100.0
+uvicorn
+python-multipart>=0.0.20
+
+# Pydantic V2 (updated from V1)
+pydantic>=2.11.0
+pydantic-settings>=2.10.0
+
+# Database and ORM
+SQLAlchemy>=2.0.22,<2.1
+greenlet
+
+# Authentication and security
 bcrypt==3.2.2
+passlib==1.7.4
+python-jose
+argon2_cffi
+
+# OpenAI integration for audio transcription
+openai>=1.100.0
+
+# Environment and configuration
+python-dotenv
+python-decouple
+email-validator
+
+# File processing
+PyPDF2
+pathlib
+
+# Development and testing
 black
 colorama
-email-validator
-fastapi<0.100
-greenlet
 httpx
 isort
 loguru
 mypy
-openai
-passlib==1.7.4
 pathlib
 pre-commit
-python-dotenv
-python-decouple
-python-jose
-python-slugify
 pytest
 pytest-asyncio
 pytest-cov
 pytest-xdist
-PyPDF2
-SQLAlchemy>=2.0.22,<2.1
+python-slugify
 trio
-uvicorn
-pydantic<2
-python-multipart
