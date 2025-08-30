@@ -79,17 +79,10 @@ OPENAI_MODEL=gpt-4o-mini
 ## API Overview
 Base prefix: `/api`
 
-- Users (New)
+- Users
   - `POST /api/users`: Register user (email, password, name). Returns token.
   - `POST /api/login`: Login (email, password). Returns token.
   - `GET /api/me`: Current user (Authorization: Bearer <token>).
-
-- Accounts (Existing)
-  - `POST /api/auth/signup`, `POST /api/auth/signin`
-  - `GET /api/accounts`
-  - `GET /api/accounts/{id}`
-  - `PATCH /api/accounts/{id}` (query params)
-  - `DELETE /api/accounts?id=`
 
 - Resume (Auth Required)
   - `POST /api/extract-resume`: Upload a PDF or plain text resume (Authorization: Bearer <token>). The extracted `resume_text`, `skills`, and `years_experience` are saved to the authenticated user's profile only.
@@ -110,7 +103,8 @@ D:\samvaad_sathi_backend\backend\backend\venv\Scripts\python.exe D:\samvaad_sath
 ```
 Covers:
 - Users: register, login, me, duplicate, wrong password, missing auth
-- Accounts: signup, signin, list, get by id, patch, delete
+- Resume: extract, get user resume, knowledgeset
+- Interviews: create, generate questions, list, pagination, complete
 
 ## Resume Extraction Test (Repo-Local Asset)
 We include a sample resume so tests work after cloning.

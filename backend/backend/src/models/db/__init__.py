@@ -1,4 +1,3 @@
-from .account import Account  # noqa: F401
 from .user import User  # noqa: F401
 from .session import Session  # noqa: F401
 from .interview import Interview  # noqa: F401

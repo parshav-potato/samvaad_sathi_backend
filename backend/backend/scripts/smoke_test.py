@@ -53,10 +53,6 @@ def main() -> None:
     password = "pass123!"
     name = "Smoke User"
 
-    account_username = f"u_{rand_str()}"
-    account_email = f"{rand_str()}@example.com"
-    account_password = "Passw0rd!"
-
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
         r, err = safe_call(client, "GET", "/docs")
         print_result("GET /docs", r, err)
@@ -183,27 +179,8 @@ def main() -> None:
         r, err = safe_call(client, "POST", f"{API}/users", json={"email": email, "password": password, "name": name})
         print_result("POST /api/users (duplicate)", r, err)
 
-        # Account routes
-        r, err = safe_call(client, "POST", f"{API}/auth/signup", json={"username": account_username, "email": account_email, "password": account_password})
-        print_result("POST /api/auth/signup", r, err)
-        acc_id = r.json().get("id") if (r and 200 <= r.status_code < 300) else None
-
-        r, err = safe_call(client, "POST", f"{API}/auth/signin", json={"username": account_username, "email": account_email, "password": account_password})
-        print_result("POST /api/auth/signin", r, err)
-
-        r, err = safe_call(client, "GET", f"{API}/accounts")
-        print_result("GET /api/accounts", r, err)
-
-        if acc_id:
-            r, err = safe_call(client, "GET", f"{API}/accounts/{acc_id}")
-            print_result("GET /api/accounts/{id}", r, err)
-
-            # Update account (username only for demo via query params)
-            r, err = safe_call(client, "PATCH", f"{API}/accounts/{acc_id}", params={"query_id": acc_id, "update_username": f"{account_username}_upd"})
-            print_result("PATCH /api/accounts/{id}", r, err)
-
-            r, err = safe_call(client, "DELETE", f"{API}/accounts", params={"id": acc_id})
-            print_result("DELETE /api/accounts?id=", r, err)
+        # Clean up (end of tests)
+        print("\n" + "="*50 + " SMOKE TEST COMPLETE " + "="*50)
 
 
 if __name__ == "__main__":
