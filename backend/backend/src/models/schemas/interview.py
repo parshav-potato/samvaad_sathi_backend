@@ -53,9 +53,24 @@ class InterviewsListResponse(BaseSchemaModel):
     limit: int
 
 
+class QuestionAttemptItem(BaseSchemaModel):
+    id: int
+    question_text: str
+    audio_url: str | None = None
+    transcription: dict | None = None
+    created_at: datetime.datetime
+
+
 class QuestionsListResponse(BaseSchemaModel):
     interview_id: int
     items: list[str]
+    next_cursor: int | None
+    limit: int
+
+
+class QuestionAttemptsListResponse(BaseSchemaModel):
+    interview_id: int
+    items: list[QuestionAttemptItem]
     next_cursor: int | None
     limit: int
 

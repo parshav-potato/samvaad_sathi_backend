@@ -154,6 +154,98 @@ def main() -> None:
                     r, err = safe_call(client, "GET", f"{API}/interviews?limit=1&cursor={next_cursor}", headers=headers)
                     print_result("GET /api/interviews (page 2)", r, err)
 
+            # Audio transcription: test with real speech file after creating questions
+            # First, generate questions for the current active interview to create question attempts
+            r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json={"use_resume": True})
+            print_result("POST /api/interviews/generate-questions (fixed)", r, err)
+            
+            # Get the current active interview ID (should be the last one created)
+            r, err = safe_call(client, "GET", f"{API}/interviews?limit=1", headers=headers)
+            print_result("GET /api/interviews (current)", r, err)
+            current_body = safe_json(r) if r else {}
+            
+            if isinstance(current_body, dict) and current_body.get("items"):
+                current_interview_id = current_body["items"][0]["id"]
+                
+                # Get the question attempts (which have IDs for audio transcription)
+                r, err = safe_call(client, "GET", f"{API}/interviews/{current_interview_id}/question-attempts", headers=headers)
+                print_result("GET /api/interviews/{id}/question-attempts (for audio)", r, err)
+                
+                questions_body = safe_json(r) if r else {}
+                if isinstance(questions_body, dict) and questions_body.get("items"):
+                    # Questions exist as QuestionAttempt objects with IDs! Get the first one
+                    first_question_attempt = questions_body["items"][0]
+                    
+                    # Check if this is a question attempt object with an ID
+                    if isinstance(first_question_attempt, dict) and "id" in first_question_attempt:
+                        question_attempt_id = first_question_attempt["id"]
+                        
+                        # Test audio transcription with real Speech.mp3 file and valid question attempt ID
+                        import os
+                        speech_file_path = os.path.join("assets", "Speech.mp3")
+                        if os.path.exists(speech_file_path):
+                            with open(speech_file_path, "rb") as audio_file:
+                                files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
+                                audio_data = {"question_attempt_id": question_attempt_id, "language": "en"}
+                                r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
+                                print_result("POST /api/transcribe-whisper", r, err)
+                        else:
+                            print_result("POST /api/transcribe-whisper", None, "Speech.mp3 file not found")
+                    elif isinstance(first_question_attempt, str):
+                        # Questions are returned as strings, not question attempt objects
+                        # This means question attempts weren't created properly
+                        print_result("POST /api/transcribe-whisper", None, "Question attempts not persisted as objects")
+                else:
+                    # No questions found, test with mock ID
+                    import os
+                    speech_file_path = os.path.join("assets", "Speech.mp3")
+                    if os.path.exists(speech_file_path):
+                        with open(speech_file_path, "rb") as audio_file:
+                            files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
+                            audio_data = {"question_attempt_id": 1, "language": "en"}
+                            r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
+                            print_result("POST /api/transcribe-whisper (no questions)", r, err)
+                    else:
+                        print_result("POST /api/transcribe-whisper", None, "Speech.mp3 test file not found")
+
+            # Additional comprehensive audio test - use question-attempts endpoint for correct question attempt IDs
+            if isinstance(questions_body, dict) and questions_body.get("items"):
+                print("\n--- Comprehensive Audio Transcription Test ---")
+                import os
+                speech_file_path = os.path.join("assets", "Speech.mp3")
+                if os.path.exists(speech_file_path):
+                    # First get question attempts to get proper IDs
+                    qa_response, qa_err = safe_call(client, "GET", f"{API}/interviews/{current_interview_id}/question-attempts", headers=headers)
+                    
+                    if qa_response and 200 <= qa_response.status_code < 300:
+                        qa_data = safe_json(qa_response)
+                        if isinstance(qa_data, dict) and "items" in qa_data and qa_data["items"]:
+                            qa_id = qa_data["items"][0]["id"]
+                        else:
+                            qa_id = 2  # Fallback
+                    else:
+                        qa_id = 2  # Fallback
+                    
+                    # Now test audio transcription with fresh file handle
+                    with open(speech_file_path, "rb") as audio_file:
+                        files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
+                        audio_data = {"question_attempt_id": qa_id, "language": "en"}
+                        r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
+                        print_result("POST /api/transcribe-whisper (comprehensive)", r, err)
+                        
+                        # Print detailed results if successful
+                        if r and 200 <= r.status_code < 300:
+                            resp_data = safe_json(r)
+                            if isinstance(resp_data, dict):
+                                print(f"   📁 Filename: {resp_data.get('filename', 'N/A')}")
+                                print(f"   📊 Size: {resp_data.get('size', 'N/A')} bytes")
+                                print(f"   ⏱️ Duration: {resp_data.get('durationSeconds', 'N/A')} seconds")
+                                print(f"   🎤 Model: {resp_data.get('whisperModel', 'N/A')}")
+                                print(f"   ⏱️ Latency: {resp_data.get('whisperLatencyMs', 'N/A')}ms")
+                                print(f"   💾 Saved: {resp_data.get('saved', False)}")
+                else:
+                    print_result("POST /api/transcribe-whisper (comprehensive)", None, "Speech.mp3 test file not found")
+
             # Interviews: complete session
             r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)
             print_result("POST /api/interviews/complete", r, err)

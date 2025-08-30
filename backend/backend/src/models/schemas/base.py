@@ -8,9 +8,10 @@ from src.utilities.formatters.field_formatter import format_dict_key_to_camel_ca
 
 
 class BaseSchemaModel(pydantic.BaseModel):
-    class Config(pydantic.BaseConfig):
-        orm_mode: bool = True
-        validate_assignment: bool = True
-        allow_population_by_field_name: bool = True
-        json_encoders: dict = {datetime.datetime: format_datetime_into_isoformat}
-        alias_generator: typing.Any = format_dict_key_to_camel_case
+    model_config = pydantic.ConfigDict(
+        from_attributes=True,
+        validate_assignment=True,
+        populate_by_name=True,
+        json_encoders={datetime.datetime: format_datetime_into_isoformat},
+        alias_generator=format_dict_key_to_camel_case
+    )

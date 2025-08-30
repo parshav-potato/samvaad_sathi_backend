@@ -3,11 +3,12 @@ import pathlib
 
 import decouple
 import pydantic
+from pydantic_settings import BaseSettings
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.parent.parent.resolve()
 
 
-class BackendBaseSettings(pydantic.BaseSettings):
+class BackendBaseSettings(BaseSettings):
     TITLE: str = "DAPSQL FARN-Stack Template Application"
     VERSION: str = "0.1.0"
     TIMEZONE: str = "UTC"
@@ -70,10 +71,17 @@ class BackendBaseSettings(pydantic.BaseSettings):
     HASHING_SALT: str = decouple.config("HASHING_SALT", cast=str)  # type: ignore
     JWT_ALGORITHM: str = decouple.config("JWT_ALGORITHM", cast=str)  # type: ignore
 
-    class Config(pydantic.BaseConfig):
-        case_sensitive: bool = True
-        env_file: str = f"{str(ROOT_DIR)}/.env"
-        validate_assignment: bool = True
+    # Audio processing settings (stateless - no upload directory needed)
+    MAX_AUDIO_SIZE_MB: int = decouple.config("MAX_AUDIO_SIZE_MB", cast=int, default=25)  # type: ignore
+    OPENAI_MODEL: str = decouple.config("OPENAI_MODEL", cast=str, default="gpt-4o-mini")  # type: ignore
+    OPENAI_API_KEY: str = decouple.config("OPENAI_API_KEY", cast=str, default="")  # type: ignore
+
+    model_config = pydantic.ConfigDict(
+        case_sensitive=True,
+        env_file=f"{str(ROOT_DIR)}/.env",
+        validate_assignment=True,
+        extra='allow'
+    )
 
     @property
     def set_backend_app_attributes(self) -> dict[str, str | bool | None]:

@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, GenerateQuestionsRequest
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
@@ -218,6 +218,45 @@ async def list_interview_questions(
     return QuestionsListResponse(
         interview_id=interview_id,
         items=[q.question_text for q in items],
+        next_cursor=next_cursor,
+        limit=safe_limit,
+    )
+
+
+@router.get(
+    path="/interviews/{interview_id}/question-attempts",
+    name="interviews:list-question-attempts",
+    response_model=QuestionAttemptsListResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="List question attempts for an interview (cursor-based)",
+    description=(
+        "Returns the question attempts with IDs for the given interview in ascending order using id-based cursor pagination. "
+        "Use this endpoint when you need QuestionAttempt IDs for audio transcription. "
+        "Use the returned next_cursor to fetch the next page."
+    ),
+)
+async def list_interview_question_attempts(
+    interview_id: int,
+    limit: int = 20,
+    cursor: int | None = None,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+) -> QuestionAttemptsListResponse:
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    safe_limit = max(1, min(100, int(limit)))
+    items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
+    return QuestionAttemptsListResponse(
+        interview_id=interview_id,
+        items=[QuestionAttemptItem(
+            id=q.id,
+            question_text=q.question_text,
+            audio_url=q.audio_url,
+            transcription=q.transcription,
+            created_at=q.created_at
+        ) for q in items],
         next_cursor=next_cursor,
         limit=safe_limit,
     )

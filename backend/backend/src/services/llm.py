@@ -73,7 +73,7 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return [], None, None, model
+        return [], None, None, model, None
 
     start = time.perf_counter()
     error: str | None = None
