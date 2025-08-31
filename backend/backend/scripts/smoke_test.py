@@ -237,14 +237,130 @@ def main() -> None:
                         if r and 200 <= r.status_code < 300:
                             resp_data = safe_json(r)
                             if isinstance(resp_data, dict):
-                                print(f"   📁 Filename: {resp_data.get('filename', 'N/A')}")
-                                print(f"   📊 Size: {resp_data.get('size', 'N/A')} bytes")
-                                print(f"   ⏱️ Duration: {resp_data.get('durationSeconds', 'N/A')} seconds")
-                                print(f"   🎤 Model: {resp_data.get('whisperModel', 'N/A')}")
-                                print(f"   ⏱️ Latency: {resp_data.get('whisperLatencyMs', 'N/A')}ms")
-                                print(f"   💾 Saved: {resp_data.get('saved', False)}")
+                                print(f"   Filename: {resp_data.get('filename', 'N/A')}")
+                                print(f"   Size: {resp_data.get('size', 'N/A')} bytes")
+                                print(f"   Duration: {resp_data.get('durationSeconds', 'N/A')} seconds")
+                                print(f"   Model: {resp_data.get('whisperModel', 'N/A')}")
+                                print(f"   Latency: {resp_data.get('whisperLatencyMs', 'N/A')}ms")
+                                print(f"   Saved: {resp_data.get('saved', False)}")
                 else:
                     print_result("POST /api/transcribe-whisper (comprehensive)", None, "Speech.mp3 test file not found")
+
+            # === ANALYSIS ENDPOINTS TESTS ===
+            print("\n--- Analysis Endpoints Tests ---")
+            # Ensure variables exist when earlier blocks were skipped
+            current_interview_id = locals().get("current_interview_id")
+            questions_body = locals().get("questions_body", {})
+
+            # Test individual analysis endpoints with a transcribed question attempt
+            if isinstance(questions_body, dict) and questions_body.get("items") and current_interview_id:
+                qa_response, qa_err = safe_call(
+                    client,
+                    "GET",
+                    f"{API}/interviews/{current_interview_id}/question-attempts",
+                    headers=headers
+                )
+
+                if qa_response and 200 <= qa_response.status_code < 300:
+                    # … rest of handling …                    qa_data = safe_json(qa_response)
+                    if isinstance(qa_data, dict) and "items" in qa_data and qa_data["items"]:
+                        # Find a question attempt with transcription
+                        transcribed_qa_id = None
+                        for qa_item in qa_data["items"]:
+                            if isinstance(qa_item, dict) and qa_item.get("transcription"):
+                                transcribed_qa_id = qa_item["id"]
+                                break
+                        
+                        if transcribed_qa_id:
+                            # Test individual analysis endpoints
+                            analysis_payload = {"question_attempt_id": transcribed_qa_id}
+                            
+                            # Test domain analysis
+                            r, err = safe_call(client, "POST", f"{API}/analyze-domain", headers=headers, json=analysis_payload)
+                            print_result("POST /api/analyze-domain", r, err)
+                            
+                            # Test communication analysis  
+                            r, err = safe_call(client, "POST", f"{API}/analyze-communication", headers=headers, json=analysis_payload)
+                            print_result("POST /api/analyze-communication", r, err)
+                            
+                            # Test pace analysis
+                            r, err = safe_call(client, "POST", f"{API}/analyze-pace", headers=headers, json=analysis_payload)
+                            print_result("POST /api/analyze-pace", r, err)
+                            
+                            # Test pause analysis
+                            r, err = safe_call(client, "POST", f"{API}/analyze-pause", headers=headers, json=analysis_payload)
+                            print_result("POST /api/analyze-pause", r, err)
+                            
+                            # Test complete analysis - all types
+                            complete_payload = {
+                                "question_attempt_id": transcribed_qa_id,
+                                "analysis_types": ["domain", "communication", "pace", "pause"]
+                            }
+                            r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json=complete_payload)
+                            print_result("POST /api/complete-analysis (all types)", r, err)
+                            
+                            if r and 200 <= r.status_code < 300:
+                                resp_data = safe_json(r)
+                                if isinstance(resp_data, dict):
+                                    print(f"   Analysis Complete: {resp_data.get('analysisComplete', 'N/A')}")
+                                    print(f"   Total Latency: {resp_data.get('metadata', {}).get('totalLatencyMs', 'N/A')}ms")
+                                    print(f"   Completed: {', '.join(resp_data.get('metadata', {}).get('completedAnalyses', []))}")
+                                    print(f"   Failed: {', '.join(resp_data.get('metadata', {}).get('failedAnalyses', []))}")
+                                    print(f"   Saved: {resp_data.get('saved', False)}")
+                            
+                            # Test complete analysis - partial types only
+                            partial_payload = {
+                                "question_attempt_id": transcribed_qa_id,
+                                "analysis_types": ["domain", "pace"]
+                            }
+                            r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json=partial_payload)
+                            print_result("POST /api/complete-analysis (partial types)", r, err)
+                            
+                        else:
+                            # Test with mock question attempt ID if no transcribed data
+                            mock_qa_id = qa_data["items"][0]["id"] if qa_data["items"] else 1
+                            analysis_payload = {"question_attempt_id": mock_qa_id}
+                            
+                            # These should fail gracefully due to missing transcription
+                            r, err = safe_call(client, "POST", f"{API}/analyze-domain", headers=headers, json=analysis_payload)
+                            print_result("POST /api/analyze-domain (no transcription)", r, err)
+                            
+                            r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json={
+                                "question_attempt_id": mock_qa_id,
+                                "analysis_types": ["domain"]
+                            })
+                            print_result("POST /api/complete-analysis (no transcription)", r, err)
+                            
+            # Test analysis authentication errors
+            print("\n--- Analysis Authentication Tests ---")
+            bad_headers = {"Authorization": "Bearer invalid_token"}
+            r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=bad_headers, json={
+                "question_attempt_id": 1,
+                "analysis_types": ["domain"]
+            })
+            print_result("POST /api/complete-analysis (invalid token)", r, err)
+            
+            # Test analysis with no authentication
+            r, err = safe_call(client, "POST", f"{API}/complete-analysis", json={
+                "question_attempt_id": 1, 
+                "analysis_types": ["domain"]
+            })
+            print_result("POST /api/complete-analysis (no auth)", r, err)
+            
+            # Test analysis with invalid analysis types
+            if headers:  # Valid auth token
+                r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json={
+                    "question_attempt_id": 1,
+                    "analysis_types": ["invalid_type", "also_invalid"]
+                })
+                print_result("POST /api/complete-analysis (invalid types)", r, err)
+                
+                # Test analysis with non-existent question attempt
+                r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json={
+                    "question_attempt_id": 99999,
+                    "analysis_types": ["domain"]
+                })
+                print_result("POST /api/complete-analysis (non-existent QA)", r, err)
 
             # Interviews: complete session
             r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)

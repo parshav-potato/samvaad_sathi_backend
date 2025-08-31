@@ -104,6 +104,14 @@ OPENAI_MODEL=gpt-4o-mini
 - Question attempt tracking with audio transcription support
 - Interview completion and status management
 
+### 📊 Analysis Aggregation
+- **Complete Analysis Endpoint**: Single API call aggregating multiple analysis types
+- **Concurrent Processing**: Domain, communication, pace, and pause analyses run in parallel
+- **Flexible Analysis Selection**: Support for all or subset of analysis types
+- **Database Persistence**: Results saved to `question_attempt.analysis_json` field
+- **Performance Optimized**: Sub-second response times with direct function calls
+- **Error Resilience**: Graceful handling of partial failures
+
 ## API Overview
 Base prefix: `/api`
 
@@ -133,6 +141,17 @@ Base prefix: `/api`
   - **Processing**: Stateless temporary file handling, automatic cleanup
   - **Performance**: ~6-10 seconds for 72-second audio files
 
+### 📊 Analysis Aggregation (Auth Required)
+- `POST /api/complete-analysis`: Aggregate multiple analysis types for a question attempt
+  - **Request**: `{ question_attempt_id: int, analysis_types: ["domain", "communication", "pace", "pause"] }`
+  - **Response**: Aggregated analysis results with metadata and performance stats
+  - **Features**: Concurrent processing, partial failure handling, database persistence
+  - **Performance**: Sub-second response times for all 4 analysis types
+- `POST /api/analyze-domain`: Individual domain knowledge analysis
+- `POST /api/analyze-communication`: Individual communication quality analysis  
+- `POST /api/analyze-pace`: Individual speaking pace analysis
+- `POST /api/analyze-pause`: Individual pause pattern analysis
+
 ## Smoke Tests
 Run comprehensive end-to-end checks:
 ```powershell
@@ -150,60 +169,19 @@ python scripts\smoke_test.py
   - Word-level timestamp verification
   - Performance validation (~6-10 second processing time)
   - Stateless operation confirmation
+- **Analysis Aggregation**:
+  - Complete analysis endpoint with all 4 types
+  - Partial analysis with subset of types
+  - Individual analysis endpoints (domain, communication, pace, pause)
+  - Authentication and authorization validation
+  - Error handling for invalid inputs and non-existent records
+  - Database persistence verification
 - **Cross-user Security**: Ensures proper user isolation
 - **Error Handling**: Invalid auth, duplicate users, missing files
 
 **Prerequisites for Audio Tests:**
 - Set `OPENAI_API_KEY` in `.env`
 - Ensure `assets/Speech.mp3` exists (included in repo)
-
-## Audio Transcription Setup
-
-### Requirements
-```env
-OPENAI_API_KEY=sk-your-openai-api-key-here
-OPENAI_MODEL=gpt-4o-mini
-```
-
-### Usage Example
-```python
-import requests
-
-# 1. Create interview and generate questions
-response = requests.post("/api/interviews/create", 
-                        headers={"Authorization": "Bearer <token>"},
-                        json={"track": "data_science", "difficulty": "medium"})
-interview_id = response.json()["id"]
-
-requests.post("/api/interviews/generate-questions", 
-              headers={"Authorization": "Bearer <token>"},
-              json={"use_resume": True})
-
-# 2. Get question attempts with IDs
-response = requests.get(f"/api/interviews/{interview_id}/question-attempts",
-                       headers={"Authorization": "Bearer <token>"})
-question_attempts = response.json()["items"]
-qa_id = question_attempts[0]["id"]
-
-# 3. Upload and transcribe audio
-with open("interview_response.mp3", "rb") as audio_file:
-    files = {"file": ("response.mp3", audio_file, "audio/mpeg")}
-    data = {"question_attempt_id": qa_id, "language": "en"}
-    response = requests.post("/api/transcribe-whisper",
-                           headers={"Authorization": "Bearer <token>"},
-                           files=files, data=data)
-
-# Response includes transcription, word timestamps, and metadata
-result = response.json()
-print(f"Transcription: {result['transcription']['text']}")
-print(f"Duration: {result['durationSeconds']} seconds")
-```
-
-### Audio File Support
-- **Formats**: WAV (RIFF), MP3 (MPEG), M4A, FLAC
-- **Validation**: Header-based format verification
-- **Processing**: Stateless with automatic cleanup
-- **Performance**: Optimized for real-time interview responses
 
 ## Troubleshooting
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
@@ -221,7 +199,7 @@ print(f"Duration: {result['durationSeconds']} seconds")
 - **Performance**: Audio transcription optimized with async I/O operations
 - **Testing**: Comprehensive smoke tests covering all major workflows including audio pipeline
 
-## Architecture
+### Architecture
 
 ### Audio Pipeline
 ```
@@ -229,10 +207,18 @@ Audio Upload → Format Validation → Temporary Storage → OpenAI Whisper →
 Transcription + Timestamps → Database Storage → Cleanup
 ```
 
+### Analysis Pipeline
+```
+Question Attempt → Transcription Validation → Concurrent Analysis Processing →
+Domain + Communication + Pace + Pause → Result Aggregation → Database Persistence
+```
+
 ### Key Components
 - **Audio Processor**: `src/services/audio_processor.py` - Handles validation, temporary files, MIME detection
 - **Whisper Service**: `src/services/whisper.py` - OpenAI API integration with error handling
+- **Analysis Aggregation**: `src/services/analysis.py` - Concurrent analysis processing and aggregation
 - **Interview Models**: QuestionAttempt objects link audio transcriptions to specific questions
+- **Analysis Persistence**: Results stored in `question_attempt.analysis_json` JSONB field
 - **Stateless Design**: No persistent file storage, all audio processed in memory/temp files
 
 ## Template Reference

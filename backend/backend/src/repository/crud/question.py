@@ -81,4 +81,22 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         
         return question_attempt
 
+    async def update_analysis_json(
+        self,
+        *,
+        question_attempt_id: int,
+        analysis_json: dict
+    ) -> QuestionAttempt | None:
+        """Update a question attempt with analysis results"""
+        stmt = sqlalchemy.select(QuestionAttempt).where(QuestionAttempt.id == question_attempt_id)
+        query = await self.async_session.execute(statement=stmt)
+        question_attempt = query.scalar_one_or_none()
+        
+        if question_attempt:
+            question_attempt.analysis_json = analysis_json
+            await self.async_session.commit()
+            await self.async_session.refresh(question_attempt)
+        
+        return question_attempt
+
 
