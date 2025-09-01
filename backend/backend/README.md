@@ -159,6 +159,27 @@ cd D:\samvaad_sathi_backend\backend\backend
 python scripts\smoke_test.py
 ```
 
+### Database Management
+Check database status and manage persistence:
+```powershell
+# Check current status
+python scripts/db_manager.py status
+
+# Initialize database (first time setup)
+python scripts/db_manager.py init
+
+# Run pending migrations
+python scripts/db_manager.py migrate
+
+# Test persistence and concurrency
+python scripts/test_db_persistence.py
+
+# Reset database (development only - DESTRUCTIVE)
+python scripts/db_manager.py reset
+```
+
+**Database Persistence**: The database is now configured for persistence across application restarts. Data will not be lost when the application is restarted, and multiple instances can safely connect to the same database.
+
 **Test Coverage:**
 - **Authentication**: User registration, login, token validation, negative cases
 - **Resume Processing**: PDF/text upload, extraction, skills detection, knowledgeset

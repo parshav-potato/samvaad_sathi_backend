@@ -12,11 +12,17 @@ from src.repository.database import async_db
 
 
 async def get_async_session() -> typing.AsyncGenerator[SQLAlchemyAsyncSession, None]:
+    """
+    Dependency that provides a database session for each request.
+    Each request gets its own session instance for better concurrency.
+    """
+    # Get a new session instance for this request
+    session = async_db.get_session()
     try:
-        yield async_db.async_session
+        yield session
     except Exception as e:
         print(f"Database session error: {e}")
-        await async_db.async_session.rollback()
+        await session.rollback()
         raise  # Re-raise the exception so FastAPI can handle it properly
     finally:
-        await async_db.async_session.close()
+        await session.close()

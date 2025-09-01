@@ -25,11 +25,28 @@ class AsyncDatabase:
             # SSL connection for Aurora
             connect_args={"ssl": "require"}
         )
-        self.async_session: SQLAlchemyAsyncSession = SQLAlchemyAsyncSession(
+        # Use session factory instead of single session for better concurrency
+        self.async_session_factory: sqlalchemy_async_sessionmaker[SQLAlchemyAsyncSession] = sqlalchemy_async_sessionmaker(
             bind=self.async_engine,
             expire_on_commit=settings.IS_DB_EXPIRE_ON_COMMIT,
+            class_=SQLAlchemyAsyncSession,
         )
         self.pool: SQLAlchemyPool = self.async_engine.pool
+        
+    def get_session(self) -> SQLAlchemyAsyncSession:
+        """
+        Get a new database session.
+        Each call returns a new session instance for better concurrency support.
+        """
+        return self.async_session_factory()
+    
+    @property
+    def async_session(self) -> SQLAlchemyAsyncSession:
+        """
+        Backward compatibility property.
+        Note: For new code, prefer using get_session() method.
+        """
+        return self.get_session()
 
     @property
     def set_async_db_uri(self) -> str:

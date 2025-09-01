@@ -1,6 +1,6 @@
 import fastapi
 import loguru
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.dialects.postgresql.asyncpg import AsyncAdapt_asyncpg_connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSessionTransaction
 from sqlalchemy.pool.base import _ConnectionRecord
@@ -27,12 +27,38 @@ def inspect_db_server_on_close(
 
 
 async def initialize_db_tables(connection: AsyncConnection) -> None:
-    loguru.logger.info("Database Table Creation --- Initializing . . .")
+    """
+    Initialize database tables safely without dropping existing data.
+    Uses CREATE TABLE IF NOT EXISTS approach for backward compatibility.
+    For production, use Alembic migrations instead.
+    """
+    loguru.logger.info("Database Table Initialization --- Starting . . .")
 
-    await connection.run_sync(Base.metadata.drop_all)
-    await connection.run_sync(Base.metadata.create_all)
+    try:
+        # Check if alembic_version table exists to determine if migrations are being used
+        result = await connection.execute(
+            text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alembic_version')")
+        )
+        has_alembic_version = result.scalar()
+        
+        if has_alembic_version:
+            loguru.logger.info("Database managed by Alembic migrations - skipping table creation")
+            loguru.logger.info("To initialize/update schema, run: alembic upgrade head")
+        else:
+            # Create tables only if they don't exist (backward compatibility mode)
+            loguru.logger.warning("No Alembic version table found - using fallback table creation")
+            loguru.logger.warning("Consider running 'alembic upgrade head' for proper schema management")
+            
+            # Use CREATE TABLE IF NOT EXISTS equivalent for SQLAlchemy
+            await connection.run_sync(Base.metadata.create_all, checkfirst=True)
+            
+            loguru.logger.info("Database tables created (if not exists)")
 
-    loguru.logger.info("Database Table Creation --- Successfully Initialized!")
+    except Exception as e:
+        loguru.logger.error(f"Database initialization error: {e}")
+        raise
+
+    loguru.logger.info("Database Table Initialization --- Successfully Completed!")
 
 
 async def initialize_db_connection(backend_app: fastapi.FastAPI) -> None:
