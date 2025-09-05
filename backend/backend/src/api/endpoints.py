@@ -8,6 +8,11 @@ from src.api.routes.analysis import router as analysis_router
 
 router = fastapi.APIRouter()
 
+# Health check endpoint for ECS/Load Balancer
+@router.get("/health", status_code=200)
+async def health_check():
+    return {"status": "healthy", "service": "samvaad-sathi-backend"}
+
 router.include_router(router=users_router)
 router.include_router(router=resume_router)
 router.include_router(router=interviews_router)

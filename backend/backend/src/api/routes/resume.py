@@ -17,9 +17,6 @@ from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse
 
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 
-# Simple in-memory cache for knowledge set results keyed by (user_id, resume_hash)
-_knowledge_cache: Dict[Tuple[int, str], dict] = {}
-
 
 @router.post(
     path="/extract-resume",
@@ -73,14 +70,56 @@ async def extract_resume(
         extracted_text = raw_bytes.decode("utf-8", errors="ignore")
     elif content_type == "application/pdf":
         try:
+            # Primary extraction with PyPDF2
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
             texts: list[str] = []
-            for page in pdf_reader.pages:
-                page_text = page.extract_text() or ""
-                texts.append(page_text)
-            extracted_text = "\n".join(texts)
-        except Exception:
-            extracted_text = ""
+            
+            # Check if PDF has pages
+            if len(pdf_reader.pages) == 0:
+                extracted_text = ""
+            else:
+                for page_num, page in enumerate(pdf_reader.pages):
+                    try:
+                        page_text = page.extract_text() or ""
+                        if page_text.strip():  # Only add non-empty pages
+                            texts.append(page_text)
+                    except Exception as page_error:
+                        # Log page extraction error but continue with other pages
+                        print(f"Warning: Failed to extract text from page {page_num + 1}: {page_error}")
+                        continue
+                
+                extracted_text = "\n".join(texts)
+                
+                # If no text extracted, try pdfplumber as fallback
+                if not extracted_text.strip():
+                    try:
+                        import pdfplumber
+                        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                            fallback_texts = []
+                            for page in pdf.pages:
+                                page_text = page.extract_text()
+                                if page_text and page_text.strip():
+                                    fallback_texts.append(page_text)
+                            extracted_text = "\n".join(fallback_texts)
+                    except ImportError:
+                        print("Warning: pdfplumber not available for fallback PDF extraction")
+                    except Exception as fallback_error:
+                        print(f"Warning: pdfplumber fallback failed: {fallback_error}")
+                        
+        except Exception as pdf_error:
+            print(f"PDF extraction error: {pdf_error}")
+            # Final fallback: try pdfplumber directly
+            try:
+                import pdfplumber
+                with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                    fallback_texts = []
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text and page_text.strip():
+                            fallback_texts.append(page_text)
+                    extracted_text = "\n".join(fallback_texts)
+            except Exception:
+                extracted_text = ""
 
     # Normalize whitespace and control characters
     normalized = re.sub(r"\s+", " ", extracted_text or "").strip()
@@ -214,7 +253,7 @@ async def get_knowledge_set(
 ):
     """
     Returns a knowledge set (normalized list of skills) derived from the authenticated user's resume.
-    Access control: self-only (uses current_user from auth). Results are cached in-memory per resume hash.
+    Access control: self-only (uses current_user from auth). Stateless operation for ECS compatibility.
     """
     # Use stored resume text if available
     resume_text = current_user.resume_text or ""
@@ -228,49 +267,42 @@ async def get_knowledge_set(
             "cached": False,
         }
 
-    # Cache key by user and content hash
-    text_hash = hashlib.sha256(normalized_text.encode("utf-8", errors="ignore")).hexdigest()
-    cache_key = (int(current_user.id), text_hash)
+    # Generate knowledge set directly (stateless - no caching for ECS compatibility)
     cached = False
+    
+    # Reuse LLM extraction service to get skills; ignore years here
+    from src.services.llm import extract_resume_entities_with_llm  # local import to avoid cycles
 
-    if cache_key in _knowledge_cache:
-        cached = True
-        result = _knowledge_cache[cache_key]
-    else:
-        # Reuse LLM extraction service to get skills; ignore years here
-        from src.services.llm import extract_resume_entities_with_llm  # local import to avoid cycles
+    skills, _years, llm_error, llm_latency_ms, llm_model = extract_resume_entities_with_llm(normalized_text)
 
-        skills, _years, llm_error, llm_latency_ms, llm_model = extract_resume_entities_with_llm(normalized_text)
+    # Normalize and validate
+    def _norm_skill(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s)).strip().lower()
 
-        # Normalize and validate
-        def _norm_skill(s: str) -> str:
-            return re.sub(r"\s+", " ", str(s)).strip().lower()
+    normalized_skills: list[str] = []
+    seen: set[str] = set()
+    warnings: list[str] = []
+    for s in skills or []:
+        s_norm = _norm_skill(s)
+        if not s_norm:
+            continue
+        if not re.search(r"[a-z]", s_norm):
+            warnings.append(f"dropped skill without letters: '{s}'")
+            continue
+        if len(s_norm) < 2 or len(s_norm) > 64:
+            warnings.append(f"dropped skill length out of range: '{s}'")
+            continue
+        if s_norm not in seen:
+            seen.add(s_norm)
+            normalized_skills.append(s_norm)
 
-        normalized_skills: list[str] = []
-        seen: set[str] = set()
-        warnings: list[str] = []
-        for s in skills or []:
-            s_norm = _norm_skill(s)
-            if not s_norm:
-                continue
-            if not re.search(r"[a-z]", s_norm):
-                warnings.append(f"dropped skill without letters: '{s}'")
-                continue
-            if len(s_norm) < 2 or len(s_norm) > 64:
-                warnings.append(f"dropped skill length out of range: '{s}'")
-                continue
-            if s_norm not in seen:
-                seen.add(s_norm)
-                normalized_skills.append(s_norm)
-
-        result = {
-            "knowledge_set": {"items": normalized_skills},
-            "llm_model": llm_model,
-            "llm_latency_ms": llm_latency_ms,
-            "llm_error": llm_error,
-            "warnings": warnings,
-        }
-        _knowledge_cache[cache_key] = result
+    result = {
+        "knowledge_set": {"items": normalized_skills},
+        "llm_model": llm_model,
+        "llm_latency_ms": llm_latency_ms,
+        "llm_error": llm_error,
+        "warnings": warnings,
+    }
 
     return {"ok": True, "cached": cached, **result}
 

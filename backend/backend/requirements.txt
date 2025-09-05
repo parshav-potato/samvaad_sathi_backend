@@ -32,6 +32,7 @@ email-validator
 
 # File processing
 PyPDF2
+pdfplumber
 pathlib
 
 # Development and testing
@@ -49,3 +50,4 @@ pytest-cov
 pytest-xdist
 python-slugify
 trio
+httpx

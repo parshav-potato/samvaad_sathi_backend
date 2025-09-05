@@ -75,43 +75,32 @@ async def generate_questions(
     if active is None:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
 
-    # In-memory cache keyed by interview id and use_resume flag to avoid re-generation in the same session
-    global _questions_cache  # type: ignore
-    try:
-        _questions_cache
-    except NameError:
-        _questions_cache = {}
-
-    cache_key = f"{active.id}_{payload.use_resume}"
+    # Generate questions (stateless - no caching for ECS compatibility)
     cached = False
-    if cache_key in _questions_cache:
-        cached = True
-        qs = _questions_cache[cache_key]
-    else:
-        # Use resume context if present on user and use_resume is True
-        resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
-        questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
-            track=active.track,
-            context_text=resume_context,
-            count=5,
-            difficulty=active.difficulty,
-        )
-        if not questions:
-            questions = [
-                f"Describe your recent project in {active.track}.",
-                f"What core concepts are essential in {active.track}?",
-                f"Explain a challenging problem you solved in {active.track} and how.",
-                f"How do you evaluate models in {active.track}?",
-                f"Discuss trade-offs between common methods in {active.track}.",
-            ]
-        qs = {
-            "questions": questions,
-            "llm_error": llm_error,
-            "latency_ms": latency_ms,
-            "llm_model": llm_model,
-            "items": items,
-        }
-        _questions_cache[cache_key] = qs
+    
+    # Use resume context if present on user and use_resume is True
+    resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
+    questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
+        track=active.track,
+        context_text=resume_context,
+        count=5,
+        difficulty=active.difficulty,
+    )
+    if not questions:
+        questions = [
+            f"Describe your recent project in {active.track}.",
+            f"What core concepts are essential in {active.track}?",
+            f"Explain a challenging problem you solved in {active.track} and how.",
+            f"How do you evaluate models in {active.track}?",
+            f"Discuss trade-offs between common methods in {active.track}.",
+        ]
+    qs = {
+        "questions": questions,
+        "llm_error": llm_error,
+        "latency_ms": latency_ms,
+        "llm_model": llm_model,
+        "items": items,
+    }
 
     # Persist question attempts only if they don't exist yet for this interview (idempotent-ish)
     existing = await question_repo.list_by_interview(interview_id=active.id)
@@ -199,13 +188,15 @@ async def list_my_interviews(
     summary="List questions for an interview (cursor-based)",
     description=(
         "Returns the questions for the given interview in ascending order using id-based cursor pagination. "
-        "Use the returned next_cursor to fetch the next page."
+        "Use the returned next_cursor to fetch the next page. If no questions exist and auto_generate=true (default), "
+        "questions will be automatically generated for better user experience."
     ),
 )
 async def list_interview_questions(
     interview_id: int,
     limit: int = 20,
     cursor: int | None = None,
+    auto_generate: bool = True,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
@@ -213,6 +204,46 @@ async def list_interview_questions(
     interview = await interview_repo.get_by_id(interview_id=interview_id)
     if interview is None or interview.user_id != current_user.id:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    
+    # Check if questions exist, if not and auto_generate is True, generate them
+    existing_questions = await question_repo.list_by_interview(interview_id=interview_id)
+    if not existing_questions and auto_generate:
+        # Auto-generate questions for better UX
+        from src.services.llm import generate_interview_questions_with_llm
+        
+        # Use resume context if available
+        resume_context = getattr(current_user, "resume_text", None)
+        questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
+            track=interview.track,
+            context_text=resume_context,
+            count=5,
+            difficulty=interview.difficulty,
+        )
+        
+        if not questions:
+            questions = [
+                f"Describe your recent project in {interview.track}.",
+                f"What core concepts are essential in {interview.track}?",
+                f"Explain a challenging problem you solved in {interview.track} and how.",
+                f"How do you evaluate models in {interview.track}?",
+                f"Discuss trade-offs between common methods in {interview.track}.",
+            ]
+        
+        # Persist question attempts
+        md = {
+            "llm_model": llm_model,
+            "llm_latency_ms": latency_ms,
+            "llm_error": llm_error,
+            "track": interview.track,
+            "used_resume": bool(resume_context),
+            "auto_generated": True,
+        }
+        await question_repo.create_batch(
+            interview_id=interview_id,
+            questions=questions,
+            metadata=md,
+        )
+    
     safe_limit = max(1, min(100, int(limit)))
     items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
     return QuestionsListResponse(

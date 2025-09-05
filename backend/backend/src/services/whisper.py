@@ -35,8 +35,12 @@ async def transcribe_audio_with_whisper(
     start_time = time.perf_counter()
     
     try:
-        # Create OpenAI client
-        client = openai.OpenAI(api_key=api_key)
+        # Create OpenAI client with timeout configuration
+        client = openai.OpenAI(
+            api_key=api_key,
+            timeout=60.0,  # 60 second timeout for Whisper API calls
+            max_retries=2   # Retry on network errors
+        )
         
         # Create temporary file for Whisper API (it requires a file, not bytes)
         with tempfile.NamedTemporaryFile(suffix=_get_file_extension(filename), delete=False) as temp_file:
