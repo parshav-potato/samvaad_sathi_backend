@@ -17,15 +17,25 @@ POSTGRES_USERNAME=postgres
 POSTGRES_PASSWORD=your-secure-password
 ```
 
-For local development with Docker (optional):
+3) Run with Docker (recommended)
 ```powershell
-cd D:\samvaad_sathi_backend\backend
-docker compose up -d db
-# one-time DB create
-docker exec -it db psql -U postgres -d postgres -c "CREATE DATABASE app;"
+cd D:\samvaad_sathi_backend\backend\backend
+# Ensure env is set at backend/.env (OPENAI_API_KEY, POSTGRES_* for Aurora)
+docker compose up -d
+
+# View logs (service name is 'api')
+docker compose logs -f api
+```
+- App: http://localhost:8000/docs
+- Uploads are stored on host at `uploads/` (bind-mounted into the container).
+
+4) Run smoke tests (inside container)
+```powershell
+cd D:\samvaad_sathi_backend\backend\backend
+docker compose exec api python scripts/smoke_test.py
 ```
 
-3) Run API (local)
+5) Run API directly (local, without Docker)
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
 python -m venv venv
@@ -159,6 +169,8 @@ cd D:\samvaad_sathi_backend\backend\backend
 python scripts\smoke_test.py
 ```
 
+Alternatively, run from the Docker container as shown above.
+
 ### Database Management
 Check database status and manage persistence:
 ```powershell
@@ -206,11 +218,10 @@ python scripts/db_manager.py reset
 
 ## Troubleshooting
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
-- Env errors (decouple): ensure `.env` exists at `backend/backend/.env`.
 - Env errors (decouple): ensure `.env` exists at `backend/.env`.
 - Aurora connect errors: confirm Aurora cluster is running and `POSTGRES_*` credentials are correct.
 - SSL errors: Aurora requires SSL by default; connection automatically includes `sslmode=require`.
-- Port conflicts: change Adminer port in `backend/docker-compose.yaml` if 8081 is taken.
+- Port conflicts: change the port mapping (`8000:8000`) in `backend/backend/docker-compose.yml`.
 
 ## Developer Notes
 - **Async Architecture**: Async SQLAlchemy session uses `expire_on_commit` from env; `False` recommended in dev.

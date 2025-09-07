@@ -3,6 +3,8 @@ import os
 import time
 from typing import Any
 
+from openai import OpenAI  # v1 SDK
+
 
 def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None, str | None, int | None, str]:
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -15,7 +17,7 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     skills: list[str] = []
     years: float | None = None
 
-    prompt = (
+    system_prompt = (
         "Extract skills (array of strings) and total years of professional experience "
         "as a number from the resume text. Return ONLY valid JSON with keys: "
         "skills (string[]), years_experience (number|null)."
@@ -23,34 +25,19 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     input_text = text[:20000]
 
     try:
-        try:
-            from openai import OpenAI  # type: ignore
+        client = OpenAI(api_key=api_key)
+        # Use Chat Completions API (supported in v1). Avoid legacy module access.
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": input_text},
+            ],
+        )
+        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
 
-            client = OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=0,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": input_text},
-                ],
-            )
-            raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-        except Exception:
-            import openai  # type: ignore
-
-            openai.api_key = api_key
-            comp = openai.ChatCompletion.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-                temperature=0,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": input_text},
-                ],
-            )
-            raw = comp["choices"][0]["message"]["content"]
-
+        # Parse JSON if model complied, otherwise attempt best-effort extraction
         data: dict[str, Any] = json.loads(raw or "{}")
         s = data.get("skills") or []
         if isinstance(s, list):
@@ -97,33 +84,16 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
     }
 
     try:
-        try:
-            from openai import OpenAI  # type: ignore
-
-            client = OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=0.2,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": json.dumps(user_prompt)},
-                ],
-            )
-            raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-        except Exception:
-            import openai  # type: ignore
-
-            openai.api_key = api_key
-            comp = openai.ChatCompletion.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-                temperature=0.2,
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": json.dumps(user_prompt)},
-                ],
-            )
-            raw = comp["choices"][0]["message"]["content"]
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": json.dumps(user_prompt)},
+            ],
+        )
+        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
 
         data: dict[str, Any] = json.loads(raw or "{}")
         q = data.get("questions") or []

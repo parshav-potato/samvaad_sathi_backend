@@ -1,40 +1,29 @@
-# Pull official latest Python Docker image (Pulished with version 3.11.0)
-FROM --platform=linux/amd64 python:latest
+# syntax=docker/dockerfile:1
 
-# Set the working directory
-WORKDIR /usr/backend
+FROM python:3.12-slim AS runtime
 
-# Set up Python behaviour
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-ENV VIRTUAL_ENV=/opt/venv
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Switch on virtual environment
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+WORKDIR /app
 
-# Set the server port
+# Install minimal OS deps (curl for healthchecks)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies first (better layer caching)
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy application code
+COPY . /app
+
 EXPOSE 8000
 
-# Install system dependencies
-RUN apt-get update \
-  && apt-get -y install netcat gcc postgresql \
-  && apt-get clean
+# Note: Running as root by default to avoid volume permission issues on Windows bind mounts.
+# For production hardening, create a non-root user and chown /app and /app/uploads accordingly.
 
-# Install Python dependencies
-RUN pip install --upgrade pip
-COPY ./requirements.txt ./
-RUN pip3 install -r requirements.txt
-
-# Copy all files
-COPY . .
-
-# Copy entrypoint.sh for auto connection with account_db service
-COPY ./entrypoint.sh .
-RUN chmod +x /usr/backend/entrypoint.sh
-
-# Execute entrypoint.sh
-ENTRYPOINT ["/usr/backend/entrypoint.sh" ]
-
-# Start up the backend server
-CMD uvicorn src.main:backend_app --reload --workers 4 --host 0.0.0.0 --port 8000
+CMD ["uvicorn", "src.main:backend_app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: samvaad-api
+    ports:
+      - "8000:8000"
+    # Aurora-only: pass envs; do not include secrets in .env if possible
+    env_file:
+      - ../.env
+    environment:
+      # Prefer injecting the API key at runtime or via Docker secrets/CI; override here if needed
+      - OPENAI_API_KEY
+    volumes:
+      # Bind host uploads dir to container
+      - ../../uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
