@@ -112,3 +112,4 @@ Thumbs.db
 # Task Master
 .taskmaster/tasks/
 .taskmaster/reports/
+backend/.env.example

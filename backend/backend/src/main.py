@@ -32,6 +32,16 @@ def initialize_backend_application() -> fastapi.FastAPI:
 
     app.include_router(router=api_endpoint_router, prefix=settings.API_PREFIX)
 
+    # Add a root endpoint
+    @app.get("/")
+    async def root():
+        return {
+            "message": "Welcome to Samvaad Sathi Backend API",
+            "version": settings.VERSION,
+            "docs": "/docs",
+            "health": "/api/health"
+        }
+
     return app
 
 
