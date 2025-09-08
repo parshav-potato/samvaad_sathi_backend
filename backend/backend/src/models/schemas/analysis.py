@@ -8,7 +8,7 @@ from src.models.schemas.base import BaseSchemaModel
 
 class CompleteAnalysisRequest(BaseSchemaModel):
     """Request model for complete analysis endpoint"""
-    question_attempt_id: int = pydantic.Field(description="ID of the question attempt to analyze")
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(gt=0, description="ID of the question attempt to analyze (must be > 0, no string coercion)")
     analysis_types: List[str] = pydantic.Field(
         default=["domain", "communication", "pace", "pause"],
         description="List of analysis types to perform. Available: domain, communication, pace, pause"
@@ -22,6 +22,20 @@ class CompleteAnalysisRequest(BaseSchemaModel):
         if invalid_types:
             raise ValueError(f"Invalid analysis types: {invalid_types}. Allowed: {allowed_types}")
         return v
+
+
+class DomainAnalysisRequest(BaseSchemaModel):
+    """Request model for domain analysis endpoint"""
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(gt=0, description="ID of the question attempt to analyze (must be > 0, no string coercion)")
+    job_role: str | None = pydantic.Field(default=None, description="Optional job role/title to guide evaluation")
+    override_transcription: str | None = pydantic.Field(default=None, description="Optional transcription text override")
+
+
+class CommunicationAnalysisRequest(BaseSchemaModel):
+    """Request model for communication analysis endpoint"""
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(gt=0, description="ID of the question attempt to analyze (must be > 0, no string coercion)")
+    job_role: str | None = pydantic.Field(default=None, description="Optional job role/title to guide evaluation")
+    override_transcription: str | None = pydantic.Field(default=None, description="Optional transcription text override")
 
 
 class AnalysisMetadata(BaseSchemaModel):

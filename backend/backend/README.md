@@ -171,6 +171,39 @@ python scripts\smoke_test.py
 
 Alternatively, run from the Docker container as shown above.
 
+## Deploying Image to AWS ECR
+Push the locally built image (from Docker Compose) to AWS ECR.
+
+Pre-reqs:
+- AWS account and permissions for ECR (create-repository, ecr:BatchGetImage, ecr:PutImage)
+- AWS CLI v2 installed and credentials configured (or set env vars in the session)
+
+Using helper script:
+```powershell
+cd D:\samvaad_sathi_backend\backend\backend
+# By default, pushes backend-api:latest to <account>.dkr.ecr.ap-south-1.amazonaws.com/samvaad-sathi:latest
+powershell -ExecutionPolicy Bypass -File scripts\push_to_ecr.ps1 -Region ap-south-1 -Repository samvaad-sathi -Image backend-api:latest -Tag latest
+
+# Optional: specify AccountId explicitly
+powershell -ExecutionPolicy Bypass -File scripts\push_to_ecr.ps1 -Region ap-south-1 -Repository samvaad-sathi -Image backend-api:latest -Tag latest -AccountId 123456789012
+```
+
+Manual commands (fallback):
+```powershell
+# Set your region
+$env:AWS_DEFAULT_REGION = "ap-south-1"
+
+# Log in to ECR (replace with your account ID)
+aws ecr get-login-password --region $env:AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ap-south-1.amazonaws.com
+
+# Create repo if missing
+aws ecr create-repository --repository-name samvaad-sathi --image-scanning-configuration scanOnPush=true --region $env:AWS_DEFAULT_REGION
+
+# Tag and push the image that compose built (REPOSITORY=backend-api, TAG=latest)
+docker tag backend-api:latest 123456789012.dkr.ecr.ap-south-1.amazonaws.com/samvaad-sathi:latest
+docker push 123456789012.dkr.ecr.ap-south-1.amazonaws.com/samvaad-sathi:latest
+```
+
 ### Database Management
 Check database status and manage persistence:
 ```powershell

@@ -4,21 +4,26 @@ import fastapi
 import pydantic
 import random
 from fastapi.security import HTTPAuthorizationCredentials
+from typing import Any, Dict, List, Optional
 
 from src.api.dependencies.auth import get_current_user, security
 from src.api.dependencies.repository import get_repository
 from src.api.dependencies.session import get_async_session
 from src.models.schemas.base import BaseSchemaModel
 from src.models.schemas.analysis import (
-    CompleteAnalysisRequest, 
+    CompleteAnalysisRequest,
     CompleteAnalysisResponse,
+    DomainAnalysisRequest,
+    CommunicationAnalysisRequest,
     DomainAnalysisResponse,
     CommunicationAnalysisResponse,
     PaceAnalysisResponse,
-    PauseAnalysisResponse
+    PauseAnalysisResponse,
 )
 from src.repository.crud.question import QuestionAttemptCRUDRepository
+from src.models.db.user import User
 from src.services.analysis import analysis_service
+from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -40,7 +45,7 @@ router = fastapi.APIRouter(prefix="", tags=["analysis"])
 async def complete_analysis(
     request: CompleteAnalysisRequest,
     credentials: HTTPAuthorizationCredentials = fastapi.Depends(security),
-    current_user = fastapi.Depends(get_current_user),
+    current_user: User = fastapi.Depends(get_current_user),
     question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
     db: AsyncSession = fastapi.Depends(get_async_session)
 ) -> CompleteAnalysisResponse:
@@ -118,86 +123,204 @@ async def complete_analysis(
         )
 
 
-# Individual analysis endpoints (stubs for now)
-
+# Domain analysis endpoint (LLM-backed)
 @router.post(
-    path="/analyze-domain",
-    name="analysis:analyze-domain",
+    path="/domain-base-analysis",
+    name="analysis:domain-base",
     response_model=DomainAnalysisResponse,
     status_code=fastapi.status.HTTP_200_OK,
     summary="Analyze domain knowledge from question attempt",
-    description="Evaluates the domain-specific knowledge demonstrated in a question attempt answer."
+    description=(
+        "Evaluates the domain-specific knowledge demonstrated in a question attempt answer using an LLM. "
+        "Persists results under analysis_json.domain."
+    ),
 )
-async def analyze_domain(
-    request: dict,
-    current_user = fastapi.Depends(get_current_user),
-    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository))
+async def domain_base_analysis(
+    request: DomainAnalysisRequest,
+    current_user: User = fastapi.Depends(get_current_user),
+    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> DomainAnalysisResponse:
-    """Stub implementation for domain analysis."""
-    question_attempt_id = request.get("question_attempt_id")
-    
-    # Verify ownership
     qa = await question_repo.get_by_id_and_user(
-        question_attempt_id=question_attempt_id,
-        user_id=current_user.id
+        question_attempt_id=request.question_attempt_id,
+        user_id=current_user.id,
     )
-    
-    if not qa or not qa.transcription:
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_404_NOT_FOUND,
-            detail="Question attempt not found or no transcription available"
-        )
-    
-    # Mock analysis results
+    if not qa:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Question attempt not found")
+
+    # Choose transcription text
+    transcription_text: str | None = None
+    if request.override_transcription:
+        transcription_text = request.override_transcription.strip()
+    elif qa.transcription:
+        transcription_text = qa.transcription.get("text") or qa.transcription.get("transcript")
+    if not transcription_text:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Transcription missing")
+
+    # Build user profile context
+    years = getattr(current_user, "years_experience", None)
+    skills_json = getattr(current_user, "skills", None) or {}
+    skills_list = skills_json.get("items") if isinstance(skills_json, dict) else None
+    # Avoid accessing qa.interview to prevent async lazy-loading errors
+    profile = {
+        "years_experience": years,
+        "skills": (skills_list or [])[:30],
+        "job_role": request.job_role,
+        "track": None,
+    }
+
+    # Call LLM
+    analysis, llm_error, latency_ms, llm_model = analyze_domain_with_llm(
+        user_profile=profile,
+        question_text=getattr(qa, "question_text", None),
+        transcription=transcription_text,
+    )
+
+    # Fallback minimal structure if LLM unavailable
+    if not analysis:
+        analysis = {
+            "overall_score": None,
+            "summary": "",
+            "suggestions": [],
+            "confidence": 0.0,
+            "llm_error": llm_error,
+        }
+
+    # Persist into analysis_json.domain (merge, not overwrite others)
+    merged = dict(qa.analysis_json or {})
+    merged["domain"] = {
+        **analysis,
+        "llm_model": llm_model,
+        "llm_latency_ms": latency_ms,
+    }
+    await question_repo.update_analysis_json(question_attempt_id=request.question_attempt_id, analysis_json=merged)
+
+    # Map to response
+    # Derive a domain_score from analysis if present; else 0.0
+    score = analysis.get("overall_score") if isinstance(analysis.get("overall_score"), (int, float)) else 0.0
+    feedback = analysis.get("summary") or analysis.get("domain_feedback") or ""
+    knowledge_areas = analysis.get("knowledge_areas") or []
+    if not knowledge_areas and isinstance(analysis.get("criteria"), dict):
+        knowledge_areas = [k for k in (analysis["criteria"].keys())]
+    strengths = analysis.get("strengths") or []
+    improvements = analysis.get("improvements") or analysis.get("suggestions") or []
+
     return DomainAnalysisResponse(
-        question_attempt_id=question_attempt_id,
-        domain_score=random.uniform(60.0, 95.0),
-        domain_feedback="Domain knowledge analysis shows good understanding of core concepts.",
-        knowledge_areas=["Core Concepts", "Technical Implementation", "Best Practices"],
-        strengths=["Clear explanations", "Accurate terminology"],
-        improvements=["Could provide more specific examples", "Deeper technical details"]
+        question_attempt_id=request.question_attempt_id,
+        domain_score=float(score or 0.0),
+        domain_feedback=str(feedback),
+        knowledge_areas=[str(x) for x in knowledge_areas][:10],
+        strengths=[str(x) for x in strengths][:10],
+        improvements=[str(x) for x in improvements][:10],
     )
 
 
 @router.post(
-    path="/analyze-communication",
-    name="analysis:analyze-communication",  
+    path="/communication-based-analysis",
+    name="analysis:communication-base",  
     response_model=CommunicationAnalysisResponse,
     status_code=fastapi.status.HTTP_200_OK,
     summary="Analyze communication quality from question attempt",
-    description="Evaluates clarity, vocabulary, grammar, and structure of the answer."
+    description=(
+        "Evaluates clarity, grammar, vocabulary, and structure using an LLM. "
+        "Persists results under analysis_json.communication."
+    ),
 )
-async def analyze_communication(
-    request: dict,
-    current_user = fastapi.Depends(get_current_user),
-    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository))
+async def communication_based_analysis(
+    request: CommunicationAnalysisRequest,
+    current_user: User = fastapi.Depends(get_current_user),
+    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> CommunicationAnalysisResponse:
-    """Stub implementation for communication analysis."""
-    question_attempt_id = request.get("question_attempt_id")
-    
-    # Verify ownership
     qa = await question_repo.get_by_id_and_user(
-        question_attempt_id=question_attempt_id,
-        user_id=current_user.id
+        question_attempt_id=request.question_attempt_id,
+        user_id=current_user.id,
     )
-    
-    if not qa or not qa.transcription:
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_404_NOT_FOUND,
-            detail="Question attempt not found or no transcription available"
-        )
-    
-    # Mock analysis results
-    base_score = random.uniform(75.0, 95.0)
+    if not qa:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Question attempt not found")
+
+    transcription_text: str | None = None
+    if request.override_transcription:
+        transcription_text = request.override_transcription.strip()
+    elif qa.transcription:
+        transcription_text = qa.transcription.get("text") or qa.transcription.get("transcript")
+    if not transcription_text:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Transcription missing")
+
+    years = getattr(current_user, "years_experience", None)
+    skills_json = getattr(current_user, "skills", None) or {}
+    skills_list = skills_json.get("items") if isinstance(skills_json, dict) else None
+    # Avoid accessing qa.interview to prevent async lazy-loading errors
+    profile = {
+        "years_experience": years,
+        "skills": (skills_list or [])[:30],
+        "job_role": request.job_role,
+        "track": None,
+    }
+    prior_metrics = (qa.analysis_json or {})
+
+    analysis, llm_error, latency_ms, llm_model = analyze_communication_with_llm(
+        user_profile=profile,
+        question_text=getattr(qa, "question_text", None),
+        transcription=transcription_text,
+        aux_metrics={
+            "pace": prior_metrics.get("pace"),
+            "pause": prior_metrics.get("pause"),
+        },
+    )
+
+    if not analysis:
+        analysis = {
+            "overall_score": None,
+            "summary": "",
+            "suggestions": [],
+            "confidence": 0.0,
+            "llm_error": llm_error,
+        }
+
+    merged = dict(qa.analysis_json or {})
+    merged["communication"] = {
+        **analysis,
+        "llm_model": llm_model,
+        "llm_latency_ms": latency_ms,
+    }
+    await question_repo.update_analysis_json(question_attempt_id=request.question_attempt_id, analysis_json=merged)
+
+    # Map to response
+    def _num(value: Any, fallback: float) -> float:
+        try:
+            return float(value) if isinstance(value, (int, float)) else float(fallback)
+        except Exception:
+            return float(fallback)
+
+    base = _num(analysis.get("overall_score"), 0.0)
+    clarity = base
+    vocab = base
+    grammar = base
+    structure = base
+    crit = analysis.get("criteria")
+    if isinstance(crit, dict):
+        clarity = _num(crit.get("clarity", {}).get("score"), base)
+        structure = _num(crit.get("structure", {}).get("score"), base)
+        # vocabulary may be named differently
+        vocab_score = crit.get("vocabulary", {}).get("score") if isinstance(crit.get("vocabulary"), dict) else None
+        jargon_score = crit.get("jargon_use", {}).get("score") if isinstance(crit.get("jargon_use"), dict) else None
+        vocab = _num(vocab_score if isinstance(vocab_score, (int, float)) else jargon_score, base)
+        grammar = _num(crit.get("grammar", {}).get("score") if isinstance(crit.get("grammar"), dict) else None, base)
+
+    feedback = analysis.get("summary") or analysis.get("communication_feedback") or ""
+    recs_raw = analysis.get("suggestions") or analysis.get("recommendations") or []
+    if not isinstance(recs_raw, list):
+        recs_raw = [str(recs_raw)]
+    recommendations = [str(x) for x in recs_raw][:10]
+
     return CommunicationAnalysisResponse(
-        question_attempt_id=question_attempt_id,
-        communication_score=base_score,
-        clarity_score=base_score + random.uniform(-5.0, 5.0),
-        vocabulary_score=base_score + random.uniform(-10.0, 5.0),
-        grammar_score=base_score + random.uniform(-3.0, 3.0),
-        structure_score=base_score + random.uniform(-8.0, 8.0),
-        communication_feedback="Communication analysis shows clear and structured responses.",
-        recommendations=["Use more varied vocabulary", "Provide clearer examples"]
+        question_attempt_id=request.question_attempt_id,
+        communication_score=base,
+        clarity_score=clarity,
+        vocabulary_score=vocab,
+        grammar_score=grammar,
+        structure_score=structure,
+        communication_feedback=str(feedback),
+        recommendations=recommendations,
     )
 
 

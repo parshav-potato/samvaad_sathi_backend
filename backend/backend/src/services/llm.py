@@ -115,3 +115,110 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
     latency_ms = int((time.perf_counter() - start) * 1000)
     return questions, error, latency_ms, model, structured_items
 
+
+def analyze_domain_with_llm(
+    *,
+    user_profile: dict[str, Any],
+    question_text: str | None,
+    transcription: str,
+) -> tuple[dict[str, Any], str | None, int | None, str]:
+    """
+    Perform domain knowledge analysis using LLM. Returns (analysis_json, error, latency_ms, model).
+    Never raises; on missing API key returns empty analysis and no error.
+    """
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}, None, None, model
+
+    start = time.perf_counter()
+    error: str | None = None
+    analysis: dict[str, Any] = {}
+
+    sys_prompt = (
+        "You are a strict technical interviewer. Assess the candidate's domain knowledge based on the transcript. "
+        "Return ONLY valid JSON with keys: overall_score (0-100), criteria (object with correctness/depth/coverage/"
+        "relevance each having score (0-100) and reasons (string[]), misconceptions (present: bool, notes: string[]), "
+        "examples (present: bool, notes: string[])), summary (string), suggestions (string[]), confidence (0-1)."
+    )
+    user_content = {
+        "user_profile": {k: v for k, v in user_profile.items() if v is not None},
+        "question": question_text or "",
+        "transcription": (transcription or "")[:8000],
+    }
+
+    try:
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": json.dumps(user_content)},
+            ],
+        )
+        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
+        data: dict[str, Any] = json.loads(raw or "{}")
+        # Minimal sanity checks
+        if isinstance(data.get("overall_score"), (int, float)):
+            analysis = data
+    except Exception as e:
+        error = str(e)
+
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return analysis, error, latency_ms, model
+
+
+def analyze_communication_with_llm(
+    *,
+    user_profile: dict[str, Any],
+    question_text: str | None,
+    transcription: str,
+    aux_metrics: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None, int | None, str]:
+    """
+    Perform communication analysis using LLM. Returns (analysis_json, error, latency_ms, model).
+    Never raises; on missing API key returns empty analysis and no error.
+    """
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}, None, None, model
+
+    start = time.perf_counter()
+    error: str | None = None
+    analysis: dict[str, Any] = {}
+
+    sys_prompt = (
+        "You are a communication coach. Assess clarity, structure, coherence, conciseness, jargon use, and tone/empathy. "
+        "Return ONLY valid JSON with keys: overall_score (0-100), criteria (object with clarity/structure/coherence/"
+        "conciseness each having score (0-100) and reasons (string[]), jargon_use (score:number, notes:string[]), "
+        "tone_empathy (score:number, notes:string[])), summary (string), suggestions (string[]), confidence (0-1)."
+    )
+    payload = {
+        "user_profile": {k: v for k, v in user_profile.items() if v is not None},
+        "question": question_text or "",
+        "transcription": (transcription or "")[:8000],
+        "aux_metrics": aux_metrics or {},
+    }
+
+    try:
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+        )
+        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
+        data: dict[str, Any] = json.loads(raw or "{}")
+        if isinstance(data.get("overall_score"), (int, float)):
+            analysis = data
+    except Exception as e:
+        error = str(e)
+
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return analysis, error, latency_ms, model
+

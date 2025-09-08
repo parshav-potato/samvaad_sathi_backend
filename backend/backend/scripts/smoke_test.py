@@ -272,16 +272,16 @@ def main() -> None:
                                 break
                         
                         if transcribed_qa_id:
-                            # Test individual analysis endpoints
+                            # Test individual analysis endpoints (new paths)
                             analysis_payload = {"question_attempt_id": transcribed_qa_id}
                             
-                            # Test domain analysis
-                            r, err = safe_call(client, "POST", f"{API}/analyze-domain", headers=headers, json=analysis_payload)
-                            print_result("POST /api/analyze-domain", r, err)
+                            # Test domain analysis (LLM-backed)
+                            r, err = safe_call(client, "POST", f"{API}/domain-base-analysis", headers=headers, json=analysis_payload)
+                            print_result("POST /api/domain-base-analysis", r, err)
                             
-                            # Test communication analysis  
-                            r, err = safe_call(client, "POST", f"{API}/analyze-communication", headers=headers, json=analysis_payload)
-                            print_result("POST /api/analyze-communication", r, err)
+                            # Test communication analysis (LLM-backed)
+                            r, err = safe_call(client, "POST", f"{API}/communication-based-analysis", headers=headers, json=analysis_payload)
+                            print_result("POST /api/communication-based-analysis", r, err)
                             
                             # Test pace analysis
                             r, err = safe_call(client, "POST", f"{API}/analyze-pace", headers=headers, json=analysis_payload)
@@ -315,15 +315,25 @@ def main() -> None:
                             }
                             r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json=partial_payload)
                             print_result("POST /api/complete-analysis (partial types)", r, err)
+
+                            # Communication analysis with override text to ensure endpoint works even when short
+                            comm_override = {"question_attempt_id": transcribed_qa_id, "override_transcription": "I spoke at a moderate pace and structured my answer logically."}
+                            r, err = safe_call(client, "POST", f"{API}/communication-based-analysis", headers=headers, json=comm_override)
+                            print_result("POST /api/communication-based-analysis (override)", r, err)
                             
                         else:
                             # Test with mock question attempt ID if no transcribed data
                             mock_qa_id = qa_data["items"][0]["id"] if qa_data["items"] else 1
                             analysis_payload = {"question_attempt_id": mock_qa_id}
                             
-                            # These should fail gracefully due to missing transcription
-                            r, err = safe_call(client, "POST", f"{API}/analyze-domain", headers=headers, json=analysis_payload)
-                            print_result("POST /api/analyze-domain (no transcription)", r, err)
+                            # Updated: Should fail gracefully due to missing transcription
+                            r, err = safe_call(client, "POST", f"{API}/domain-base-analysis", headers=headers, json=analysis_payload)
+                            print_result("POST /api/domain-base-analysis (no transcription)", r, err)
+
+                            # Provide override_transcription to succeed even without stored transcription
+                            analysis_payload_override = {"question_attempt_id": mock_qa_id, "override_transcription": "This is a short answer about data structures and algorithms."}
+                            r, err = safe_call(client, "POST", f"{API}/domain-base-analysis", headers=headers, json=analysis_payload_override)
+                            print_result("POST /api/domain-base-analysis (override transcription)", r, err)
                             
                             r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json={
                                 "question_attempt_id": mock_qa_id,
