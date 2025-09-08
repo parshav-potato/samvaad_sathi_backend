@@ -151,16 +151,17 @@ Base prefix: `/api`
   - **Processing**: Stateless temporary file handling, automatic cleanup
   - **Performance**: ~6-10 seconds for 72-second audio files
 
-### 📊 Analysis Aggregation (Auth Required)
+### 📊 Analysis & Reports (Auth Required)
 - `POST /api/complete-analysis`: Aggregate multiple analysis types for a question attempt
   - **Request**: `{ question_attempt_id: int, analysis_types: ["domain", "communication", "pace", "pause"] }`
   - **Response**: Aggregated analysis results with metadata and performance stats
   - **Features**: Concurrent processing, partial failure handling, database persistence
   - **Performance**: Sub-second response times for all 4 analysis types
-- `POST /api/analyze-domain`: Individual domain knowledge analysis
-- `POST /api/analyze-communication`: Individual communication quality analysis  
+- `POST /api/domain-base-analysis`: Individual domain knowledge analysis
+- `POST /api/communication-based-analysis`: Individual communication quality analysis  
 - `POST /api/analyze-pace`: Individual speaking pace analysis
 - `POST /api/analyze-pause`: Individual pause pattern analysis
+- `POST /api/final-report`: Generate and persist session-level report for an interview
 
 ## Smoke Tests
 Run comprehensive end-to-end checks:
@@ -224,6 +225,8 @@ python scripts/db_manager.py reset
 ```
 
 **Database Persistence**: The database is now configured for persistence across application restarts. Data will not be lost when the application is restarted, and multiple instances can safely connect to the same database.
+
+Note: A migration adds a UNIQUE constraint on `report.interview_id` to support atomic upsert. Ensure migrations are up to date before using `/api/final-report` under concurrent load.
 
 **Test Coverage:**
 - **Authentication**: User registration, login, token validation, negative cases

@@ -412,6 +412,16 @@ def main() -> None:
                                 print(f"   WARN: final-report missing key: {k}")
                         if body.get("saved") is not True:
                             print("   WARN: final-report not persisted (saved != true)")
+
+                    # Verify retrieval of saved report via GET endpoint
+                    r2, err2 = safe_call(client, "GET", f"{API}/final-report/{current_interview_id}", headers=headers)
+                    print_result("GET /api/final-report/{id}", r2, err2)
+                    if r2 and 200 <= r2.status_code < 300:
+                        body2 = safe_json(r2)
+                        if isinstance(body2, dict):
+                            for k in ("interviewId", "summary", "knowledgeCompetence", "speechStructureFluency", "overallScore"):
+                                if k not in body2:
+                                    print(f"   WARN: final-report (GET) missing key: {k}")
         except Exception as _e:
             print_result("POST /api/final-report", None, str(_e))
 

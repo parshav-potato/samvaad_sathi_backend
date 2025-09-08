@@ -52,3 +52,31 @@ async def test_generate_for_interview_basic_averages():
     # Recommendations merged and deduped
     assert result["summary"]["per_question"][0]["strengths"]
     assert result["summary"]["per_question"][0]["improvements"]
+
+
+@pytest.mark.asyncio
+async def test_generate_ignores_nan_and_handles_missing_fields():
+    svc = FinalReportService(db=None)
+
+    qa = DummyQA(
+        id=1,
+        question_text=None,
+        analysis_json={
+            "domain": {"domain_score": float("nan"), "strengths": ["Strong A"], "knowledge_areas": ["Topic"]},
+            "communication": {"communication_score": None, "clarity_score": "NaN", "recommendations": ["Be concise", "Be concise"]},
+            "pace": {"pace_score": 75, "pace_recommendations": ["Slow down"]},
+            "pause": {"pause_score": None, "pause_recommendations": ["Fewer fillers"]},
+        },
+    )
+
+    res = await svc.generate_for_interview(1, [qa])
+    # domain_score NaN -> ignored => average_domain_score should be None
+    assert res["knowledge_competence"]["average_domain_score"] is None
+    # communication None -> ignored
+    assert res["speech_structure_fluency"]["average_communication_score"] is None
+    # pace collected
+    assert res["speech_structure_fluency"]["average_pace_score"] == 75
+    # recommendations deduped and combined
+    recs = res["speech_structure_fluency"]["recommendations"]
+    assert "Be concise" in recs and recs.count("Be concise") == 1
+    assert "Slow down" in recs and "Fewer fillers" in recs

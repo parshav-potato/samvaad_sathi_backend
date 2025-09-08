@@ -115,3 +115,11 @@ It exercises:
 - Async DB session is created with `expire_on_commit` configurable via `.env` (`IS_DB_EXPIRE_ON_COMMIT`). Setting this to `False` in dev avoids attribute refresh that can trigger `MissingGreenlet`.
 - All ORM models are imported during startup so SQLAlchemy can resolve relationship strings like `Interview`.
 - JWT tokens use `python-jose` and are validated with the configured `JWT_SECRET_KEY` and `JWT_ALGORITHM`.
+
+- Analysis & Reports (Auth Required)
+  - `POST /api/complete-analysis` – Aggregate analyses for a question attempt
+  - `POST /api/domain-base-analysis` – Domain knowledge analysis
+  - `POST /api/communication-based-analysis` – Communication quality analysis
+  - `POST /api/analyze-pace` – Pace analysis
+  - `POST /api/analyze-pause` – Pause analysis
+  - `POST /api/final-report` – Generate and persist session-level report

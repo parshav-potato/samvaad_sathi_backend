@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import fastapi
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
@@ -27,6 +29,8 @@ async def generate_final_report(
     qa_repo: QuestionAttemptCRUDRepository = Depends(get_repository(QuestionAttemptCRUDRepository)),
     report_repo: ReportCRUDRepository = Depends(get_repository(ReportCRUDRepository)),
 ):
+    logger = logging.getLogger(__name__)
+    logger.info("/final-report called for interview_id=%s by user_id=%s", payload.interview_id, current_user.id)
     # Verify interview belongs to current user
     interview = await interview_repo.get_by_id_and_user(payload.interview_id, current_user.id)
     if not interview:
@@ -34,6 +38,7 @@ async def generate_final_report(
 
     # Fetch all question attempts for interview
     attempts = await qa_repo.list_by_interview(interview_id=interview.id)
+    logger.debug("/final-report assembling %d question attempts for interview_id=%s", len(attempts), interview.id)
 
     # Generate report content
     service = FinalReportService(session)
@@ -51,10 +56,12 @@ async def generate_final_report(
             overall_score=result["overall_score"],
         )
         await session.commit()
+        logger.info("/final-report persisted successfully for interview_id=%s", interview.id)
     except Exception as exc:  # noqa: BLE001
         await session.rollback()
         saved = False
         save_error = str(exc)
+        logger.exception("/final-report failed to persist for interview_id=%s: %s", interview.id, exc)
 
     response = FinalReportResponse(
         interview_id=interview.id,
@@ -65,5 +72,39 @@ async def generate_final_report(
         saved=saved,
         save_error=save_error,
         message="Final report generated" if saved else "Final report generated but failed to save",
+    )
+    return response
+
+
+@router.get("/final-report/{interview_id}", response_model=FinalReportResponse, status_code=200)
+async def get_final_report(
+    interview_id: int,
+    current_user: User = Depends(get_current_user),
+    session: SQLAlchemyAsyncSession = Depends(get_async_session),
+    interview_repo: InterviewCRUDRepository = Depends(get_repository(InterviewCRUDRepository)),
+    report_repo: ReportCRUDRepository = Depends(get_repository(ReportCRUDRepository)),
+):
+    logger = logging.getLogger(__name__)
+    logger.info("GET /final-report/%s by user_id=%s", interview_id, current_user.id)
+
+    # Verify interview belongs to current user
+    interview = await interview_repo.get_by_id_and_user(interview_id, current_user.id)
+    if not interview:
+        raise fastapi.HTTPException(status_code=404, detail="Interview not found or access denied")
+
+    # Fetch saved report
+    report = await report_repo.get_by_interview_id(interview_id)
+    if not report:
+        raise fastapi.HTTPException(status_code=404, detail="Final report not found for this interview")
+
+    response = FinalReportResponse(
+        interview_id=interview.id,
+        summary=report.summary or {"title": "Interview Performance Summary", "overview": "", "per_question": []},
+        knowledge_competence=report.knowledge_competence or {},
+        speech_structure_fluency=report.speech_structure_fluency or {},
+        overall_score=report.overall_score or 0.0,
+        saved=True,
+        save_error=None,
+        message="Final report fetched",
     )
     return response

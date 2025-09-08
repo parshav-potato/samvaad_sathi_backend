@@ -25,7 +25,9 @@ class FinalReportRequest(BaseSchemaModel):
 class PerQuestionAnalysisSummary(BaseSchemaModel):
     """Condensed view of per-question analysis for inclusion in the report summary."""
 
-    question_attempt_id: int
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(
+        gt=0, description="QuestionAttempt ID (must be > 0)"
+    )
     question_text: str | None = None
 
     # Aggregated/primary scores

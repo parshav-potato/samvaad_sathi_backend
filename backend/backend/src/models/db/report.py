@@ -10,7 +10,7 @@ class Report(Base):  # type: ignore
 
     id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(primary_key=True, autoincrement="auto")
     interview_id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(
-        sqlalchemy.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True
+    sqlalchemy.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True, unique=True
     )
     summary: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)
     knowledge_competence: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)

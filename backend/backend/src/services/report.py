@@ -8,6 +8,7 @@ summary generation can be added later if needed.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
@@ -94,14 +95,30 @@ class FinalReportService:
                 pause_scores.append(z_score)
 
             # Merge strengths/improvements
-            strengths = list(dict.fromkeys((d_strengths or []) + _as_list_str(c.get("recommendations"))))
-            improvements = list(dict.fromkeys((d_improvements or []) + _as_list_str(p.get("recommendations")) + _as_list_str(z.get("recommendations"))))
+            # Strengths: only legit strength sources (exclude communication recommendations)
+            strengths = list(dict.fromkeys(d_strengths or []))
+            # Improvements: include domain improvements + communication/pace/pause recommendations
+            improvements = list(
+                dict.fromkeys(
+                    (d_improvements or [])
+                    + _as_list_str(c.get("recommendations"))
+                    + _as_list_str(p.get("recommendations"))
+                    + _as_list_str(z.get("recommendations"))
+                    + _as_list_str((analysis.get("pace") or {}).get("pace_recommendations"))
+                    + _as_list_str((analysis.get("pause") or {}).get("pause_recommendations"))
+                )
+            )
 
             if d_strengths:
                 kc_strengths.extend([s for s in d_strengths if s])
             if d_improvements:
                 kc_improvements.extend([s for s in d_improvements if s])
+            # SSF recommendations: combine communication + pace/pause recommendations
             ssf_recs.extend(_as_list_str(c.get("recommendations")))
+            ssf_recs.extend(_as_list_str(p.get("recommendations")))
+            ssf_recs.extend(_as_list_str(z.get("recommendations")))
+            ssf_recs.extend(_as_list_str(p.get("pace_recommendations")))
+            ssf_recs.extend(_as_list_str(z.get("pause_recommendations")))
 
             per_question.append(
                 PerQuestionAnalysisSummary(
@@ -165,7 +182,10 @@ class FinalReportService:
 
 def _as_float(v: Any) -> Optional[float]:
     try:
-        return float(v) if v is not None else None
+        if v is None:
+            return None
+        f = float(v)
+        return f if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None
 
