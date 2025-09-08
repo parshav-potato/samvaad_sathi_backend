@@ -52,4 +52,13 @@ class InterviewCRUDRepository(BaseCRUDRepository):
         query = await self.async_session.execute(statement=stmt)
         return query.scalar()  # type: ignore
 
+    async def get_by_id_and_user(self, interview_id: int, user_id: int) -> Interview | None:
+        stmt = (
+            sqlalchemy.select(Interview)
+            .where(Interview.id == interview_id)
+            .where(Interview.user_id == user_id)
+        )
+        query = await self.async_session.execute(statement=stmt)
+        return query.scalar()  # type: ignore
+
 

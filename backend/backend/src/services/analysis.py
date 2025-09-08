@@ -120,49 +120,40 @@ class AnalysisAggregationService:
         analysis_types: List[str], 
         auth_token: str
     ) -> Dict[str, Dict[str, Any]]:
-        """Run multiple analyses concurrently using direct function calls."""
-        
+        """Run multiple analyses sequentially with per-analysis timeouts."""
         # Define supported analysis types
         SUPPORTED_ANALYSIS_TYPES = {"domain", "communication", "pace", "pause"}
         
-        # Validate and create analysis tasks
-        analysis_tasks = []  # List of (analysis_type, task) tuples to avoid overwrites
-        analysis_results = {}
+        analysis_results: Dict[str, Dict[str, Any]] = {}
         
         for analysis_type in analysis_types:
             if analysis_type not in SUPPORTED_ANALYSIS_TYPES:
-                # Immediately record error for unsupported types
                 analysis_results[analysis_type] = {
                     "success": False,
                     "error": f"Unsupported analysis type: {analysis_type}. Supported: {SUPPORTED_ANALYSIS_TYPES}",
-                    "data": None
+                    "data": None,
                 }
-            else:
-                # Create task with timeout wrapper
-                task_coro = self._generate_analysis_result(analysis_type, question_attempt_id)
-                timeout_task = asyncio.wait_for(task_coro, timeout=self.timeout)
-                analysis_tasks.append((analysis_type, timeout_task))
-        
-        # Wait for all valid analyses to complete
-        if analysis_tasks:
-            tasks_only = [task for _, task in analysis_tasks]
-            results = await asyncio.gather(*tasks_only, return_exceptions=True)
+                continue
             
-            # Map results back to analysis types
-            for i, (analysis_type, _) in enumerate(analysis_tasks):
-                result = results[i]
-                if isinstance(result, Exception):
-                    error_msg = str(result)
-                    if isinstance(result, asyncio.TimeoutError):
-                        error_msg = f"Analysis timeout after {self.timeout}s"
-                    analysis_results[analysis_type] = {
-                        "success": False,
-                        "error": error_msg,
-                        "data": None
-                    }
-                else:
-                    analysis_results[analysis_type] = result
-                
+            try:
+                result = await asyncio.wait_for(
+                    self._generate_analysis_result(analysis_type, question_attempt_id),
+                    timeout=self.timeout,
+                )
+                analysis_results[analysis_type] = result
+            except asyncio.TimeoutError:
+                analysis_results[analysis_type] = {
+                    "success": False,
+                    "error": f"Analysis timeout after {self.timeout}s",
+                    "data": None,
+                }
+            except Exception as e:
+                analysis_results[analysis_type] = {
+                    "success": False,
+                    "error": str(e),
+                    "data": None,
+                }
+        
         return analysis_results
     
     async def _generate_analysis_result(

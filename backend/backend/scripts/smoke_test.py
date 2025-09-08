@@ -53,7 +53,7 @@ def main() -> None:
     password = "pass123!"
     name = "Smoke User"
 
-    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+    with httpx.Client(base_url=BASE_URL, timeout=30.0) as client:
         r, err = safe_call(client, "GET", "/docs")
         print_result("GET /docs", r, err)
 
@@ -396,6 +396,24 @@ def main() -> None:
         # Duplicate users register
         r, err = safe_call(client, "POST", f"{API}/users", json={"email": email, "password": password, "name": name})
         print_result("POST /api/users (duplicate)", r, err)
+
+        # Final report generation (if we have a current interview id)
+        try:
+            if 'current_interview_id' in locals() and current_interview_id:
+                payload = {"interview_id": current_interview_id}
+                r, err = safe_call(client, "POST", f"{API}/final-report", headers=headers, json=payload)
+                print_result("POST /api/final-report", r, err)
+                # quick checks
+                if r and 200 <= r.status_code < 300:
+                    body = safe_json(r)
+                    if isinstance(body, dict):
+                        for k in ("interviewId", "summary", "knowledgeCompetence", "speechStructureFluency", "overallScore", "saved"):
+                            if k not in body:
+                                print(f"   WARN: final-report missing key: {k}")
+                        if body.get("saved") is not True:
+                            print("   WARN: final-report not persisted (saved != true)")
+        except Exception as _e:
+            print_result("POST /api/final-report", None, str(_e))
 
         # Clean up (end of tests)
         print("\n" + "="*50 + " SMOKE TEST COMPLETE " + "="*50)
