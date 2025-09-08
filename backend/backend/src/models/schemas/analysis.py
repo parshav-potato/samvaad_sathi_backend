@@ -23,6 +23,17 @@ class CompleteAnalysisRequest(BaseSchemaModel):
             raise ValueError(f"Invalid analysis types: {invalid_types}. Allowed: {allowed_types}")
         return v
 
+    # OpenAPI example
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {
+                "questionAttemptId": 1001,
+                "analysisTypes": ["domain", "communication", "pace", "pause"]
+            }
+        ]
+    }
+
 
 class DomainAnalysisRequest(BaseSchemaModel):
     """Request model for domain analysis endpoint"""
@@ -63,6 +74,58 @@ class CompleteAnalysisResponse(BaseSchemaModel):
     saved: bool = pydantic.Field(description="Whether the aggregated analysis was successfully saved to database")
     save_error: str | None = pydantic.Field(default=None, description="Error message if database save failed")
     message: str = pydantic.Field(description="Human-friendly status message about the analysis process")
+
+    # OpenAPI example
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {
+                "questionAttemptId": 1001,
+                "analysisComplete": True,
+                "aggregatedAnalysis": {
+                    "domain": {
+                        "domainScore": 84.5,
+                        "knowledgeAreas": ["ACID", "Indexing"],
+                        "strengths": ["Clear concepts"],
+                        "improvements": ["More examples"]
+                    },
+                    "communication": {
+                        "communicationScore": 76.0,
+                        "clarityScore": 74.0,
+                        "vocabularyScore": 78.0,
+                        "grammarScore": 80.0,
+                        "structureScore": 75.0,
+                        "recommendations": ["Shorter sentences"]
+                    },
+                    "pace": {
+                        "paceScore": 88.0,
+                        "wordsPerMinute": 145.0,
+                        "paceFeedback": "Optimal pace",
+                        "paceCategory": "optimal",
+                        "recommendations": []
+                    },
+                    "pause": {
+                        "pauseScore": 72.0,
+                        "totalPauseDuration": 12.5,
+                        "pauseCount": 8,
+                        "averagePauseDuration": 1.56,
+                        "longestPauseDuration": 3.2,
+                        "pauseFeedback": "Slightly frequent pauses",
+                        "recommendations": ["Plan next point before speaking"]
+                    }
+                },
+                "metadata": {
+                    "totalLatencyMs": 2310,
+                    "completedAnalyses": ["domain", "communication", "pace", "pause"],
+                    "failedAnalyses": [],
+                    "partialFailure": False
+                },
+                "saved": True,
+                "saveError": None,
+                "message": "Analysis completed and saved"
+            }
+        ]
+    }
 
 
 # Individual analysis response models for internal use

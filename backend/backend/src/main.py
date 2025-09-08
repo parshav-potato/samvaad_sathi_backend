@@ -13,6 +13,27 @@ def initialize_backend_application() -> fastapi.FastAPI:
     load_dotenv()
     app = fastapi.FastAPI(**settings.set_backend_app_attributes)  # type: ignore
 
+    # Tags metadata for Swagger grouping
+    tags_metadata = [
+        {"name": "users", "description": "User registration, login, and authentication."},
+        {"name": "resume", "description": "Resume upload, parsing, and profile enrichment."},
+        {"name": "interviews", "description": "Interview creation, management, and question flow."},
+        {"name": "audio", "description": "Audio upload and Whisper transcription."},
+        {"name": "analysis", "description": "Domain/communication analysis and pacing/pauses metrics."},
+        {"name": "report", "description": "Session-level final report generation and retrieval."},
+    ]
+    # Attach tag descriptions to OpenAPI
+    app.openapi_tags = tags_metadata  # type: ignore[attr-defined]
+
+    # Optionally refine title/description at runtime without touching env
+    try:
+        app.title = "Samvaad Sathi Backend API"
+        if not getattr(settings, "DESCRIPTION", None):
+            app.description = "APIs for AI-driven interview practice: resume parsing, question generation, audio transcription, analyses, and reports."
+    except Exception:
+        # Non-fatal if attributes are not available
+        pass
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,

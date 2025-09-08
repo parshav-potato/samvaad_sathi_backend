@@ -21,6 +21,13 @@ class FinalReportRequest(BaseSchemaModel):
         gt=0, description="ID of the interview session to generate the final report for (must be > 0)"
     )
 
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {"interviewId": 123}
+        ]
+    }
+
 
 class PerQuestionAnalysisSummary(BaseSchemaModel):
     """Condensed view of per-question analysis for inclusion in the report summary."""
@@ -96,3 +103,51 @@ class FinalReportResponse(BaseSchemaModel):
     saved: bool = pydantic.Field(description="Whether the report was persisted to database")
     save_error: str | None = pydantic.Field(default=None, description="Error when persisting the report")
     message: str = pydantic.Field(description="Status message about report generation")
+
+    # Provide example for Swagger UI
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {
+                "interviewId": 123,
+                "summary": {
+                    "title": "Interview Performance Summary",
+                    "overview": "Solid fundamentals with room to improve communication clarity.",
+                    "perQuestion": [
+                        {
+                            "questionAttemptId": 1001,
+                            "questionText": "Explain ACID properties",
+                            "domainScore": 82.0,
+                            "communicationScore": 75.0,
+                            "paceScore": 88.0,
+                            "pauseScore": 70.0,
+                            "strengths": ["Good conceptual coverage"],
+                            "improvements": ["Add concrete examples"]
+                        }
+                    ]
+                },
+                "knowledgeCompetence": {
+                    "averageDomainScore": 82.0,
+                    "coverageTopics": ["ACID", "Indexes"],
+                    "strengths": ["Strong fundamentals"],
+                    "improvements": ["Deeper examples"],
+                    "details": {}
+                },
+                "speechStructureFluency": {
+                    "averageCommunicationScore": 76.0,
+                    "averagePaceScore": 88.0,
+                    "averagePauseScore": 72.0,
+                    "clarity": 74.0,
+                    "vocabulary": 78.0,
+                    "grammar": 80.0,
+                    "structure": 75.0,
+                    "recommendations": ["Use shorter sentences"],
+                    "details": {}
+                },
+                "overallScore": 79.5,
+                "saved": True,
+                "saveError": None,
+                "message": "Final report generated"
+            }
+        ]
+    }

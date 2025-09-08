@@ -4,7 +4,6 @@ import logging
 import fastapi
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
@@ -20,7 +19,16 @@ from src.services.report import FinalReportService
 router = fastapi.APIRouter(tags=["report"])
 
 
-@router.post("/final-report", response_model=FinalReportResponse, status_code=200)
+@router.post(
+    "/final-report",
+    response_model=FinalReportResponse,
+    status_code=200,
+    summary="Generate and persist a final session report",
+    description=(
+        "Aggregates per-question analyses for the specified interview and returns a session-level report. "
+        "Requires authentication and ownership of the interview. On success, persists the report."
+    ),
+)
 async def generate_final_report(
     payload: FinalReportRequest,
     current_user: User = Depends(get_current_user),
@@ -31,6 +39,7 @@ async def generate_final_report(
 ):
     logger = logging.getLogger(__name__)
     logger.info("/final-report called for interview_id=%s by user_id=%s", payload.interview_id, current_user.id)
+
     # Verify interview belongs to current user
     interview = await interview_repo.get_by_id_and_user(payload.interview_id, current_user.id)
     if not interview:
@@ -76,7 +85,15 @@ async def generate_final_report(
     return response
 
 
-@router.get("/final-report/{interview_id}", response_model=FinalReportResponse, status_code=200)
+@router.get(
+    "/final-report/{interview_id}",
+    response_model=FinalReportResponse,
+    status_code=200,
+    summary="Fetch a previously saved final session report",
+    description=(
+        "Retrieves a persisted final report for the interview if present. Requires authentication and ownership."
+    ),
+)
 async def get_final_report(
     interview_id: int,
     current_user: User = Depends(get_current_user),
