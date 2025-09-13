@@ -7,6 +7,20 @@ from sqlalchemy.sql import functions as sqlalchemy_functions
 
 from src.repository.table import Base
 
+# ----------------------------------
+# Enum for preferred target position
+# ----------------------------------
+from enum import Enum as _Enum
+
+
+class TargetPositionEnum(str, _Enum):
+    """Enumeration for the user's desired target position."""
+
+    DATA_SCIENCE = "Data Science"
+    FRONTEND_DEVELOPMENT = "Frontend Development"
+    BACKEND_DEVELOPMENT = "Backend Development"
+    SOFTWARE_DEVELOPMENT = "Software Development"
+
 
 class User(Base):  # type: ignore
     __tablename__ = "user"
@@ -17,8 +31,32 @@ class User(Base):  # type: ignore
     )
     password_hash: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=1024), nullable=False)
     name: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=128), nullable=False)
+    # Optional resume fields
     resume_text: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=True)
+
+    # --- New profile attributes ---
+    degree: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=128), nullable=True, doc="UG/PG degree such as B.Tech, M.Sc., etc."
+    )
+    university: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=256), nullable=True, doc="Name of University / College"
+    )
+
+    # Store raw image bytes (≤5 MB recommended). In Postgres this maps to BYTEA.
+    profile_picture: SQLAlchemyMapped[bytes | None] = sqlalchemy_mapped_column(sqlalchemy.LargeBinary, nullable=True)
+
+    # Enum column for target position preferences
+    target_position: SQLAlchemyMapped[TargetPositionEnum | None] = sqlalchemy_mapped_column(
+        sqlalchemy.Enum(TargetPositionEnum, name="target_position_enum"),
+        nullable=True,
+    )
+
+    # Years of experience (stored as float for partial years)
     years_experience: SQLAlchemyMapped[float | None] = sqlalchemy_mapped_column(sqlalchemy.Float, nullable=True)
+
+    company: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=256), nullable=True)
+
+    # JSON skills (retained)
     skills: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()

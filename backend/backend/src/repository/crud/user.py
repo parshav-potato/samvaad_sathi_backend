@@ -1,5 +1,7 @@
 import sqlalchemy
 
+from src.models.db.user import TargetPositionEnum
+
 from src.models.db.user import User
 from src.repository.crud.base import BaseCRUDRepository
 from src.securities.hashing.password import pwd_generator
@@ -52,9 +54,59 @@ class UserCRUDRepository(BaseCRUDRepository):
             raise EntityDoesNotExist("User does not exist!")
 
         user.resume_text = resume_text
-        user.years_experience = years_experience
+        if years_experience is not None:
+            try:
+                user.years_experience = float(years_experience)
+            except Exception:
+                user.years_experience = None
         # Store skills as JSON; keep shape flexible
         user.skills = {"items": skills or []}
+
+        await self.async_session.commit()
+        await self.async_session.refresh(user)
+        return user
+
+    # ------------------------------------------------------------------
+    # Profile update
+    # ------------------------------------------------------------------
+    async def update_user_profile(
+        self,
+        *,
+        user_id: int,
+        degree: str | None = None,
+        university: str | None = None,
+        profile_picture: bytes | None = None,
+        target_position: TargetPositionEnum | None = None,
+        years_experience: float | None = None,
+        company: str | None = None,
+    ) -> User:
+        """Update the profile attributes for a given user.
+
+        Only non-None parameters will be updated. If all are None, the call is a no-op.
+        """
+        # Fetch user first
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(stmt)
+        user: User | None = query.scalar()  # type: ignore
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+
+        # Apply patch fields
+        if degree is not None:
+            user.degree = degree.strip() if degree else None
+        if university is not None:
+            user.university = university.strip() if university else None
+        if profile_picture is not None:
+            user.profile_picture = profile_picture
+        if target_position is not None:
+            user.target_position = target_position  # type: ignore[assignment]
+        if years_experience is not None:
+            try:
+                user.years_experience = float(years_experience)
+            except Exception:
+                user.years_experience = None
+        if company is not None:
+            user.company = company.strip() if company else None
 
         await self.async_session.commit()
         await self.async_session.refresh(user)
