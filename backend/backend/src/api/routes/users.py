@@ -44,7 +44,15 @@ async def register_user(
 
     return UserInResponse(
         id=user.id,
-        authorized_user=UserWithToken(token=token, email=user.email, name=user.name, created_at=user.created_at),
+        authorized_user=UserWithToken(token=token, 
+                                    email=user.email, 
+                                    name=user.name, 
+                                    created_at=user.created_at,
+                                    degree=None,
+                                    university=None,
+                                    target_position=None,
+                                    years_experience=None,
+                                    company=None),
     )
 
 
@@ -69,7 +77,15 @@ async def login_user(
 
     return UserInResponse(
         id=user.id,
-        authorized_user=UserWithToken(token=token, email=user.email, name=user.name, created_at=user.created_at),
+        authorized_user=UserWithToken(token=token, 
+                                    email=user.email, 
+                                    name=user.name, 
+                                    created_at=user.created_at,
+                                    degree=None,
+                                    university=None,
+                                    target_position=None,
+                                    years_experience=None,
+                                    company=None),
     )
 
 
@@ -95,14 +111,6 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
             company=current_user.company,
         ),
     )
-
-
-# ----------------------------------------------------
-# Update user profile endpoint (degree, university, etc.)
-# ----------------------------------------------------
-
-# (Removed duplicate earlier implementation; see single definitive implementation below.)
-
 
 @router.put(
     path="/users/profile",
@@ -144,7 +152,7 @@ async def update_profile(
         user_id=current_user.id,
         degree=degree,
         university=university,
-        profile_picture=picture_bytes,
+        profile_picture=None,
         target_position=target_position,
         years_experience=years_experience,
         company=company,
