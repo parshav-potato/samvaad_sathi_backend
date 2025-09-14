@@ -4,7 +4,7 @@ import sqlalchemy
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped as SQLAlchemyMapped, mapped_column as sqlalchemy_mapped_column, relationship
 from sqlalchemy.sql import functions as sqlalchemy_functions
-
+from sqlalchemy import String
 from src.repository.table import Base
 
 # ----------------------------------
@@ -46,8 +46,8 @@ class User(Base):  # type: ignore
     profile_picture: SQLAlchemyMapped[bytes | None] = sqlalchemy_mapped_column(sqlalchemy.LargeBinary, nullable=True)
 
     # Enum column for target position preferences
-    target_position: SQLAlchemyMapped[TargetPositionEnum | None] = sqlalchemy_mapped_column(
-        sqlalchemy.Enum(TargetPositionEnum, name="target_position_enum"),
+    target_position: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+        String,
         nullable=True,
     )
 

@@ -81,6 +81,19 @@ def main() -> None:
 
         # Resume upload (requires auth)
         if token:
+            # update user profiling attributes to user's table
+            import os
+            profile_attributes = {"degree":"xyz","university":"abc","company":"qwe",'target_position':'Data Science','years_experience':0}
+            profile_files = {
+                "profile_picture": (
+                    "sample_profile.jpg", 
+                    open(os.path.join("assets","sample_profile.jpg"), "rb"), 
+                    "image/jpeg"
+                )
+            }
+            r,err = safe_call(client,"PUT",f"{API}/users/profile",headers=headers,data=profile_attributes,files=profile_files)
+            print_result(f"PUT {API}/users/profile",r,err)
+            
             files_txt = {"file": ("sample.txt", b"hello resume", "text/plain")}
             r, err = safe_call(client, "POST", f"{API}/extract-resume", headers=headers, files=files_txt)
             print_result("POST /api/extract-resume (text)", r, err)
