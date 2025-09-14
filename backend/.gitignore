@@ -90,6 +90,7 @@ prod.env
 .env.test.local
 .env.production.local
 
+
 # Flutter
 *.class
 *.lock
@@ -158,6 +159,7 @@ cov.html
 venv/
 venv.bak/
 node_modules/
+samvad_sathi_backend_env
 
 # Yarn
 .yarn/*
