@@ -16,11 +16,44 @@ class UserLogin(BaseSchemaModel):
     password: str
 
 
+# ------------------------------
+# Profile update schemas
+# ------------------------------
+
+from src.models.db.user import TargetPositionEnum
+
+
+class UserProfileUpdate(BaseSchemaModel):
+    degree: str | None = None
+    university: str | None = None
+    target_position: TargetPositionEnum | None = None
+    years_experience: float | None = None
+    company: str | None = None
+
+    # profile_picture is not included here because it is uploaded as multipart file.
+
+
+class UserProfileOut(BaseSchemaModel):
+    id: int
+    email: pydantic.EmailStr
+    name: str
+    degree: str | None
+    university: str | None
+    target_position: TargetPositionEnum | None
+    years_experience: float | None
+    company: str | None
+
+
 class UserWithToken(BaseSchemaModel):
     token: str
     email: pydantic.EmailStr
     name: str
     created_at: datetime.datetime
+    degree: str | None
+    university: str | None
+    target_position: TargetPositionEnum | None
+    years_experience: float | None
+    company: str | None
 
 
 class UserInResponse(BaseSchemaModel):
