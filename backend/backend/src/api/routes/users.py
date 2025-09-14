@@ -88,6 +88,11 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
             email=current_user.email,
             name=current_user.name,
             created_at=current_user.created_at,
+            degree=current_user.degree,
+            university=current_user.university,
+            target_position=current_user.target_position,
+            years_experience=current_user.years_experience,
+            company=current_user.company,
         ),
     )
 

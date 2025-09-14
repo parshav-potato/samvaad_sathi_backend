@@ -49,6 +49,11 @@ class UserWithToken(BaseSchemaModel):
     email: pydantic.EmailStr
     name: str
     created_at: datetime.datetime
+    degree: str | None
+    university: str | None
+    target_position: TargetPositionEnum | None
+    years_experience: float | None
+    company: str | None
 
 
 class UserInResponse(BaseSchemaModel):
