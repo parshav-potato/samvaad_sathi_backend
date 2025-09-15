@@ -24,6 +24,9 @@ class Interview(Base):  # type: ignore
     )
 
     user = relationship("User", back_populates="interviews")
+    questions = relationship(
+        "InterviewQuestion", back_populates="interview", cascade="all, delete-orphan", passive_deletes=True
+    )
     question_attempts = relationship(
         "QuestionAttempt", back_populates="interview", cascade="all, delete-orphan", passive_deletes=True
     )

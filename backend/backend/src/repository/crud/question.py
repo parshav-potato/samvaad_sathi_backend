@@ -6,6 +6,18 @@ from src.repository.crud.base import BaseCRUDRepository
 
 
 class QuestionAttemptCRUDRepository(BaseCRUDRepository):
+    async def create_attempt(self, *, interview_id: int, question_id: int, question_text: str) -> QuestionAttempt:
+        """Create a new question attempt linked to a specific question"""
+        attempt = QuestionAttempt(
+            interview_id=interview_id,
+            question_id=question_id,
+            question_text=question_text
+        )
+        self.async_session.add(attempt)
+        await self.async_session.commit()
+        await self.async_session.refresh(attempt)
+        return attempt
+
     async def create_batch(self, *, interview_id: int, questions: list[str], metadata: dict[str, Any] | None = None) -> list[QuestionAttempt]:
         created: list[QuestionAttempt] = []
         for q in questions:

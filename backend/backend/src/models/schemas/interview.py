@@ -3,6 +3,17 @@ import datetime
 from src.models.schemas.base import BaseSchemaModel
 
 
+class InterviewQuestionOut(BaseSchemaModel):
+    id: int
+    text: str
+    topic: str | None = None
+    status: str
+
+
+class CreateAttemptResponse(BaseSchemaModel):
+    question_attempt_id: int
+
+
 class QuestionItem(BaseSchemaModel):
     text: str
     topic: str | None = None
@@ -56,6 +67,7 @@ class InterviewsListResponse(BaseSchemaModel):
 class QuestionAttemptItem(BaseSchemaModel):
     id: int
     question_text: str
+    question_id: int | None = None
     audio_url: str | None = None
     transcription: dict | None = None
     created_at: datetime.datetime
@@ -63,7 +75,7 @@ class QuestionAttemptItem(BaseSchemaModel):
 
 class QuestionsListResponse(BaseSchemaModel):
     interview_id: int
-    items: list[str]
+    items: list[InterviewQuestionOut]
     next_cursor: int | None
     limit: int
 
