@@ -34,7 +34,7 @@ class UserProfileUpdate(BaseSchemaModel):
 
 
 class UserProfileOut(BaseSchemaModel):
-    id: int
+    user_id: int = pydantic.Field(description="Unique identifier for the user")
     email: pydantic.EmailStr
     name: str
     degree: str | None
@@ -57,7 +57,7 @@ class UserWithToken(BaseSchemaModel):
 
 
 class UserInResponse(BaseSchemaModel):
-    id: int
+    user_id: int = pydantic.Field(description="Unique identifier for the user")
     authorized_user: UserWithToken
 
 

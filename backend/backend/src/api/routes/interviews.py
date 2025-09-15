@@ -32,7 +32,7 @@ async def create_or_resume_interview(
     active = await interview_repo.get_active_by_user(user_id=current_user.id)
     if active is not None and active.track == payload.track:
         return InterviewInResponse(
-            id=active.id,
+            interview_id=active.id,
             track=active.track,
             difficulty=active.difficulty,
             status=active.status,
@@ -45,7 +45,7 @@ async def create_or_resume_interview(
         difficulty = "medium"
     interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty)
     return InterviewInResponse(
-        id=interview.id,
+        interview_id=interview.id,
         track=interview.track,
         difficulty=interview.difficulty,
         status=interview.status,
@@ -182,7 +182,7 @@ async def list_my_interviews(
     safe_limit = max(1, min(100, int(limit)))
     rows, next_cursor = await interview_repo.list_by_user_cursor(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
     return InterviewsListResponse(
-        items=[InterviewItem(id=r.id, track=r.track, difficulty=r.difficulty, status=r.status, created_at=r.created_at) for r in rows],
+        items=[InterviewItem(interview_id=r.id, track=r.track, difficulty=r.difficulty, status=r.status, created_at=r.created_at) for r in rows],
         next_cursor=next_cursor,
         limit=safe_limit,
     )
@@ -218,7 +218,7 @@ async def list_interview_questions(
         interview_id=interview_id,
         items=[
             InterviewQuestionOut(
-                id=q.id,
+                interview_question_id=q.id,
                 text=q.text,
                 topic=q.topic,
                 status=q.status
@@ -257,7 +257,7 @@ async def list_interview_question_attempts(
     return QuestionAttemptsListResponse(
         interview_id=interview_id,
         items=[QuestionAttemptItem(
-            id=q.id,
+            question_attempt_id=q.id,
             question_text=q.question_text,
             question_id=q.question_id,
             audio_url=q.audio_url,

@@ -29,7 +29,7 @@ class ResumeExtractionResponse(BaseSchemaModel):
 
 
 class MyResumeResponse(BaseSchemaModel):
-    id: int = pydantic.Field(description="User ID")
+    user_id: int = pydantic.Field(description="User ID")
     email: pydantic.EmailStr = pydantic.Field(description="User email address")
     years_experience: float | None = pydantic.Field(default=None, description="Validated years of experience saved on user")
     skills: list[str] = pydantic.Field(default_factory=list, description="Normalized skills saved on user")

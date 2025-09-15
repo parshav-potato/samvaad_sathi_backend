@@ -13,5 +13,5 @@ class BaseSchemaModel(pydantic.BaseModel):
         validate_assignment=True,
         populate_by_name=True,
         json_encoders={datetime.datetime: format_datetime_into_isoformat},
-        alias_generator=format_dict_key_to_camel_case
+        alias_generator=format_dict_key_to_camel_case,
     )

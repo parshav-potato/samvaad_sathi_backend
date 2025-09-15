@@ -63,7 +63,7 @@ class AnalysisAggregationService:
         
         # Run analyses concurrently
         analysis_results = await self._run_concurrent_analyses(
-            question_attempt_id, analysis_types, auth_token
+            question_attempt_id, analysis_types, auth_token, question_attempt, user_id
         )
         
         # Aggregate results
@@ -118,7 +118,9 @@ class AnalysisAggregationService:
         self, 
         question_attempt_id: int, 
         analysis_types: List[str], 
-        auth_token: str
+        auth_token: str,
+        question_attempt: QuestionAttempt,
+        user_id: int
     ) -> Dict[str, Dict[str, Any]]:
         """Run multiple analyses sequentially with per-analysis timeouts."""
         # Define supported analysis types
@@ -137,7 +139,7 @@ class AnalysisAggregationService:
             
             try:
                 result = await asyncio.wait_for(
-                    self._generate_analysis_result(analysis_type, question_attempt_id),
+                    self._generate_analysis_result(analysis_type, question_attempt_id, question_attempt, user_id),
                     timeout=self.timeout,
                 )
                 analysis_results[analysis_type] = result
@@ -159,59 +161,173 @@ class AnalysisAggregationService:
     async def _generate_analysis_result(
         self, 
         analysis_type: str, 
-        question_attempt_id: int
+        question_attempt_id: int,
+        question_attempt: QuestionAttempt,
+        user_id: int
     ) -> Dict[str, Any]:
-        """Generate analysis result for a specific type."""
+        """Generate analysis result for a specific type using real analysis services."""
         
         try:
-            # Simulate some processing time
-            await asyncio.sleep(random.uniform(0.1, 0.5))
+            # Import the real analysis services
+            from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
+            from src.services.pace_analysis import provide_pace_feedback
+            from src.services.pause_analysis import analyze_pauses
+            
+            # Get transcription data
+            transcription_text = None
+            if question_attempt.transcription:
+                transcription_text = question_attempt.transcription.get("text") or question_attempt.transcription.get("transcript")
+            
+            if not transcription_text:
+                raise ValueError(f"No transcription available for {analysis_type} analysis")
             
             if analysis_type == "domain":
+                # Build user profile for LLM analysis
+                profile = {
+                    "years_experience": None,  # Could be enhanced to get from user
+                    "skills": [],
+                    "job_role": None,
+                    "track": None,
+                }
+                
+                # Call real LLM domain analysis
+                analysis, llm_error, latency_ms, llm_model = analyze_domain_with_llm(
+                    user_profile=profile,
+                    question_text=getattr(question_attempt, "question_text", None),
+                    transcription=transcription_text,
+                )
+                
+                if not analysis:
+                    analysis = {
+                        "overall_score": 0.0,
+                        "summary": "Unable to analyze domain knowledge - LLM analysis failed",
+                        "suggestions": [],
+                        "confidence": 0.0,
+                        "llm_error": llm_error,
+                    }
+                
+                # Map to expected response format
+                score = analysis.get("overall_score", 0.0) if isinstance(analysis.get("overall_score"), (int, float)) else 0.0
+                feedback = analysis.get("summary") or analysis.get("domain_feedback") or "Domain analysis completed"
+                knowledge_areas = analysis.get("knowledge_areas") or []
+                if not knowledge_areas and isinstance(analysis.get("criteria"), dict):
+                    knowledge_areas = list(analysis["criteria"].keys())
+                strengths = analysis.get("strengths") or []
+                improvements = analysis.get("improvements") or analysis.get("suggestions") or []
+                
                 data = DomainAnalysisResponse(
                     question_attempt_id=question_attempt_id,
-                    domain_score=random.uniform(70.0, 95.0),
-                    domain_feedback="Domain knowledge analysis shows good understanding of core concepts.",
-                    knowledge_areas=["Core Concepts", "Technical Implementation", "Best Practices"],
-                    strengths=["Clear explanations", "Accurate terminology"],
-                    improvements=["Could provide more specific examples", "Deeper technical details"]
+                    domain_score=float(score),
+                    domain_feedback=str(feedback),
+                    knowledge_areas=[str(x) for x in knowledge_areas][:10],
+                    strengths=[str(x) for x in strengths][:10],
+                    improvements=[str(x) for x in improvements][:10]
                 ).model_dump()
                 
             elif analysis_type == "communication":
+                # Build user profile for LLM analysis
+                profile = {
+                    "years_experience": None,
+                    "skills": [],
+                    "job_role": None,
+                    "track": None,
+                }
+                
+                # Call real LLM communication analysis
+                analysis, llm_error, latency_ms, llm_model = analyze_communication_with_llm(
+                    user_profile=profile,
+                    question_text=getattr(question_attempt, "question_text", None),
+                    transcription=transcription_text,
+                    aux_metrics={},
+                )
+                
+                if not analysis:
+                    analysis = {
+                        "overall_score": 0.0,
+                        "summary": "Unable to analyze communication - LLM analysis failed",
+                        "suggestions": [],
+                        "confidence": 0.0,
+                        "llm_error": llm_error,
+                    }
+                
+                # Helper function to safely extract numeric values
+                def _num(value: Any, fallback: float) -> float:
+                    try:
+                        return float(value) if isinstance(value, (int, float)) else float(fallback)
+                    except Exception:
+                        return float(fallback)
+                
+                # Map to expected response format
+                base_score = _num(analysis.get("overall_score"), 0.0)
+                feedback = analysis.get("summary") or "Communication analysis completed"
+                recommendations = analysis.get("suggestions") or []
+                
                 data = CommunicationAnalysisResponse(
                     question_attempt_id=question_attempt_id,
-                    communication_score=random.uniform(75.0, 92.0),
-                    clarity_score=random.uniform(80.0, 95.0),
-                    vocabulary_score=random.uniform(70.0, 90.0),
-                    grammar_score=random.uniform(85.0, 98.0),
-                    structure_score=random.uniform(75.0, 88.0),
-                    communication_feedback="Communication analysis shows clear and structured responses.",
-                    recommendations=["Use more varied vocabulary", "Provide clearer examples"]
+                    communication_score=base_score,
+                    clarity_score=base_score,  # Could be enhanced to get specific scores from LLM
+                    vocabulary_score=base_score,
+                    grammar_score=base_score,
+                    structure_score=base_score,
+                    communication_feedback=str(feedback),
+                    recommendations=[str(x) for x in recommendations][:10]
                 ).model_dump()
                 
             elif analysis_type == "pace":
-                wpm = random.uniform(140.0, 180.0)
+                # Get word-level timestamps for pace analysis
+                words_data = question_attempt.transcription.get("words", [])
+                if not words_data:
+                    raise ValueError("No word-level timestamps available for pace analysis")
+                
+                # Call real pace analysis
+                pace_result = provide_pace_feedback({"words": words_data})
+                
+                if not pace_result:
+                    raise ValueError("Pace analysis failed to process word timestamps")
+                
+                feedback = pace_result.get("feedback", "Pace analysis completed")
+                pace_score = pace_result.get("pace_score", 0.0)
+                wpm = pace_result.get("wpm", 0.0)
+                
+                # Determine pace category
+                if wpm < 120:
+                    pace_category = "too_slow"
+                    recommendations = ["Try speaking slightly faster", "Practice with a metronome"]
+                elif wpm > 200:
+                    pace_category = "too_fast"
+                    recommendations = ["Slow down for better clarity", "Take more pauses between thoughts"]
+                else:
+                    pace_category = "optimal"
+                    recommendations = ["Maintain current pace", "Consider slight variation for emphasis"]
+                
                 data = PaceAnalysisResponse(
                     question_attempt_id=question_attempt_id,
-                    pace_score=random.uniform(70.0, 95.0),
-                    words_per_minute=wpm,
-                    pace_feedback=f"Speaking pace of {wpm:.1f} WPM is within optimal range.",
-                    pace_category="optimal",
-                    recommendations=["Maintain current pace", "Consider slight variation for emphasis"]
+                    pace_score=float(pace_score),
+                    words_per_minute=float(wpm),
+                    pace_feedback=str(feedback),
+                    pace_category=pace_category,
+                    recommendations=recommendations
                 ).model_dump()
                 
             elif analysis_type == "pause":
-                pause_count = random.randint(3, 8)
-                avg_pause = random.uniform(0.5, 2.0)
-                total_pause = pause_count * avg_pause
+                # Get word-level timestamps for pause analysis
+                words_data = question_attempt.transcription.get("words", [])
+                if not words_data:
+                    raise ValueError("No word-level timestamps available for pause analysis")
+                
+                # Call real pause analysis
+                pause_result = analyze_pauses({"words": words_data})
+                
+                if not pause_result:
+                    raise ValueError("Pause analysis failed to process word timestamps")
                 
                 data = PauseAnalysisResponse(
                     question_attempt_id=question_attempt_id,
-                    overview=f"No word-level timestamps provided - unable to analyse pauses",
-                    details=[],
-                    distribution={},
-                    actionable_feedback="Please re-upload the audio so that word timings are included.",
-                    pause_score=1,
+                    overview=pause_result.get('overview', 'Pause analysis completed'),
+                    details=pause_result.get('details', []),
+                    distribution=pause_result.get('distribution', {}),
+                    actionable_feedback=pause_result.get('actionable_feedback', 'Continue using natural pauses'),
+                    pause_score=pause_result.get('score', 5.0),
                 ).model_dump()
                 
             else:
