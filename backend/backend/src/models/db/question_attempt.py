@@ -15,6 +15,9 @@ class QuestionAttempt(Base):  # type: ignore
     interview_id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(
         sqlalchemy.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    question_id: SQLAlchemyMapped[int | None] = sqlalchemy_mapped_column(
+        sqlalchemy.ForeignKey("interview_question.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     question_text: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=False)
     audio_url: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=512), nullable=True)
     transcription: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)
@@ -25,6 +28,7 @@ class QuestionAttempt(Base):  # type: ignore
     )
 
     interview = relationship("Interview", back_populates="question_attempts")
+    question = relationship("InterviewQuestion", back_populates="question_attempts")
 
     __mapper_args__ = {"eager_defaults": True}
 

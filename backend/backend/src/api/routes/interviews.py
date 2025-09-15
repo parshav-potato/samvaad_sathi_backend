@@ -2,8 +2,9 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut
 from src.repository.crud.interview import InterviewCRUDRepository
+from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 
@@ -69,7 +70,7 @@ async def generate_questions(
     payload: GenerateQuestionsRequest = GenerateQuestionsRequest(),
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
-    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
 ) -> GeneratedQuestionsInResponse:
     active = await interview_repo.get_active_by_user(user_id=current_user.id)
     if active is None:
@@ -102,28 +103,35 @@ async def generate_questions(
         "items": items,
     }
 
-    # Persist question attempts only if they don't exist yet for this interview (idempotent-ish)
+    # Persist question records only if they don't exist yet for this interview (idempotent-ish)
     existing = await question_repo.list_by_interview(interview_id=active.id)
     persisted = existing
     if not existing:
-        md = {
-            "llm_model": qs.get("llm_model"),
-            "llm_latency_ms": qs.get("latency_ms"),
-            "llm_error": qs.get("llm_error"),
-            "track": active.track,
-            "used_resume": payload.use_resume and bool(getattr(current_user, "resume_text", None)),
-        }
+        # Convert questions and items to the format expected by create_batch
+        questions_data = []
+        if items:  # If we have structured data from LLM
+            for item in items:
+                questions_data.append({
+                    "text": item.get("text", ""),
+                    "topic": item.get("topic")
+                })
+        else:  # Fallback to plain question strings
+            for question in questions:
+                questions_data.append({
+                    "text": question,
+                    "topic": None
+                })
+        
         persisted = await question_repo.create_batch(
             interview_id=active.id,
-            questions=qs["questions"],  # type: ignore[index]
-            metadata=md,
+            questions_data=questions_data
         )
 
     return GeneratedQuestionsInResponse(
         interview_id=active.id,
         track=active.track,
         count=len(persisted),
-        questions=[q.question_text for q in persisted],
+        questions=[q.text for q in persisted],
         items=qs.get("items"),
         cached=cached,
         llm_model=qs.get("llm_model"),  # type: ignore[union-attr]
@@ -188,67 +196,34 @@ async def list_my_interviews(
     summary="List questions for an interview (cursor-based)",
     description=(
         "Returns the questions for the given interview in ascending order using id-based cursor pagination. "
-        "Use the returned next_cursor to fetch the next page. If no questions exist and auto_generate=true (default), "
-        "questions will be automatically generated for better user experience."
+        "Use the returned next_cursor to fetch the next page."
     ),
 )
 async def list_interview_questions(
     interview_id: int,
     limit: int = 20,
     cursor: int | None = None,
-    auto_generate: bool = True,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
-    question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
 ) -> QuestionsListResponse:
     interview = await interview_repo.get_by_id(interview_id=interview_id)
     if interview is None or interview.user_id != current_user.id:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
     
-    # Check if questions exist, if not and auto_generate is True, generate them
-    existing_questions = await question_repo.list_by_interview(interview_id=interview_id)
-    if not existing_questions and auto_generate:
-        # Auto-generate questions for better UX
-        from src.services.llm import generate_interview_questions_with_llm
-        
-        # Use resume context if available
-        resume_context = getattr(current_user, "resume_text", None)
-        questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
-            track=interview.track,
-            context_text=resume_context,
-            count=5,
-            difficulty=interview.difficulty,
-        )
-        
-        if not questions:
-            questions = [
-                f"Describe your recent project in {interview.track}.",
-                f"What core concepts are essential in {interview.track}?",
-                f"Explain a challenging problem you solved in {interview.track} and how.",
-                f"How do you evaluate models in {interview.track}?",
-                f"Discuss trade-offs between common methods in {interview.track}.",
-            ]
-        
-        # Persist question attempts
-        md = {
-            "llm_model": llm_model,
-            "llm_latency_ms": latency_ms,
-            "llm_error": llm_error,
-            "track": interview.track,
-            "used_resume": bool(resume_context),
-            "auto_generated": True,
-        }
-        await question_repo.create_batch(
-            interview_id=interview_id,
-            questions=questions,
-            metadata=md,
-        )
-    
     safe_limit = max(1, min(100, int(limit)))
     items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
+    
     return QuestionsListResponse(
         interview_id=interview_id,
-        items=[q.question_text for q in items],
+        items=[
+            InterviewQuestionOut(
+                id=q.id,
+                text=q.text,
+                topic=q.topic,
+                status=q.status
+            ) for q in items
+        ],
         next_cursor=next_cursor,
         limit=safe_limit,
     )
@@ -284,6 +259,7 @@ async def list_interview_question_attempts(
         items=[QuestionAttemptItem(
             id=q.id,
             question_text=q.question_text,
+            question_id=q.question_id,
             audio_url=q.audio_url,
             transcription=q.transcription,
             created_at=q.created_at
@@ -291,5 +267,47 @@ async def list_interview_question_attempts(
         next_cursor=next_cursor,
         limit=safe_limit,
     )
+
+
+@router.post(
+    path="/interviews/{interview_id}/questions/{question_id}/attempts",
+    name="interviews:create-question-attempt",
+    response_model=CreateAttemptResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Start a question attempt",
+    description=(
+        "Creates a new QuestionAttempt record for the specified question. "
+        "Optionally updates the question status to 'in_progress'."
+    ),
+)
+async def create_question_attempt(
+    interview_id: int,
+    question_id: int,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+) -> CreateAttemptResponse:
+    # Verify interview exists and belongs to user
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    
+    # Verify question exists and belongs to the interview
+    question = await question_repo.get_by_id(question_id=question_id)
+    if question is None or question.interview_id != interview_id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Question not found")
+    
+    # Update question status to in_progress
+    await question_repo.update_status(question_id=question_id, status="in_progress")
+    
+    # Create the question attempt
+    attempt = await attempt_repo.create_attempt(
+        interview_id=interview_id,
+        question_id=question_id,
+        question_text=question.text
+    )
+    
+    return CreateAttemptResponse(question_attempt_id=attempt.id)
 
 

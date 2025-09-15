@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Pin to a specific patch for reproducibility. Update as needed.
-FROM python:3.12.6-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

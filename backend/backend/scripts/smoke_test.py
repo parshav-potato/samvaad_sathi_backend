@@ -173,7 +173,43 @@ def main() -> None:
             if isinstance(current_body, dict) and current_body.get("items"):
                 current_interview_id = current_body["items"][0]["id"]
                 
-                # Get the question attempts (which have IDs for audio transcription)
+                # Get the generated questions (InterviewQuestion objects)
+                r, err = safe_call(client, "GET", f"{API}/interviews/{current_interview_id}/questions?limit=3", headers=headers)
+                print_result("GET /api/interviews/{id}/questions (for attempts)", r, err)
+                
+                questions_response = safe_json(r) if r else {}
+                if isinstance(questions_response, dict) and questions_response.get("items"):
+                    # Create question attempts for the first few questions
+                    first_question = questions_response["items"][0]
+                    if isinstance(first_question, dict) and "id" in first_question:
+                        question_id = first_question["id"]
+                        
+                        # Create a question attempt using the new endpoint
+                        attempt_payload = {"start_time": "2025-09-15T18:42:00Z"}
+                        r, err = safe_call(client, "POST", f"{API}/interviews/{current_interview_id}/questions/{question_id}/attempts", headers=headers, json=attempt_payload)
+                        print_result("POST /api/interviews/{id}/questions/{qid}/attempts", r, err)
+                        
+                        attempt_response = safe_json(r) if r else {}
+                        if isinstance(attempt_response, dict) and "id" in attempt_response:
+                            question_attempt_id = attempt_response["id"]
+                            
+                            # Test audio transcription with test_audio.mp3 file
+                            import os
+                            speech_file_path = os.path.join("scripts", "test_audio.mp3")
+                            if os.path.exists(speech_file_path):
+                                with open(speech_file_path, "rb") as audio_file:
+                                    files_audio = {"file": ("test_audio.mp3", audio_file, "audio/mpeg")}
+                                    audio_data = {"question_attempt_id": question_attempt_id, "language": "en"}
+                                    r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
+                                    print_result("POST /api/transcribe-whisper (test_audio)", r, err)
+                            else:
+                                print_result("POST /api/transcribe-whisper", None, "test_audio.mp3 file not found")
+                        else:
+                            print_result("Question attempt creation", None, "Failed to create question attempt")
+                    else:
+                        print_result("Question attempt creation", None, "No valid questions found to create attempts")
+                
+                # Also check the old question attempts endpoint (should still work for backward compatibility)
                 r, err = safe_call(client, "GET", f"{API}/interviews/{current_interview_id}/question-attempts", headers=headers)
                 print_result("GET /api/interviews/{id}/question-attempts (for audio)", r, err)
                 
@@ -186,7 +222,7 @@ def main() -> None:
                     if isinstance(first_question_attempt, dict) and "id" in first_question_attempt:
                         question_attempt_id = first_question_attempt["id"]
                         
-                        # Test audio transcription with real Speech.mp3 file and valid question attempt ID
+                        # Test audio transcription with original Speech.mp3 file as fallback
                         import os
                         speech_file_path = os.path.join("assets", "Speech.mp3")
                         if os.path.exists(speech_file_path):
@@ -194,7 +230,7 @@ def main() -> None:
                                 files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
                                 audio_data = {"question_attempt_id": question_attempt_id, "language": "en"}
                                 r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
-                                print_result("POST /api/transcribe-whisper", r, err)
+                                print_result("POST /api/transcribe-whisper (fallback)", r, err)
                         else:
                             print_result("POST /api/transcribe-whisper", None, "Speech.mp3 file not found")
                     elif isinstance(first_question_attempt, str):
@@ -268,7 +304,7 @@ def main() -> None:
                 )
 
                 if qa_response and 200 <= qa_response.status_code < 300:
-                    # … rest of handling …                    qa_data = safe_json(qa_response)
+                    qa_data = safe_json(qa_response)
                     if isinstance(qa_data, dict) and "items" in qa_data and qa_data["items"]:
                         # Find a question attempt with transcription
                         transcribed_qa_id = None
