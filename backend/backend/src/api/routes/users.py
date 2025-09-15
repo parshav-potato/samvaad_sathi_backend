@@ -43,7 +43,7 @@ async def register_user(
     await session_repo.create_session(user_id=user.id)
 
     return UserInResponse(
-        id=user.id,
+        user_id=user.id,
         authorized_user=UserWithToken(token=token, 
                                     email=user.email, 
                                     name=user.name, 
@@ -76,7 +76,7 @@ async def login_user(
     await session_repo.create_session(user_id=user.id)
 
     return UserInResponse(
-        id=user.id,
+        user_id=user.id,
         authorized_user=UserWithToken(token=token, 
                                     email=user.email, 
                                     name=user.name, 
@@ -98,7 +98,7 @@ async def login_user(
 async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInResponse:
     token = jwt_generator.generate_access_token_for_user(user=current_user)
     return UserInResponse(
-        id=current_user.id,
+        user_id=current_user.id,
         authorized_user=UserWithToken(
             token=token,
             email=current_user.email,
@@ -159,7 +159,7 @@ async def update_profile(
     )
 
     return UserProfileOut(
-        id=updated.id,
+        user_id=updated.id,
         email=updated.email,
         name=updated.name,
         degree=updated.degree,

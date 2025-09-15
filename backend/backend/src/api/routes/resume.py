@@ -227,14 +227,14 @@ async def get_my_resume(
     if not isinstance(items, list):
         items = []
 
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "years_experience": current_user.years_experience,
-        "skills": items,
-        "has_resume_text": bool(current_user.resume_text),
-        "text_length": len(current_user.resume_text or ""),
-    }
+    return MyResumeResponse(
+        user_id=current_user.id,
+        email=current_user.email,
+        years_experience=current_user.years_experience,
+        skills=items,
+        has_resume_text=bool(current_user.resume_text),
+        text_length=len(current_user.resume_text or ""),
+    )
 
 
 @router.get(

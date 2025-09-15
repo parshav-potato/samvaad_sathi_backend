@@ -1,10 +1,12 @@
 import datetime
 
+import pydantic
+
 from src.models.schemas.base import BaseSchemaModel
 
 
 class InterviewQuestionOut(BaseSchemaModel):
-    id: int
+    interview_question_id: int = pydantic.Field(description="Unique identifier for the interview question")
     text: str
     topic: str | None = None
     status: str
@@ -30,7 +32,7 @@ class GenerateQuestionsRequest(BaseSchemaModel):
 
 
 class InterviewInResponse(BaseSchemaModel):
-    id: int
+    interview_id: int = pydantic.Field(description="Unique identifier for the interview")
     track: str
     difficulty: str
     status: str
@@ -51,7 +53,7 @@ class GeneratedQuestionsInResponse(BaseSchemaModel):
 
 
 class InterviewItem(BaseSchemaModel):
-    id: int
+    interview_id: int = pydantic.Field(description="Unique identifier for the interview")
     track: str
     difficulty: str
     status: str
@@ -65,7 +67,7 @@ class InterviewsListResponse(BaseSchemaModel):
 
 
 class QuestionAttemptItem(BaseSchemaModel):
-    id: int
+    question_attempt_id: int = pydantic.Field(description="Unique identifier for the question attempt")
     question_text: str
     question_id: int | None = None
     audio_url: str | None = None

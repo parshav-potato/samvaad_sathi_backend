@@ -73,6 +73,19 @@ def main() -> None:
         r, err = safe_call(client, "GET", f"{API}/me", headers=headers)
         print_result("GET /api/me", r, err)
 
+        # Test password change endpoint
+        if token:
+            r, err = safe_call(client, "PUT", f"{API}/users/password", headers=headers, json={"old_password": password, "new_password": "newpass123!"})
+            print_result("PUT /api/users/password", r, err)
+            
+            # Try with wrong old password
+            r, err = safe_call(client, "PUT", f"{API}/users/password", headers=headers, json={"old_password": "wrong", "new_password": "newpass123!"})
+            print_result("PUT /api/users/password (wrong old)", r, err)
+
+        # Test health endpoint
+        r, err = safe_call(client, "GET", "/health")
+        print_result("GET /health", r, err)
+
         # Negative: missing/invalid auth
         r, err = safe_call(client, "GET", f"{API}/me")
         print_result("GET /api/me (no auth)", r, err)
@@ -117,9 +130,22 @@ def main() -> None:
             # Interviews: create/resume with difficulty
             r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science", "difficulty": "hard"})
             print_result("POST /api/interviews/create", r, err)
+            first_interview_response = safe_json(r) if r else {}
+            first_interview_id = first_interview_response.get("id") if isinstance(first_interview_response, dict) else None
+            
             # Repeat to verify resume path
             r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "data_science"})
             print_result("POST /api/interviews/create (resume)", r, err)
+
+            # Test interview management endpoints
+            if first_interview_id:
+                # GET individual interview
+                r, err = safe_call(client, "GET", f"{API}/interviews/{first_interview_id}", headers=headers)
+                print_result("GET /api/interviews/{id}", r, err)
+                
+                # PUT update interview
+                r, err = safe_call(client, "PUT", f"{API}/interviews/{first_interview_id}", headers=headers, json={"track": "ml_engineering", "difficulty": "medium"})
+                print_result("PUT /api/interviews/{id}", r, err)
 
             # Interviews: generate questions
             r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers)
@@ -144,6 +170,21 @@ def main() -> None:
                 r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2", headers=headers)
                 print_result("GET /api/interviews/{id}/questions", r, err)
                 qb = safe_json(r) if r else {}
+                
+                # Test individual question endpoints if questions exist
+                if isinstance(qb, dict) and qb.get("items") and qb["items"]:
+                    first_question = qb["items"][0]
+                    if isinstance(first_question, dict) and "id" in first_question:
+                        question_id = first_question["id"]
+                        
+                        # GET individual question
+                        r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions/{question_id}", headers=headers)
+                        print_result("GET /api/interviews/{id}/questions/{qid}", r, err)
+                        
+                        # DELETE individual question
+                        r, err = safe_call(client, "DELETE", f"{API}/interviews/{first_id}/questions/{question_id}", headers=headers)
+                        print_result("DELETE /api/interviews/{id}/questions/{qid}", r, err)
+                
                 if isinstance(qb, dict) and qb.get("next_cursor") is not None:
                     # follow next_cursor once
                     nc = qb.get("next_cursor")
@@ -417,6 +458,11 @@ def main() -> None:
             # Interviews: complete session
             r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)
             print_result("POST /api/interviews/complete", r, err)
+
+            # Test DELETE interview (at the end after all other tests)
+            if first_interview_id:
+                r, err = safe_call(client, "DELETE", f"{API}/interviews/{first_interview_id}", headers=headers)
+                print_result("DELETE /api/interviews/{id}", r, err)
 
             # Cross-user access negative: second user should not access first user's interview/questions
             email2 = f"{rand_str()}@example.com"
