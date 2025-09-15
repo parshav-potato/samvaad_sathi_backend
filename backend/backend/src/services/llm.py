@@ -18,9 +18,12 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     years: float | None = None
 
     system_prompt = (
-        "Extract skills (array of strings) and total years of professional experience "
-        "as a number from the resume text. Return ONLY valid JSON with keys: "
-        "skills (string[]), years_experience (number|null)."
+        "Extract skills and years of professional experience from the resume text. "
+        "Return ONLY a valid JSON object with exactly these keys: "
+        '{"skills": ["skill1", "skill2", ...], "years_experience": number_or_null}. '
+        "Do not include any markdown formatting, explanations, or other text. "
+        "For skills, extract technical skills, programming languages, tools, and frameworks. "
+        "For years_experience, calculate total professional work experience as a number."
     )
     input_text = text[:20000]
 
@@ -36,9 +39,27 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
             ],
         )
         raw = resp.choices[0].message.content if resp and resp.choices else "{}"
+        
+        # Ensure we have some content to parse
+        if not raw or not raw.strip():
+            error = "LLM returned empty response"
+            raw = "{}"
+        
+        # Try to clean the response if it has markdown code blocks
+        cleaned_raw = raw.strip()
+        if cleaned_raw.startswith("```json"):
+            cleaned_raw = cleaned_raw[7:]  # Remove ```json
+        if cleaned_raw.endswith("```"):
+            cleaned_raw = cleaned_raw[:-3]  # Remove ```
+        cleaned_raw = cleaned_raw.strip()
 
         # Parse JSON if model complied, otherwise attempt best-effort extraction
-        data: dict[str, Any] = json.loads(raw or "{}")
+        try:
+            data: dict[str, Any] = json.loads(cleaned_raw or "{}")
+        except json.JSONDecodeError as json_error:
+            error = f"JSON parsing failed: {json_error}. Raw response: {raw[:200]}..."
+            data = {}
+            
         s = data.get("skills") or []
         if isinstance(s, list):
             skills = [str(x) for x in s if isinstance(x, (str, int, float))]

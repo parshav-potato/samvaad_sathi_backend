@@ -1,0 +1,14 @@
+﻿John Smith
+Software Engineer
+Email: john@example.com
+
+EXPERIENCE:
+Software Developer at Tech Corp (2022-2024) - 2 years
+Data Analyst at Data Inc (2021-2022) - 1 year
+Total: 3 years of professional experience
+
+SKILLS:
+- Python, JavaScript, SQL
+- React, Django, FastAPI
+- Machine Learning, Data Analysis
+- Docker, AWS, PostgreSQL
