@@ -207,13 +207,11 @@ class AnalysisAggregationService:
                 
                 data = PauseAnalysisResponse(
                     question_attempt_id=question_attempt_id,
-                    pause_score=random.uniform(75.0, 90.0),
-                    total_pause_duration=total_pause,
-                    pause_count=pause_count,
-                    average_pause_duration=avg_pause,
-                    longest_pause_duration=random.uniform(1.0, 3.5),
-                    pause_feedback="Pause patterns show natural speaking rhythm with appropriate breaks.",
-                    recommendations=["Continue natural pausing", "Use strategic pauses for emphasis"]
+                    overview=f"No word-level timestamps provided - unable to analyse pauses",
+                    details=[],
+                    distribution={},
+                    actionable_feedback="Please re-upload the audio so that word timings are included.",
+                    pause_score=1,
                 ).model_dump()
                 
             else:
