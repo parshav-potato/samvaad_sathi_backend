@@ -45,6 +45,36 @@ python -m uvicorn src.main:backend_app --reload
 ```
 - Swagger: http://127.0.0.1:8000/docs
 
+## Update the Docker image
+Use these steps whenever you change the Dockerfile, base image, or Python dependencies.
+
+From the repo root:
+
+```powershell
+# Rebuild the image and pull latest base layers
+docker compose -f backend/backend/docker-compose.yml build --pull
+
+# Optional: force a clean rebuild (no cache)
+# docker compose -f backend/backend/docker-compose.yml build --no-cache --pull
+
+# Start (or restart) the service
+docker compose -f backend/backend/docker-compose.yml up -d
+
+# Health check (expect 200)
+(Invoke-WebRequest -UseBasicParsing http://localhost:8000/docs).StatusCode
+
+# Tail logs (Ctrl+C to stop)
+docker compose -f backend/backend/docker-compose.yml logs -f
+```
+
+Alternatively, run inside the backend folder:
+
+```powershell
+cd D:\samvaad_sathi_backend\backend\backend
+docker compose build --pull
+docker compose up -d
+```
+
 ## Environment
 Place this in `backend/.env`:
 ```env
