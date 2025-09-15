@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim AS runtime
+# Pin to a specific patch for reproducibility. Update as needed.
+FROM python:3.12.6-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -24,6 +25,9 @@ COPY . /app
 EXPOSE 8000
 
 # Note: Running as root by default to avoid volume permission issues on Windows bind mounts.
-# For production hardening, create a non-root user and chown /app and /app/uploads accordingly.
+# For production hardening, consider:
+# RUN useradd -m -u 10001 appuser \
+#     && chown -R appuser:appuser /app
+# USER appuser
 
 CMD ["uvicorn", "src.main:backend_app", "--host", "0.0.0.0", "--port", "8000"]
