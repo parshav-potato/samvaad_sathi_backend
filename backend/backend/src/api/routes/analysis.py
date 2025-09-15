@@ -23,6 +23,7 @@ from src.models.schemas.analysis import (
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.models.db.user import User
 from src.services.analysis import analysis_service
+from src.services.pace_analysis import provide_pace_feedback
 from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -351,33 +352,26 @@ async def analyze_pace(
             status_code=fastapi.status.HTTP_404_NOT_FOUND,
             detail="Question attempt not found or no transcription available"
         )
-    
-    # Calculate WPM from transcription if available
-    wpm = 150.0  # Default
-    if qa.transcription and "words" in qa.transcription and "duration" in qa.transcription:
-        word_count = len(qa.transcription["words"])
-        duration_minutes = qa.transcription["duration"] / 60.0
-        if duration_minutes > 0:
-            wpm = word_count / duration_minutes
-    
-    wpm += random.uniform(-30.0, 30.0)  # Add some variation
+    word_level_timestemps = {
+        "words":qa.transcription['words']
+    }
+    res = provide_pace_feedback(word_level_timestemps)
+
+    feedback,pace_score,wpm = res.values()
     
     # Determine pace category
     if wpm < 120:
         pace_category = "too_slow"
-        pace_score = max(30.0, 100.0 - (120 - wpm) * 2)
     elif wpm > 200:
         pace_category = "too_fast"  
-        pace_score = max(30.0, 100.0 - (wpm - 200) * 1.5)
     else:
         pace_category = "optimal"
-        pace_score = random.uniform(75.0, 95.0)
     
     return PaceAnalysisResponse(
         question_attempt_id=question_attempt_id,
         pace_score=pace_score,
         words_per_minute=wpm,
-        pace_feedback=f"Speaking pace of {wpm:.1f} WPM is within optimal range." if pace_category == "optimal" else f"Speaking pace of {wpm:.1f} WPM is {pace_category.replace('_', ' ')}.",
+        pace_feedback=feedback,
         pace_category=pace_category,
         recommendations=["Maintain current pace", "Consider slight variation for emphasis"] if pace_category == "optimal" else ["Adjust speaking speed", "Practice with metronome"]
     )
