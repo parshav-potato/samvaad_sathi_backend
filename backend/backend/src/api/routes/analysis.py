@@ -24,6 +24,7 @@ from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.models.db.user import User
 from src.services.analysis import analysis_service
 from src.services.pace_analysis import provide_pace_feedback
+from src.services.pause_analysis import analyze_pauses
 from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -404,28 +405,18 @@ async def analyze_pause(
             status_code=fastapi.status.HTTP_404_NOT_FOUND,
             detail="Question attempt not found or no transcription available"
         )
+        
+    word_level_timestemps = {
+        "words":qa.transcription['words']
+    }
     
-    # Calculate pause metrics from transcription if available
-    pause_count = random.randint(3, 8)
-    total_pause_duration = random.uniform(5.0, 15.0)
-    avg_pause = total_pause_duration / pause_count
-    longest_pause = avg_pause * random.uniform(1.5, 3.0)
-    
-    # Score based on pause patterns
-    if avg_pause < 0.5:
-        pause_score = random.uniform(60.0, 75.0)  # Too few pauses
-    elif avg_pause > 3.0:
-        pause_score = random.uniform(50.0, 70.0)  # Too many long pauses
-    else:
-        pause_score = random.uniform(80.0, 95.0)  # Good pause pattern
-    
+    res = analyze_pauses(word_level_timestemps)
+        
     return PauseAnalysisResponse(
         question_attempt_id=question_attempt_id,
-        pause_score=pause_score,
-        total_pause_duration=total_pause_duration,
-        pause_count=pause_count,
-        average_pause_duration=avg_pause,
-        longest_pause_duration=longest_pause,
-        pause_feedback="Pause patterns show natural speaking rhythm with appropriate breaks.",
-        recommendations=["Continue natural pausing", "Use strategic pauses for emphasis"]
+        overview=res['overview'],
+        details=res['details'],
+        distribution=res['distribution'],
+        actionable_feedback=res['actionable_feedback'],
+        pause_score=res['score'],
     )
