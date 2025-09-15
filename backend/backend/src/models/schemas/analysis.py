@@ -160,14 +160,18 @@ class PaceAnalysisResponse(BaseSchemaModel):
     pace_category: str  # "too_slow", "optimal", "too_fast"
     recommendations: List[str]
 
+class Distribution(pydantic.BaseModel):
+    """Pause type distribution percentages"""
+    long: str
+    rushed: str
+    strategic: str
+    normal: str
 
 class PauseAnalysisResponse(BaseSchemaModel):
     """Response from pause analysis endpoint"""
     question_attempt_id: int
     pause_score: float = pydantic.Field(ge=0.0, le=100.0)
-    total_pause_duration: float
-    pause_count: int
-    average_pause_duration: float
-    longest_pause_duration: float
-    pause_feedback: str
-    recommendations: List[str]
+    overview:str
+    details:List[str]
+    distribution: Distribution
+    actionable_feedback: str    
