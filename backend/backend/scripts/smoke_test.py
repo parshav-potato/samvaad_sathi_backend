@@ -164,7 +164,7 @@ def main() -> None:
             print_result("GET /api/interviews", r, err)
             body = safe_json(r) if r else {}
             if isinstance(body, dict) and body.get("items"):
-                first_id = body["items"][0]["id"]
+                first_id = body["items"][0]["interviewId"]
                 next_cursor = body.get("next_cursor")
                 # Interviews: list questions for the first interview
                 r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions?limit=2", headers=headers)
@@ -174,8 +174,8 @@ def main() -> None:
                 # Test individual question endpoints if questions exist
                 if isinstance(qb, dict) and qb.get("items") and qb["items"]:
                     first_question = qb["items"][0]
-                    if isinstance(first_question, dict) and "id" in first_question:
-                        question_id = first_question["id"]
+                    if isinstance(first_question, dict) and "interviewQuestionId" in first_question:
+                        question_id = first_question["interviewQuestionId"]
                         
                         # GET individual question
                         r, err = safe_call(client, "GET", f"{API}/interviews/{first_id}/questions/{question_id}", headers=headers)
@@ -212,7 +212,7 @@ def main() -> None:
             current_body = safe_json(r) if r else {}
             
             if isinstance(current_body, dict) and current_body.get("items"):
-                current_interview_id = current_body["items"][0]["id"]
+                current_interview_id = current_body["items"][0]["interviewId"]
                 
                 # Get the generated questions (InterviewQuestion objects)
                 r, err = safe_call(client, "GET", f"{API}/interviews/{current_interview_id}/questions?limit=3", headers=headers)
@@ -222,8 +222,8 @@ def main() -> None:
                 if isinstance(questions_response, dict) and questions_response.get("items"):
                     # Create question attempts for the first few questions
                     first_question = questions_response["items"][0]
-                    if isinstance(first_question, dict) and "id" in first_question:
-                        question_id = first_question["id"]
+                    if isinstance(first_question, dict) and "interviewQuestionId" in first_question:
+                        question_id = first_question["interviewQuestionId"]
                         
                         # Create a question attempt using the new endpoint
                         attempt_payload = {"start_time": "2025-09-15T18:42:00Z"}
@@ -231,8 +231,8 @@ def main() -> None:
                         print_result("POST /api/interviews/{id}/questions/{qid}/attempts", r, err)
                         
                         attempt_response = safe_json(r) if r else {}
-                        if isinstance(attempt_response, dict) and "id" in attempt_response:
-                            question_attempt_id = attempt_response["id"]
+                        if isinstance(attempt_response, dict) and "questionAttemptId" in attempt_response:
+                            question_attempt_id = attempt_response["questionAttemptId"]
                             
                             # Test audio transcription with test_audio.mp3 file
                             import os
@@ -260,8 +260,8 @@ def main() -> None:
                     first_question_attempt = questions_body["items"][0]
                     
                     # Check if this is a question attempt object with an ID
-                    if isinstance(first_question_attempt, dict) and "id" in first_question_attempt:
-                        question_attempt_id = first_question_attempt["id"]
+                    if isinstance(first_question_attempt, dict) and "questionAttemptId" in first_question_attempt:
+                        question_attempt_id = first_question_attempt["questionAttemptId"]
                         
                         # Test audio transcription with original Speech.mp3 file as fallback
                         import os
@@ -303,7 +303,7 @@ def main() -> None:
                     if qa_response and 200 <= qa_response.status_code < 300:
                         qa_data = safe_json(qa_response)
                         if isinstance(qa_data, dict) and "items" in qa_data and qa_data["items"]:
-                            qa_id = qa_data["items"][0]["id"]
+                            qa_id = qa_data["items"][0]["questionAttemptId"]
                         else:
                             qa_id = 2  # Fallback
                     else:
@@ -351,7 +351,7 @@ def main() -> None:
                         transcribed_qa_id = None
                         for qa_item in qa_data["items"]:
                             if isinstance(qa_item, dict) and qa_item.get("transcription"):
-                                transcribed_qa_id = qa_item["id"]
+                                transcribed_qa_id = qa_item["questionAttemptId"]
                                 break
                         
                         if transcribed_qa_id:
@@ -406,7 +406,7 @@ def main() -> None:
                             
                         else:
                             # Test with mock question attempt ID if no transcribed data
-                            mock_qa_id = qa_data["items"][0]["id"] if qa_data["items"] else 1
+                            mock_qa_id = qa_data["items"][0]["questionAttemptId"] if qa_data["items"] else 1
                             analysis_payload = {"question_attempt_id": mock_qa_id}
                             
                             # Updated: Should fail gracefully due to missing transcription
