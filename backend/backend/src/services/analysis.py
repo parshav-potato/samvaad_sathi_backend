@@ -89,7 +89,7 @@ class AnalysisAggregationService:
             partial_failure=len(failed_analyses) > 0 and len(completed_analyses) > 0
         )
         
-        # Save to database
+        # Save to database (deep-merge to avoid losing other keys)
         saved, save_error = await self._save_analysis_to_db(
             question_attempt, aggregated_analysis, db
         )
@@ -122,12 +122,13 @@ class AnalysisAggregationService:
         question_attempt: QuestionAttempt,
         user_id: int
     ) -> Dict[str, Dict[str, Any]]:
-        """Run multiple analyses sequentially with per-analysis timeouts."""
+        """Run multiple analyses concurrently with per-analysis timeouts."""
         # Define supported analysis types
         SUPPORTED_ANALYSIS_TYPES = {"domain", "communication", "pace", "pause"}
         
         analysis_results: Dict[str, Dict[str, Any]] = {}
         
+        tasks: list[tuple[str, asyncio.Task]] = []
         for analysis_type in analysis_types:
             if analysis_type not in SUPPORTED_ANALYSIS_TYPES:
                 analysis_results[analysis_type] = {
@@ -136,12 +137,17 @@ class AnalysisAggregationService:
                     "data": None,
                 }
                 continue
-            
-            try:
-                result = await asyncio.wait_for(
+            task = asyncio.create_task(
+                asyncio.wait_for(
                     self._generate_analysis_result(analysis_type, question_attempt_id, question_attempt, user_id),
                     timeout=self.timeout,
                 )
+            )
+            tasks.append((analysis_type, task))
+
+        for analysis_type, task in tasks:
+            try:
+                result = await task
                 analysis_results[analysis_type] = result
             except asyncio.TimeoutError:
                 analysis_results[analysis_type] = {
@@ -171,7 +177,7 @@ class AnalysisAggregationService:
             # Import the real analysis services
             from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
             from src.services.pace_analysis import provide_pace_feedback
-            from src.services.pause_analysis import analyze_pauses
+            from src.services.pause_analysis import analyze_pauses_async
             
             # Get transcription data
             transcription_text = None
@@ -191,7 +197,7 @@ class AnalysisAggregationService:
                 }
                 
                 # Call real LLM domain analysis
-                analysis, llm_error, latency_ms, llm_model = analyze_domain_with_llm(
+                analysis, llm_error, latency_ms, llm_model = await analyze_domain_with_llm(
                     user_profile=profile,
                     question_text=getattr(question_attempt, "question_text", None),
                     transcription=transcription_text,
@@ -234,7 +240,7 @@ class AnalysisAggregationService:
                 }
                 
                 # Call real LLM communication analysis
-                analysis, llm_error, latency_ms, llm_model = analyze_communication_with_llm(
+                analysis, llm_error, latency_ms, llm_model = await analyze_communication_with_llm(
                     user_profile=profile,
                     question_text=getattr(question_attempt, "question_text", None),
                     transcription=transcription_text,
@@ -286,8 +292,10 @@ class AnalysisAggregationService:
                     raise ValueError("Pace analysis failed to process word timestamps")
                 
                 feedback = pace_result.get("feedback", "Pace analysis completed")
-                pace_score = pace_result.get("pace_score", 0.0)
-                wpm = pace_result.get("wpm", 0.0)
+                raw_score = pace_result.get("score", 0.0)
+                # Normalize 0-5 -> 0-100 if needed
+                pace_score = float(raw_score) * 20.0 if isinstance(raw_score, (int, float)) and raw_score <= 5 else float(raw_score or 0.0)
+                wpm = float(pace_result.get("wpm", 0.0))
                 
                 # Determine pace category
                 if wpm < 120:
@@ -316,18 +324,20 @@ class AnalysisAggregationService:
                     raise ValueError("No word-level timestamps available for pause analysis")
                 
                 # Call real pause analysis
-                pause_result = analyze_pauses({"words": words_data})
+                pause_result = await analyze_pauses_async({"words": words_data})
                 
                 if not pause_result:
                     raise ValueError("Pause analysis failed to process word timestamps")
                 
+                raw_pause_score = pause_result.get('score')
+                pause_score = float(raw_pause_score) * 20.0 if isinstance(raw_pause_score, (int, float)) and raw_pause_score <= 5 else float(raw_pause_score or 0.0)
                 data = PauseAnalysisResponse(
                     question_attempt_id=question_attempt_id,
                     overview=pause_result.get('overview', 'Pause analysis completed'),
                     details=pause_result.get('details', []),
                     distribution=pause_result.get('distribution', {}),
                     actionable_feedback=pause_result.get('actionable_feedback', 'Continue using natural pauses'),
-                    pause_score=pause_result.get('score', 5.0),
+                    pause_score=pause_score,
                 ).model_dump()
                 
             else:
@@ -376,13 +386,19 @@ class AnalysisAggregationService:
         """Save aggregated analysis to database."""
         try:
             # Convert Pydantic model to dict for JSON storage
-            analysis_dict = aggregated_analysis.model_dump(exclude_none=True)
-            
+            new_dict = aggregated_analysis.model_dump(exclude_none=True)
+
+            # Merge with existing JSON
+            existing = question_attempt.analysis_json or {}
+            merged = dict(existing)
+            for k, v in new_dict.items():
+                merged[k] = v
+
             # Update the question attempt using SQL update to avoid session issues
             stmt = (
                 sqlalchemy.update(QuestionAttempt)
                 .where(QuestionAttempt.id == question_attempt.id)
-                .values(analysis_json=analysis_dict)
+                .values(analysis_json=merged)
             )
             await db.execute(stmt)
             await db.commit()

@@ -146,7 +146,7 @@ OPENAI_MODEL=gpt-4o-mini
 
 ### 📊 Analysis Aggregation
 - **Complete Analysis Endpoint**: Single API call aggregating multiple analysis types
-- **Concurrent Processing**: Domain, communication, pace, and pause analyses run in parallel
+- **Concurrent Processing**: Domain, communication, pace, and pause analyses run in parallel (async) with per-analysis timeouts
 - **Flexible Analysis Selection**: Support for all or subset of analysis types
 - **Database Persistence**: Results saved to `question_attempt.analysis_json` field
 - **Performance Optimized**: Sub-second response times with direct function calls

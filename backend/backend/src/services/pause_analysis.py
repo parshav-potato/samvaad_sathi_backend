@@ -3,10 +3,12 @@ import os
 import sys
 from typing import Dict, List
 import re
-from openai import OpenAI  # v1 SDK
 import statistics
+import asyncio
 
-def suggest_pauses(asr_output: dict) -> List[int]:
+from src.services.llm import structured_output, PausesSuggestionLLM, PauseCoachLLM
+
+async def suggest_pauses_async(asr_output: dict) -> List[int]:
     """Return word indices where a brief pause *before* the word is advised.
 
     Parameters
@@ -55,7 +57,13 @@ def suggest_pauses(asr_output: dict) -> List[int]:
     )
     
     try:
-        response = call_llm(prompt).strip().strip('"')
+        result, err, _lat, _model = await structured_output(
+            PausesSuggestionLLM,
+            system_prompt=prompt,
+            user_content="",
+            temperature=0,
+        )
+        response = (result.modified_transcript if result else transcript).strip('"')
     except Exception:
         response = transcript.strip('"')
 
@@ -144,23 +152,19 @@ def _extract_pauses(words: List[dict]) -> List[dict]:
         )
     return pauses
 
-def call_llm(sys_prompt:str=None):
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return {}, None, None, model
-    
-    client = OpenAI(api_key=api_key)
-
-    resp = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-    return raw
+async def coach_feedback_async(coaching_prompt: str) -> Dict:
+    try:
+        result, err, _lat, _model = await structured_output(
+            PauseCoachLLM,
+            system_prompt=coaching_prompt,
+            user_content="",
+            temperature=0,
+        )
+        if result:
+            return {"actionable_feedback": result.actionable_feedback, "score": int(result.score)}
+    except Exception:
+        pass
+    return {}
 
 def extract_json(text: str):
     """
@@ -201,7 +205,7 @@ def extract_json(text: str):
         raise ValueError(f"Invalid JSON found: {e}")
 
 
-def analyze_pauses(asr_output: dict):
+async def analyze_pauses_async(asr_output: dict):
     """Analyse pauses and generate actionable feedback.
 
     Parameters
@@ -245,7 +249,7 @@ def analyze_pauses(asr_output: dict):
     pauses = _extract_pauses(words)
 
     try:
-        recommended_pause_indices = suggest_pauses(asr_output, call_llm)
+        recommended_pause_indices = await suggest_pauses_async(asr_output)
     except Exception:
         if os.getenv("PAUSES_DEBUG"):
             print("WARNING: analyze_pauses – recommended indices fallback", file=sys.stderr)
@@ -587,18 +591,13 @@ def analyze_pauses(asr_output: dict):
     # Use heuristic as the initial score baseline.
     score = heuristic_score
     try:
-        llm_response_raw = call_llm(coaching_prompt)
-        llm_json = extract_json(llm_response_raw)
-        actionable_feedback = llm_json.get("actionable_feedback", actionable_feedback)
-        # Guard against models that deviate from rubric by reconciling with
-        # the deterministic heuristic.  We take the *higher* value so strong
-        # performances are not unfairly downgraded, while weak performances
-        # are still clamped further down later by the strategic/rushed
-        # post-processing.
-        try:
-            llm_score_raw = int(llm_json.get("score", score))
-        except (TypeError, ValueError):
-            llm_score_raw = score
+        json_out = await coach_feedback_async(coaching_prompt)
+        if json_out:
+            actionable_feedback = json_out.get("actionable_feedback", actionable_feedback)
+            try:
+                llm_score_raw = int(json_out.get("score", score))
+            except (TypeError, ValueError):
+                llm_score_raw = score
 
         # Trust the deterministic metric first.  Allow the LLM to *upgrade* by
         # at most +1 if it disagrees in the positive direction.  This guards
@@ -663,3 +662,17 @@ def analyze_pauses(asr_output: dict):
     feedback["score"] = score
 
     return feedback
+
+
+# Backward-compatible sync wrappers (not used in async paths)
+def analyze_pauses(asr_output: dict):
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule and wait
+            return loop.run_until_complete(analyze_pauses_async(asr_output))
+        else:
+            return loop.run_until_complete(analyze_pauses_async(asr_output))
+    except Exception:
+        # As last resort, drop LLM parts and call deterministic path
+        return asyncio.new_event_loop().run_until_complete(analyze_pauses_async(asr_output))

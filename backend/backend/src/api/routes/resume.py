@@ -126,7 +126,8 @@ async def extract_resume(
     preview = normalized[:300]
 
     # LLM extraction via service
-    skills, years_experience, llm_error, llm_latency_ms, llm_model = extract_resume_entities_with_llm(normalized)
+    from src.services.llm import extract_resume_entities_with_llm as async_extract
+    skills, years_experience, llm_error, llm_latency_ms, llm_model = await async_extract(normalized)
 
     # Validation & structuring
     warnings: list[str] = []
@@ -273,7 +274,8 @@ async def get_knowledge_set(
     # Reuse LLM extraction service to get skills; ignore years here
     from src.services.llm import extract_resume_entities_with_llm  # local import to avoid cycles
 
-    skills, _years, llm_error, llm_latency_ms, llm_model = extract_resume_entities_with_llm(normalized_text)
+    from src.services.llm import extract_resume_entities_with_llm as async_extract2
+    skills, _years, llm_error, llm_latency_ms, llm_model = await async_extract2(normalized_text)
 
     # Normalize and validate
     def _norm_skill(s: str) -> str:
