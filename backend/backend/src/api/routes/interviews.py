@@ -7,6 +7,7 @@ from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
+from src.services.whisper import strip_word_level_data
 
 
 router = fastapi.APIRouter(prefix="", tags=["interviews"])
@@ -261,7 +262,7 @@ async def list_interview_question_attempts(
             question_text=q.question_text,
             question_id=q.question_id,
             audio_url=q.audio_url,
-            transcription=q.transcription,
+            transcription=strip_word_level_data(q.transcription),
             created_at=q.created_at
         ) for q in items],
         next_cursor=next_cursor,
