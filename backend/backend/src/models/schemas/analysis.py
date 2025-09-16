@@ -49,6 +49,20 @@ class CommunicationAnalysisRequest(BaseSchemaModel):
     override_transcription: str | None = pydantic.Field(default=None, description="Optional transcription text override")
 
 
+class PaceAnalysisRequest(BaseSchemaModel):
+    """Request model for pace analysis endpoint"""
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(
+        gt=0, description="ID of the question attempt to analyze (must be > 0, no string coercion)"
+    )
+
+
+class PauseAnalysisRequest(BaseSchemaModel):
+    """Request model for pause analysis endpoint"""
+    question_attempt_id: pydantic.StrictInt = pydantic.Field(
+        gt=0, description="ID of the question attempt to analyze (must be > 0, no string coercion)"
+    )
+
+
 class AnalysisMetadata(BaseSchemaModel):
     """Metadata about the analysis process"""
     total_latency_ms: int = pydantic.Field(description="Total time taken for all analyses in milliseconds")

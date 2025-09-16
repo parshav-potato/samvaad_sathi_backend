@@ -59,18 +59,19 @@ class FinalReportService:
 
             # Domain
             d = analysis.get("domain") or {}
-            d_score = _as_float(d.get("domain_score"))
+            d_score = _as_float(d.get("domain_score") or (d.get("overall_score") if isinstance(d.get("overall_score"), (int, float)) else None))
             if d_score is not None:
                 domain_scores.append(d_score)
             d_strengths = _as_list_str(d.get("strengths"))
             d_improvements = _as_list_str(d.get("improvements"))
-            topics = _as_list_str(d.get("knowledge_areas"))
+            topics = _as_list_str(d.get("knowledge_areas") or (list((d.get("criteria") or {}).keys()) if isinstance(d.get("criteria"), dict) else []))
             if topics:
                 coverage_topics.extend([t for t in topics if t])
 
             # Communication
             c = analysis.get("communication") or {}
-            c_score = _as_float(c.get("communication_score"))
+            # Fallback to overall_score if normalized value missing
+            c_score = _as_float(c.get("communication_score") or (c.get("overall_score") if isinstance(c.get("overall_score"), (int, float)) else None))
             if c_score is not None:
                 comm_scores.append(c_score)
             for k, target in (
@@ -80,17 +81,27 @@ class FinalReportService:
                 ("structure_score", structure_list),
             ):
                 v = _as_float(c.get(k))
+                if v is None and isinstance(c.get("criteria"), dict):
+                    crit = c["criteria"]
+                    # derive when possible
+                    mapping = {
+                        "clarity_score": (crit.get("clarity", {}) or {}).get("score"),
+                        "vocabulary_score": ((crit.get("vocabulary", {}) or {}).get("score") or (crit.get("jargon_use", {}) or {}).get("score")),
+                        "grammar_score": (crit.get("grammar", {}) or {}).get("score"),
+                        "structure_score": (crit.get("structure", {}) or {}).get("score"),
+                    }
+                    v = _as_float(mapping.get(k))
                 if v is not None:
                     target.append(v)
 
             # Pace/Pause
             p = analysis.get("pace") or {}
-            p_score = _as_float(p.get("pace_score"))
+            p_score = _as_float(p.get("pace_score") or (p.get("score") * 20 if isinstance(p.get("score"), (int, float)) and p.get("score") <= 5 else None))
             if p_score is not None:
                 pace_scores.append(p_score)
 
             z = analysis.get("pause") or {}
-            z_score = _as_float(z.get("pause_score"))
+            z_score = _as_float(z.get("pause_score") or (z.get("score") * 20 if isinstance(z.get("score"), (int, float)) and z.get("score") <= 5 else None))
             if z_score is not None:
                 pause_scores.append(z_score)
 

@@ -1,12 +1,106 @@
 import json
 import os
 import time
-from typing import Any
+from typing import Any, Type, Tuple
+import asyncio
 
+import pydantic
 from openai import OpenAI  # v1 SDK
 
 
-def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None, str | None, int | None, str]:
+class ResumeEntitiesLLM(pydantic.BaseModel):
+    skills: list[str] = pydantic.Field(default_factory=list)
+    years_experience: float | None = None
+
+
+class QuestionsItemLLM(pydantic.BaseModel):
+    text: str
+    topic: str | None = None
+    difficulty: str | None = None
+
+
+class QuestionsResponseLLM(pydantic.BaseModel):
+    questions: list[str] = pydantic.Field(default_factory=list)
+    items: list[QuestionsItemLLM] | None = None
+
+
+class DomainAnalysisLLM(pydantic.BaseModel):
+    overall_score: float | None = None
+    criteria: dict[str, Any] | None = None
+    summary: str | None = None
+    suggestions: list[str] | None = None
+    confidence: float | None = None
+    misconceptions: dict[str, Any] | None = None
+    examples: dict[str, Any] | None = None
+
+
+class CommunicationAnalysisLLM(pydantic.BaseModel):
+    overall_score: float | None = None
+    criteria: dict[str, Any] | None = None
+    summary: str | None = None
+    suggestions: list[str] | None = None
+    confidence: float | None = None
+    jargon_use: dict[str, Any] | None = None
+    tone_empathy: dict[str, Any] | None = None
+
+
+class PausesSuggestionLLM(pydantic.BaseModel):
+    modified_transcript: str
+
+
+class PauseCoachLLM(pydantic.BaseModel):
+    actionable_feedback: str
+    score: int
+
+
+async def structured_output(
+    model_class: Type[pydantic.BaseModel],
+    *,
+    system_prompt: str,
+    user_content: Any,
+    temperature: float = 0,
+) -> tuple[pydantic.BaseModel | None, str | None, int | None, str]:
+    """Call OpenAI with response_format=json and validate against Pydantic model."""
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None, None, None, model
+
+    start = time.perf_counter()
+
+    def _call_sync() -> Tuple[str | None, str | None]:
+        try:
+            client = OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": json.dumps(user_content) if not isinstance(user_content, str) else user_content},
+                ],
+            )
+            raw = resp.choices[0].message.content if resp and resp.choices else "{}"
+            return raw, None
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+
+    loop = asyncio.get_running_loop()
+    raw, error = await loop.run_in_executor(None, _call_sync)
+
+    parsed: pydantic.BaseModel | None = None
+    if raw:
+        try:
+            data = json.loads(raw)
+            parsed = model_class.model_validate(data)
+        except Exception as e:  # noqa: BLE001
+            error = str(e)
+
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    return parsed, error, latency_ms, model
+
+
+async def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None, str | None, int | None, str]:
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or not text:
@@ -28,44 +122,17 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     input_text = text[:20000]
 
     try:
-        client = OpenAI(api_key=api_key)
-        # Use Chat Completions API (supported in v1). Avoid legacy module access.
-        resp = client.chat.completions.create(
-            model=model,
+        result, perr, latency, model = await structured_output(
+            ResumeEntitiesLLM,
+            system_prompt=system_prompt,
+            user_content=input_text,
             temperature=0,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": input_text},
-            ],
         )
-        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-        
-        # Ensure we have some content to parse
-        if not raw or not raw.strip():
-            error = "LLM returned empty response"
-            raw = "{}"
-        
-        # Try to clean the response if it has markdown code blocks
-        cleaned_raw = raw.strip()
-        if cleaned_raw.startswith("```json"):
-            cleaned_raw = cleaned_raw[7:]  # Remove ```json
-        if cleaned_raw.endswith("```"):
-            cleaned_raw = cleaned_raw[:-3]  # Remove ```
-        cleaned_raw = cleaned_raw.strip()
-
-        # Parse JSON if model complied, otherwise attempt best-effort extraction
-        try:
-            data: dict[str, Any] = json.loads(cleaned_raw or "{}")
-        except json.JSONDecodeError as json_error:
-            error = f"JSON parsing failed: {json_error}. Raw response: {raw[:200]}..."
-            data = {}
-            
-        s = data.get("skills") or []
-        if isinstance(s, list):
-            skills = [str(x) for x in s if isinstance(x, (str, int, float))]
-        y = data.get("years_experience")
-        if isinstance(y, (int, float)):
-            years = float(y)
+        error = perr
+        if result:
+            skills = [str(x) for x in result.skills]
+            years = result.years_experience
+        latency_ms = latency
     except Exception as e:
         error = str(e)
 
@@ -73,7 +140,7 @@ def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None
     return skills, years, error, latency_ms, model
 
 
-def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3, difficulty: str | None = None) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
+async def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3, difficulty: str | None = None) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
     """
     Generate interview questions using an LLM given a track and optional context (e.g., resume_text).
     Returns (questions, error, latency_ms, model). On missing API key, returns empty questions and no error.
@@ -105,31 +172,21 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
     }
 
     try:
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=model,
+        result, perr, latency, model = await structured_output(
+            QuestionsResponseLLM,
+            system_prompt=sys_prompt,
+            user_content=user_prompt,
             temperature=0.2,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": json.dumps(user_prompt)},
-            ],
         )
-        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-
-        data: dict[str, Any] = json.loads(raw or "{}")
-        q = data.get("questions") or []
-        if isinstance(q, list):
-            questions = [str(x).strip() for x in q if isinstance(x, (str, int, float))]
-        its = data.get("items")
-        if isinstance(its, list):
-            structured_items = []
-            for it in its:
-                if isinstance(it, dict) and "text" in it:
-                    structured_items.append({
-                        "text": str(it.get("text", "")).strip(),
-                        "topic": (None if it.get("topic") in (None, "") else str(it.get("topic"))),
-                        "difficulty": (None if it.get("difficulty") in (None, "") else str(it.get("difficulty"))),
-                    })
+        error = perr
+        if result:
+            questions = [str(x).strip() for x in (result.questions or [])]
+            if result.items is not None:
+                structured_items = [
+                    {"text": it.text.strip(), "topic": it.topic, "difficulty": it.difficulty}
+                    for it in result.items
+                ]
+        latency_ms = latency
     except Exception as e:
         error = str(e)
 
@@ -137,7 +194,7 @@ def generate_interview_questions_with_llm(track: str, context_text: str | None =
     return questions, error, latency_ms, model, structured_items
 
 
-def analyze_domain_with_llm(
+async def analyze_domain_with_llm(
     *,
     user_profile: dict[str, Any],
     question_text: str | None,
@@ -168,29 +225,46 @@ def analyze_domain_with_llm(
         "transcription": (transcription or "")[:8000],
     }
 
-    try:
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": json.dumps(user_content)},
-            ],
-        )
-        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-        data: dict[str, Any] = json.loads(raw or "{}")
-        # Minimal sanity checks
-        if isinstance(data.get("overall_score"), (int, float)):
-            analysis = data
-    except Exception as e:
-        error = str(e)
+    def _clean_and_parse_json(raw_text: str) -> dict[str, Any]:
+        text = (raw_text or "").strip()
+        # Strip common code fences
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            # Best-effort extraction of first JSON object/array
+            start_obj = text.find('{')
+            start_arr = text.find('[')
+            start = min(x for x in [start_obj, start_arr] if x != -1) if (start_obj != -1 or start_arr != -1) else -1
+            end_obj = text.rfind('}')
+            end_arr = text.rfind(']')
+            end = max(end_obj, end_arr)
+            if start != -1 and end != -1 and end > start:
+                candidate = text[start:end+1]
+                # Remove trailing commas before closing braces/brackets
+                import re as _re
+                candidate = _re.sub(r',\s*(\}|\])', r'\1', candidate)
+                return json.loads(candidate)
+            raise ValueError("LLM response did not contain valid JSON")
 
-    latency_ms = int((time.perf_counter() - start) * 1000)
+    result, error, latency_ms, model = await structured_output(
+        DomainAnalysisLLM,
+        system_prompt=sys_prompt,
+        user_content=user_content,
+        temperature=0,
+    )
+
+    analysis: dict[str, Any] = {}
+    if result:
+        analysis = result.model_dump()
     return analysis, error, latency_ms, model
 
 
-def analyze_communication_with_llm(
+async def analyze_communication_with_llm(
     *,
     user_profile: dict[str, Any],
     question_text: str | None,
@@ -223,23 +297,38 @@ def analyze_communication_with_llm(
         "aux_metrics": aux_metrics or {},
     }
 
-    try:
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": json.dumps(payload)},
-            ],
-        )
-        raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-        data: dict[str, Any] = json.loads(raw or "{}")
-        if isinstance(data.get("overall_score"), (int, float)):
-            analysis = data
-    except Exception as e:
-        error = str(e)
+    def _clean_and_parse_json(raw_text: str) -> dict[str, Any]:
+        text = (raw_text or "").strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            start_obj = text.find('{')
+            start_arr = text.find('[')
+            start = min(x for x in [start_obj, start_arr] if x != -1) if (start_obj != -1 or start_arr != -1) else -1
+            end_obj = text.rfind('}')
+            end_arr = text.rfind(']')
+            end = max(end_obj, end_arr)
+            if start != -1 and end != -1 and end > start:
+                candidate = text[start:end+1]
+                import re as _re
+                candidate = _re.sub(r',\s*(\}|\])', r'\1', candidate)
+                return json.loads(candidate)
+            raise ValueError("LLM response did not contain valid JSON")
 
-    latency_ms = int((time.perf_counter() - start) * 1000)
+    result, error, latency_ms, model = await structured_output(
+        CommunicationAnalysisLLM,
+        system_prompt=sys_prompt,
+        user_content=payload,
+        temperature=0,
+    )
+
+    analysis: dict[str, Any] = {}
+    if result:
+        analysis = result.model_dump()
     return analysis, error, latency_ms, model
 

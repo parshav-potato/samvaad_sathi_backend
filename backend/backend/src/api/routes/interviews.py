@@ -82,7 +82,7 @@ async def generate_questions(
     
     # Use resume context if present on user and use_resume is True
     resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
-    questions, llm_error, latency_ms, llm_model, items = generate_interview_questions_with_llm(
+    questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
         track=active.track,
         context_text=resume_context,
         count=5,
