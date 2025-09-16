@@ -6,7 +6,7 @@ from src.api.dependencies.repository import get_repository
 from src.models.schemas.audio import AudioTranscriptionResponse
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.audio_processor import validate_audio_file, save_audio_file, get_audio_duration_estimate, cleanup_temp_audio_file
-from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language, extract_word_count
+from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language, extract_word_count, strip_word_level_data
 
 
 router = fastapi.APIRouter(prefix="", tags=["audio"])
@@ -134,7 +134,7 @@ async def transcribe_audio_answer(
         size=file_metadata["size"],
         duration_seconds=duration_seconds,
         audio_url=audio_url,
-        transcription=transcription,
+        transcription=strip_word_level_data(transcription),
         word_count=word_count,
         whisper_model=whisper_model,
         whisper_latency_ms=whisper_latency_ms,

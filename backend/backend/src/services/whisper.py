@@ -177,3 +177,23 @@ def extract_word_count(transcription: dict | None) -> int | None:
         return len(words)
     
     return None
+
+
+def strip_word_level_data(transcription: dict | None) -> dict | None:
+    """
+    Return a copy of transcription without verbose word-level arrays for client responses.
+    Keeps high-level fields like task, language, duration, and text. DB persistence remains unchanged.
+    """
+    if not transcription:
+        return transcription
+    if not isinstance(transcription, dict):
+        return None
+    sanitized = dict(transcription)
+    # Remove word-level details if present
+    if "words" in sanitized:
+        sanitized.pop("words", None)
+    # In case future providers add other verbose arrays
+    if "segments" in sanitized and isinstance(sanitized["segments"], list):
+        # Keep segments metadata minimal if needed in the future; for now, drop entirely
+        sanitized.pop("segments", None)
+    return sanitized
