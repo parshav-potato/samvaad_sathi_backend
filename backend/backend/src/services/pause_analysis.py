@@ -669,8 +669,11 @@ def analyze_pauses(asr_output: dict):
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # Schedule and wait
-            return loop.run_until_complete(analyze_pauses_async(asr_output))
+            # Create a task for the already-running loop
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, analyze_pauses_async(asr_output))
+                return future.result()
         else:
             return loop.run_until_complete(analyze_pauses_async(asr_output))
     except Exception:
