@@ -42,6 +42,7 @@ httpx
 # OAuth/OIDC with Cognito
 authlib
 requests
+itsdangerous
 isort
 loguru
 mypy
