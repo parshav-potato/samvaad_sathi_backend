@@ -71,6 +71,19 @@ class BackendBaseSettings(BaseSettings):
     HASHING_SALT: str = decouple.config("HASHING_SALT", cast=str)  # type: ignore
     JWT_ALGORITHM: str = decouple.config("JWT_ALGORITHM", cast=str)  # type: ignore
 
+    # ------------------------------
+    # Sessions / OAuth (Cognito)
+    # ------------------------------
+    SESSION_SECRET_KEY: str = decouple.config("SESSION_SECRET_KEY", cast=str, default="change-me-session-secret")  # type: ignore
+    COGNITO_REGION: str = decouple.config("COGNITO_REGION", cast=str, default="ap-south-1")  # type: ignore
+    COGNITO_USERPOOL_ID: str = decouple.config("COGNITO_USERPOOL_ID", cast=str, default="")  # type: ignore
+    COGNITO_CLIENT_ID: str = decouple.config("COGNITO_CLIENT_ID", cast=str, default="")  # type: ignore
+    COGNITO_CLIENT_SECRET: str = decouple.config("COGNITO_CLIENT_SECRET", cast=str, default="")  # type: ignore
+    COGNITO_SCOPES: str = decouple.config("COGNITO_SCOPES", cast=str, default="openid email phone profile")  # type: ignore
+    # Optional frontend redirect after successful login/logout
+    COGNITO_POST_LOGIN_REDIRECT_URL: str | None = decouple.config("COGNITO_POST_LOGIN_REDIRECT_URL", cast=str, default=None)  # type: ignore
+    COGNITO_POST_LOGOUT_REDIRECT_URL: str | None = decouple.config("COGNITO_POST_LOGOUT_REDIRECT_URL", cast=str, default=None)  # type: ignore
+
     # Audio processing settings (stateless - no upload directory needed)
     MAX_AUDIO_SIZE_MB: int = decouple.config("MAX_AUDIO_SIZE_MB", cast=int, default=25)  # type: ignore
     OPENAI_MODEL: str = decouple.config("OPENAI_MODEL", cast=str, default="gpt-4o-mini")  # type: ignore

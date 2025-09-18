@@ -2,6 +2,7 @@ import fastapi
 from dotenv import load_dotenv
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from src.api.endpoints import router as api_endpoint_router
 from src.config.events import execute_backend_server_event_handler, terminate_backend_server_event_handler
@@ -52,6 +53,10 @@ def initialize_backend_application() -> fastapi.FastAPI:
     )
 
     app.include_router(router=api_endpoint_router, prefix=settings.API_PREFIX)
+
+    # Enable server-side sessions for OAuth state and userinfo storage
+    # Uses cookie-based signed session via Starlette's SessionMiddleware
+    app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
 
     # Add a root endpoint
     @app.get("/")

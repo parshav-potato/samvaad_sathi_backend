@@ -39,6 +39,9 @@ pathlib
 black
 colorama
 httpx
+# OAuth/OIDC with Cognito
+authlib
+requests
 isort
 loguru
 mypy
