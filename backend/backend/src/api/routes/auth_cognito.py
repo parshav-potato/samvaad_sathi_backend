@@ -52,7 +52,7 @@ async def authorize(
     if err:
         desc = request.query_params.get("error_description") or err
         target_err = settings.COGNITO_POST_LOGIN_REDIRECT_URL or "/"
-        return RedirectResponse(url=f"{target_err}?error={quote(desc)}")
+        return RedirectResponse(url=f"{target_err}#error={quote(desc)}")
 
     try:
         token = await oauth.cognito.authorize_access_token(request)
@@ -60,7 +60,7 @@ async def authorize(
         # Redirect back with error message instead of 500
         target_err = settings.COGNITO_POST_LOGIN_REDIRECT_URL or "/"
         message = exc.description or str(exc)
-        return RedirectResponse(url=f"{target_err}?error={quote(message)}")
+        return RedirectResponse(url=f"{target_err}#error={quote(message)}")
 
     userinfo = token.get("userinfo") or {}
     email = userinfo.get("email")
@@ -85,7 +85,8 @@ async def authorize(
 
     # Optional: redirect to configured URL (frontend) or default
     target = settings.COGNITO_POST_LOGIN_REDIRECT_URL or "/"
-    return RedirectResponse(url=target)
+    # Return token via URL fragment to reduce CSRF exposure
+    return RedirectResponse(url=f"{target}#token={quote(jwt_token)}")
 
 
 @router.get("/logout")
