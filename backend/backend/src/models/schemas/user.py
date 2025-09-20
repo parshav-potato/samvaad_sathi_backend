@@ -46,6 +46,7 @@ class UserProfileOut(BaseSchemaModel):
 
 class UserWithToken(BaseSchemaModel):
     token: str
+    refresh_token: str | None = None
     email: pydantic.EmailStr
     name: str
     created_at: datetime.datetime
