@@ -4,7 +4,24 @@ import tempfile
 from typing import Tuple
 
 import openai
+from openai import AsyncOpenAI
 from src.config.manager import settings
+
+_client: AsyncOpenAI | None = None
+
+def _get_client() -> AsyncOpenAI | None:
+    global _client
+    if _client is not None:
+        return _client
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        return None
+    _client = AsyncOpenAI(
+        api_key=api_key,
+        timeout=60.0,
+        max_retries=2,
+    )
+    return _client
 
 
 async def transcribe_audio_with_whisper(
@@ -35,35 +52,29 @@ async def transcribe_audio_with_whisper(
     start_time = time.perf_counter()
     
     try:
-        # Create OpenAI client with timeout configuration
-        client = openai.OpenAI(
-            api_key=api_key,
-            timeout=60.0,  # 60 second timeout for Whisper API calls
-            max_retries=2   # Retry on network errors
-        )
-        
+        client = _get_client()
+        if client is None:
+            return None, "OpenAI API key not configured", None, model_name
+
         # Create temporary file for Whisper API (it requires a file, not bytes)
         with tempfile.NamedTemporaryFile(suffix=_get_file_extension(filename), delete=False) as temp_file:
             temp_file.write(audio_bytes)
             temp_file_path = temp_file.name
-        
+
         try:
             # Call Whisper API with word-level timestamps
             with open(temp_file_path, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
+                transcript = await client.audio.transcriptions.create(
                     model=model_name,
                     file=audio_file,
                     language=language,
                     response_format="verbose_json",  # Required for word-level timestamps
                     timestamp_granularities=["word"]  # Enable word-level timestamps
                 )
-            
-            # Clean up temp file
-            os.unlink(temp_file_path)
-            
+
             end_time = time.perf_counter()
             latency_ms = int((end_time - start_time) * 1000)
-            
+
             # Convert response to dictionary format
             transcription_dict = {
                 "task": getattr(transcript, "task", "transcribe"),
@@ -72,9 +83,9 @@ async def transcribe_audio_with_whisper(
                 "text": getattr(transcript, "text", ""),
                 "words": []
             }
-            
+
             # Extract word-level timestamps if available
-            if hasattr(transcript, "words") and transcript.words:
+            if hasattr(transcript, "words") and getattr(transcript, "words"):
                 transcription_dict["words"] = [
                     {
                         "word": word.word,
@@ -83,16 +94,15 @@ async def transcribe_audio_with_whisper(
                     }
                     for word in transcript.words
                 ]
-            
+
             return transcription_dict, None, latency_ms, model_name
-            
-        except Exception as api_error:
-            # Clean up temp file in case of error
+
+        finally:
+            # Ensure temp file is cleaned up
             try:
                 os.unlink(temp_file_path)
-            except:
+            except Exception:
                 pass
-            raise api_error
     
     except openai.AuthenticationError:
         end_time = time.perf_counter()
