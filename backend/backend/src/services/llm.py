@@ -1,11 +1,27 @@
 import json
-import os
 import time
-from typing import Any, Type, Tuple
-import asyncio
+from typing import Any, Type
 
 import pydantic
-from openai import OpenAI  # v1 SDK
+from openai import AsyncOpenAI
+from src.config.manager import settings
+
+# Lazy client holder; create only when needed and when API key is present
+_client: AsyncOpenAI | None = None
+
+def _get_client() -> AsyncOpenAI | None:
+    global _client
+    if _client is not None:
+        return _client
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        return None
+    _client = AsyncOpenAI(
+        api_key=api_key,
+        timeout=30.0,
+        max_retries=3,
+    )
+    return _client
 
 
 class ResumeEntitiesLLM(pydantic.BaseModel):
@@ -60,49 +76,40 @@ async def structured_output(
     user_content: Any,
     temperature: float = 0,
 ) -> tuple[pydantic.BaseModel | None, str | None, int | None, str]:
-    """Call OpenAI with response_format=json and validate against Pydantic model."""
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Call OpenAI asynchronously with JSON response_format and validate against Pydantic model."""
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
     if not api_key:
         return None, None, None, model
 
     start = time.perf_counter()
-
-    def _call_sync() -> Tuple[str | None, str | None]:
-        try:
-            client = OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=temperature,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": json.dumps(user_content) if not isinstance(user_content, str) else user_content},
-                ],
-            )
-            raw = resp.choices[0].message.content if resp and resp.choices else "{}"
-            return raw, None
-        except Exception as e:  # noqa: BLE001
-            return None, str(e)
-
-    loop = asyncio.get_running_loop()
-    raw, error = await loop.run_in_executor(None, _call_sync)
-
-    parsed: pydantic.BaseModel | None = None
-    if raw:
-        try:
-            data = json.loads(raw)
-            parsed = model_class.model_validate(data)
-        except Exception as e:  # noqa: BLE001
-            error = str(e)
-
-    latency_ms = int((time.perf_counter() - start) * 1000)
-    return parsed, error, latency_ms, model
+    try:
+        client = _get_client()
+        if client is None:
+            return None, None, None, model
+        resp = await client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+            max_tokens=2048,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content if isinstance(user_content, str) else json.dumps(user_content, ensure_ascii=False)},
+            ],
+        )
+        raw = resp.choices[0].message.content or "{}"
+        data = json.loads(raw)
+        parsed = model_class.model_validate(data)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return parsed, None, latency_ms, model
+    except Exception as e:  # noqa: BLE001
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return None, str(e), latency_ms, model
 
 
 async def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None, str | None, int | None, str]:
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
     if not api_key or not text:
         return [], None, None, None, model
 
@@ -145,8 +152,8 @@ async def generate_interview_questions_with_llm(track: str, context_text: str | 
     Generate interview questions using an LLM given a track and optional context (e.g., resume_text).
     Returns (questions, error, latency_ms, model). On missing API key, returns empty questions and no error.
     """
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
     if not api_key:
         return [], None, None, model, None
 
@@ -204,8 +211,8 @@ async def analyze_domain_with_llm(
     Perform domain knowledge analysis using LLM. Returns (analysis_json, error, latency_ms, model).
     Never raises; on missing API key returns empty analysis and no error.
     """
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
     if not api_key:
         return {}, None, None, model
 
@@ -275,8 +282,8 @@ async def analyze_communication_with_llm(
     Perform communication analysis using LLM. Returns (analysis_json, error, latency_ms, model).
     Never raises; on missing API key returns empty analysis and no error.
     """
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
     if not api_key:
         return {}, None, None, model
 
