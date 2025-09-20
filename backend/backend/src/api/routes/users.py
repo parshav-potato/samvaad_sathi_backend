@@ -2,6 +2,7 @@ import fastapi
 
 from src.api.dependencies.repository import get_repository
 from src.api.dependencies.auth import get_current_user
+from src.config.manager import settings
 from src.models.schemas.user import (
     UserCreate,
     UserLogin,
