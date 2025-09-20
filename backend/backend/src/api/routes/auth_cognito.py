@@ -92,7 +92,7 @@ async def authorize(
     # Optional: redirect to configured URL (frontend) or default
     target = settings.COGNITO_POST_LOGIN_REDIRECT_URL or "/"
     # Return tokens via URL fragment to reduce CSRF exposure
-    return RedirectResponse(url=f"{target}#token={quote(jwt_token)}&refresh_token={quote(refresh.token)}")
+    return RedirectResponse(url=f"{target}?token={quote(jwt_token)}&refresh_token={quote(refresh.token)}")
 
 
 @router.get("/logout")

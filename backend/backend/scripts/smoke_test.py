@@ -455,9 +455,10 @@ def main() -> None:
                 })
                 print_result("POST /api/complete-analysis (non-existent QA)", r, err)
 
-            # Interviews: complete session
-            r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers)
-            print_result("POST /api/interviews/complete", r, err)
+            # Interviews: complete session (explicit interview_id)
+            if 'current_interview_id' in locals() and current_interview_id:
+                r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers, json={"interview_id": current_interview_id})
+                print_result("POST /api/interviews/complete", r, err)
 
             # Test DELETE interview (at the end after all other tests)
             if first_interview_id:

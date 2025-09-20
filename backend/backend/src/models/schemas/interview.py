@@ -89,3 +89,7 @@ class QuestionAttemptsListResponse(BaseSchemaModel):
     limit: int
 
 
+class CompleteInterviewRequest(BaseSchemaModel):
+    interview_id: int
+
+
