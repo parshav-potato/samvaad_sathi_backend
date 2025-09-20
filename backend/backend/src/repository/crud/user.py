@@ -10,6 +10,14 @@ from src.utilities.exceptions.password import PasswordDoesNotMatch
 
 
 class UserCRUDRepository(BaseCRUDRepository):
+    async def get_user_by_id(self, *, user_id: int) -> User:
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(statement=stmt)
+        user = query.scalar()
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+        return user  # type: ignore
+
     async def create_user(self, *, email: str, password: str, name: str) -> User:
         stmt = sqlalchemy.select(User).where(User.email == email)
         query = await self.async_session.execute(statement=stmt)

@@ -31,12 +31,20 @@ class JWTGenerator:
 
         return jose_jwt.encode(to_encode, key=settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    def generate_access_token_for_user(self, user: User) -> str:
+    def generate_access_token_for_user(self, user: User, *, extra_claims: dict[str, str] | None = None) -> str:
         if not user:
             raise EntityDoesNotExist("Cannot generate JWT token without User entity!")
 
+        base_claims: dict[str, str] = {
+            "username": user.email,
+            "email": user.email,
+            "name": user.name,
+        }
+        if extra_claims:
+            base_claims.update(extra_claims)
+
         return self._generate_jwt_token(
-            jwt_data={"username": user.email, "email": user.email},
+            jwt_data=base_claims,
             expires_delta=datetime.timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRATION_TIME),
         )
 

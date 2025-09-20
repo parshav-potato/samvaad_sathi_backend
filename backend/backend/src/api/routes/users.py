@@ -40,11 +40,12 @@ async def register_user(
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Email already exists")
 
     token = jwt_generator.generate_access_token_for_user(user=user)
-    await session_repo.create_session(user_id=user.id)
+    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
 
     return UserInResponse(
         user_id=user.id,
         authorized_user=UserWithToken(token=token, 
+                                    refresh_token=refresh.token,
                                     email=user.email, 
                                     name=user.name, 
                                     created_at=user.created_at,
@@ -73,11 +74,12 @@ async def login_user(
         raise await http_exc_400_credentials_bad_signin_request()
 
     token = jwt_generator.generate_access_token_for_user(user=user)
-    await session_repo.create_session(user_id=user.id)
+    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
 
     return UserInResponse(
         user_id=user.id,
         authorized_user=UserWithToken(token=token, 
+                                    refresh_token=refresh.token,
                                     email=user.email, 
                                     name=user.name, 
                                     created_at=user.created_at,
@@ -101,6 +103,7 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
         user_id=current_user.id,
         authorized_user=UserWithToken(
             token=token,
+            refresh_token=None,
             email=current_user.email,
             name=current_user.name,
             created_at=current_user.created_at,

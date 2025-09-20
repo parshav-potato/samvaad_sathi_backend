@@ -80,9 +80,14 @@ class BackendBaseSettings(BaseSettings):
     COGNITO_CLIENT_ID: str = decouple.config("COGNITO_CLIENT_ID", cast=str, default="")  # type: ignore
     COGNITO_CLIENT_SECRET: str = decouple.config("COGNITO_CLIENT_SECRET", cast=str, default="")  # type: ignore
     COGNITO_SCOPES: str = decouple.config("COGNITO_SCOPES", cast=str, default="openid email phone profile")  # type: ignore
+    # Optional hosted UI domain like: your-domain.auth.ap-south-1.amazoncognito.com (omit protocol)
+    COGNITO_HOSTED_UI_DOMAIN: str | None = decouple.config("COGNITO_HOSTED_UI_DOMAIN", cast=str, default=None)  # type: ignore
     # Optional frontend redirect after successful login/logout
     COGNITO_POST_LOGIN_REDIRECT_URL: str | None = decouple.config("COGNITO_POST_LOGIN_REDIRECT_URL", cast=str, default=None)  # type: ignore
     COGNITO_POST_LOGOUT_REDIRECT_URL: str | None = decouple.config("COGNITO_POST_LOGOUT_REDIRECT_URL", cast=str, default=None)  # type: ignore
+
+    # Refresh token settings (in minutes). Default: 30 days
+    REFRESH_TOKEN_EXPIRY_MINUTES: int = decouple.config("REFRESH_TOKEN_EXPIRY_MINUTES", cast=int, default=60 * 24 * 30)  # type: ignore
 
     # Audio processing settings (stateless - no upload directory needed)
     MAX_AUDIO_SIZE_MB: int = decouple.config("MAX_AUDIO_SIZE_MB", cast=int, default=25)  # type: ignore
