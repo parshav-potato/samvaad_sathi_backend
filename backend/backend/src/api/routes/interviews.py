@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
@@ -145,17 +145,26 @@ async def generate_questions(
     path="/interviews/complete",
     name="interviews:complete",
     status_code=fastapi.status.HTTP_200_OK,
-    summary="Complete the active interview session",
-    description="Marks the current user's active interview as completed.",
+    summary="Complete an interview session by id",
+    description="Marks the specified interview as completed if it belongs to the current user.",
 )
 async def complete_interview(
+    payload: CompleteInterviewRequest,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
 ):
-    active = await interview_repo.get_active_by_user(user_id=current_user.id)
-    if active is None:
-        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to complete")
-    updated = await interview_repo.mark_completed(interview_id=active.id)
+    interview = await interview_repo.get_by_id(interview_id=payload.interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    if interview.status == "completed":
+        return {
+            "id": interview.id,
+            "status": interview.status,
+            "message": "Interview already completed",
+        }
+    if interview.status != "active":
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Only active interviews can be completed")
+    updated = await interview_repo.mark_completed(interview_id=interview.id)
     return {
         "id": updated.id if updated else None,
         "status": updated.status if updated else None,
