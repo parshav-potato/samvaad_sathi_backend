@@ -7,6 +7,7 @@ from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
+from src.services.syllabus import derive_role, get_topics_for, compute_category_ratio
 from src.services.whisper import strip_word_level_data
 
 
@@ -122,11 +123,33 @@ async def generate_questions(
     
     # Use resume context if present on user and use_resume is True
     resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
+    # Build influence knobs
+    years = getattr(current_user, "years_experience", None)
+    skills_json = getattr(current_user, "skills", None) or {}
+    skills_list = list(skills_json.get("items", []) if isinstance(skills_json, dict) else [])
+    has_resume = bool(resume_context)
+    has_skills = bool(skills_list)
+
+    role = derive_role(interview.track)
+    topics = get_topics_for(role=role, difficulty=interview.difficulty)
+    ratio = compute_category_ratio(years_experience=years, has_resume_text=has_resume, has_skills=has_skills)
+
+    influence = {
+        "target_role": role,               # Tech influence
+        "difficulty": interview.difficulty, # Tech influence
+        "experience_years": years,         # Tech-allied influence
+        "skills": skills_list,             # Tech influence
+        "headline": getattr(current_user, "target_position", None),  # Tech-allied influence
+    }
+
     questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
         track=interview.track,
         context_text=resume_context,
         count=5,
         difficulty=interview.difficulty,
+        syllabus_topics=topics,
+        ratio=ratio,
+        influence=influence,
     )
     if not questions:
         questions = [

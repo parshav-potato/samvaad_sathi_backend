@@ -20,6 +20,7 @@ class QuestionItem(BaseSchemaModel):
     text: str
     topic: str | None = None
     difficulty: str | None = None
+    category: str | None = None
 
 
 class InterviewCreate(BaseSchemaModel):
