@@ -67,9 +67,39 @@ async def create_or_resume_interview(
         "falls back to static questions otherwise. Accepts optional 'use_resume' boolean (default true) to control whether "
         "resume text is used for question generation."
     ),
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "default": {
+                            "summary": "Use active interview with resume",
+                            "value": {"useResume": True}
+                        },
+                        "specificInterview": {
+                            "summary": "Target specific interview",
+                            "value": {"interviewId": 123, "useResume": True}
+                        }
+                    }
+                }
+            }
+        }
+    },
 )
 async def generate_questions(
-    payload: GenerateQuestionsRequest = GenerateQuestionsRequest(),
+    payload: GenerateQuestionsRequest = fastapi.Body(
+        ...,  # required body
+        examples={
+            "default": {
+                "summary": "Use active interview with resume",
+                "value": {"useResume": True}
+            },
+            "specificInterview": {
+                "summary": "Target specific interview",
+                "value": {"interviewId": 123, "useResume": True}
+            }
+        }
+    ),
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
