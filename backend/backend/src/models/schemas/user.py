@@ -26,7 +26,7 @@ from src.models.db.user import TargetPositionEnum
 class UserProfileUpdate(BaseSchemaModel):
     degree: str | None = None
     university: str | None = None
-    target_position: TargetPositionEnum | None = None
+    target_position: str | None = None
     years_experience: float | None = None
 
     # profile_picture is not included here because it is uploaded as multipart file.
@@ -38,7 +38,7 @@ class UserProfileOut(BaseSchemaModel):
     name: str
     degree: str | None
     university: str | None
-    target_position: TargetPositionEnum | None
+    target_position: str | None
     years_experience: float | None
     # company removed from response
 
@@ -51,7 +51,7 @@ class UserWithToken(BaseSchemaModel):
     created_at: datetime.datetime
     degree: str | None
     university: str | None
-    target_position: TargetPositionEnum | None
+    target_position: str | None
     years_experience: float | None
     # company removed from response
 

@@ -94,7 +94,7 @@ class UserCRUDRepository(BaseCRUDRepository):
         user_id: int,
         degree: str | None = None,
         university: str | None = None,
-        target_position: TargetPositionEnum | None = None,
+        target_position: str | None = None,
         years_experience: float | None = None,
     ) -> User:
         """Update the profile attributes for a given user.
@@ -114,7 +114,7 @@ class UserCRUDRepository(BaseCRUDRepository):
         if university is not None:
             user.university = university.strip() if university else None
         if target_position is not None:
-            user.target_position = target_position  # type: ignore[assignment]
+            user.target_position = target_position.strip() if target_position else None
         if years_experience is not None:
             try:
                 user.years_experience = float(years_experience)
