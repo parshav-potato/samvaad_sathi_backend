@@ -54,6 +54,9 @@ class UserCRUDRepository(BaseCRUDRepository):
         resume_text: str | None,
         years_experience: float | None,
         skills: list[str] | None,
+        degree: str | None = None,
+        university: str | None = None,
+        company: str | None = None,
     ) -> User:
         stmt = sqlalchemy.select(User).where(User.id == user_id)
         query = await self.async_session.execute(statement=stmt)
@@ -69,6 +72,14 @@ class UserCRUDRepository(BaseCRUDRepository):
                 user.years_experience = None
         # Store skills as JSON; keep shape flexible
         user.skills = {"items": skills or []}
+
+        # Opportunistically persist simple profile fields if provided
+        if degree is not None and degree.strip():
+            user.degree = degree.strip()
+        if university is not None and university.strip():
+            user.university = university.strip()
+        if company is not None and company.strip():
+            user.company = company.strip()
 
         await self.async_session.commit()
         await self.async_session.refresh(user)

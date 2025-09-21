@@ -11,6 +11,45 @@ class ValidatedResumeData(BaseSchemaModel):
     warnings: list[str] = pydantic.Field(default_factory=list, description="Validation warnings and fallback notes")
 
 
+class EducationItem(BaseSchemaModel):
+    degree: str | None = pydantic.Field(default=None)
+    institution: str | None = pydantic.Field(default=None)
+    start_date: str | None = pydantic.Field(default=None)
+    end_date: str | None = pydantic.Field(default=None)
+
+
+class ExperienceItem(BaseSchemaModel):
+    company: str | None = pydantic.Field(default=None)
+    role: str | None = pydantic.Field(default=None)
+    start_date: str | None = pydantic.Field(default=None)
+    end_date: str | None = pydantic.Field(default=None)
+    responsibilities: list[str] | None = pydantic.Field(default=None)
+    technologies: list[str] | None = pydantic.Field(default=None)
+
+
+class ProjectItem(BaseSchemaModel):
+    name: str | None = pydantic.Field(default=None)
+    description: str | None = pydantic.Field(default=None)
+    technologies: list[str] | None = pydantic.Field(default=None)
+    link: str | None = pydantic.Field(default=None)
+
+
+class ResumeDetails(BaseSchemaModel):
+    full_name: str | None = pydantic.Field(default=None)
+    email: str | None = pydantic.Field(default=None)
+    phone: str | None = pydantic.Field(default=None)
+    location: str | None = pydantic.Field(default=None)
+    links: list[str] | None = pydantic.Field(default=None)
+    summary: str | None = pydantic.Field(default=None)
+    education: list[EducationItem] | None = pydantic.Field(default=None)
+    experience: list[ExperienceItem] | None = pydantic.Field(default=None)
+    projects: list[ProjectItem] | None = pydantic.Field(default=None)
+    certifications: list[str] | None = pydantic.Field(default=None)
+    languages: list[str] | None = pydantic.Field(default=None)
+    job_titles: list[str] | None = pydantic.Field(default=None)
+    companies: list[str] | None = pydantic.Field(default=None)
+
+
 class ResumeExtractionResponse(BaseSchemaModel):
     filename: str = pydantic.Field(description="Original uploaded filename")
     content_type: str = pydantic.Field(description="MIME type of the uploaded file")
@@ -22,6 +61,7 @@ class ResumeExtractionResponse(BaseSchemaModel):
     llm_model: str | None = pydantic.Field(default=None, description="LLM model name used for extraction")
     llm_latency_ms: int | None = pydantic.Field(default=None, description="LLM call latency in milliseconds")
     llm_error: str | None = pydantic.Field(default=None, description="LLM error message if extraction failed")
+    details: ResumeDetails | None = pydantic.Field(default=None, description="Extended structured resume details (contact, education, experience, projects, etc.)")
     validated: ValidatedResumeData = pydantic.Field(description="Validated and normalized extraction results")
     message: str = pydantic.Field(description="Human-friendly status message")
     saved: bool = pydantic.Field(description="Whether the user's profile was persisted with validated data")

@@ -29,6 +29,49 @@ class ResumeEntitiesLLM(pydantic.BaseModel):
     years_experience: float | None = None
 
 
+class EducationItemLLM(pydantic.BaseModel):
+    degree: str | None = None
+    institution: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class ExperienceItemLLM(pydantic.BaseModel):
+    company: str | None = None
+    role: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    responsibilities: list[str] | None = None
+    technologies: list[str] | None = None
+
+
+class ProjectItemLLM(pydantic.BaseModel):
+    name: str | None = None
+    description: str | None = None
+    technologies: list[str] | None = None
+    link: str | None = None
+
+
+class ResumeEntitiesV2LLM(pydantic.BaseModel):
+    # Backward-compatible core
+    skills: list[str] = pydantic.Field(default_factory=list)
+    years_experience: float | None = None
+    # Additional details
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    location: str | None = None
+    links: list[str] | None = None
+    summary: str | None = None
+    education: list[EducationItemLLM] | None = None
+    experience: list[ExperienceItemLLM] | None = None
+    projects: list[ProjectItemLLM] | None = None
+    certifications: list[str] | None = None
+    languages: list[str] | None = None
+    job_titles: list[str] | None = None
+    companies: list[str] | None = None
+
+
 class QuestionsItemLLM(pydantic.BaseModel):
     text: str
     topic: str | None = None
@@ -145,6 +188,46 @@ async def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float 
 
     latency_ms = int((time.perf_counter() - start) * 1000)
     return skills, years, error, latency_ms, model
+
+
+async def extract_resume_entities_v2_with_llm(text: str) -> tuple[dict[str, Any], str | None, int | None, str]:
+    """Extended resume extraction including education, experience, projects, and contact info.
+
+    Returns (data_dict, error, latency_ms, model). On missing API key or empty text, returns empty dict and no error.
+    """
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
+    if not api_key or not text:
+        return {}, None, None, model
+
+    sys_prompt = (
+        "Extract structured resume details from the provided text. "
+        "Return ONLY valid JSON matching this schema: {\n"
+        "  skills: string[],\n"
+        "  years_experience: number|null,\n"
+        "  full_name: string|null, email: string|null, phone: string|null, location: string|null,\n"
+        "  links: string[]|null, summary: string|null,\n"
+        "  education: [{ degree?: string, institution?: string, start_date?: string, end_date?: string }] | null,\n"
+        "  experience: [{ company?: string, role?: string, start_date?: string, end_date?: string, responsibilities?: string[], technologies?: string[] }] | null,\n"
+        "  projects: [{ name?: string, description?: string, technologies?: string[], link?: string }] | null,\n"
+        "  certifications: string[]|null, languages: string[]|null, job_titles: string[]|null, companies: string[]|null\n"
+        "}. Dates should be simple strings (e.g., 'Jan 2021' or '2021-01'). Do not include markdown."
+    )
+    input_text = text[:20000]
+
+    try:
+        result, error, latency_ms, model = await structured_output(
+            ResumeEntitiesV2LLM,
+            system_prompt=sys_prompt,
+            user_content=input_text,
+            temperature=0,
+        )
+        data: dict[str, Any] = result.model_dump() if result else {}
+        return data, error, latency_ms, model
+    except Exception as e:  # noqa: BLE001
+        # Fallback to minimal response on error
+        latency_ms = None
+        return {}, str(e), latency_ms, model
 
 
 async def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3, difficulty: str | None = None) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
