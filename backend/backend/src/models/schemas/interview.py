@@ -30,6 +30,15 @@ class InterviewCreate(BaseSchemaModel):
 class GenerateQuestionsRequest(BaseSchemaModel):
     interview_id: int | None = None
     use_resume: bool = True  # Whether to use resume text for question generation
+    
+    # Swagger example
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {"useResume": True},
+            {"interviewId": 123, "useResume": True}
+        ]
+    }
 
 
 class InterviewInResponse(BaseSchemaModel):
