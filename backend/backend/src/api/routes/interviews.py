@@ -7,7 +7,7 @@ from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
-from src.services.syllabus import derive_role, get_topics_for, compute_category_ratio
+from src.services.syllabus import derive_role, get_topics_for, compute_category_ratio, tech_allied_from_resume
 from src.services.whisper import strip_word_level_data
 
 
@@ -132,6 +132,12 @@ async def generate_questions(
 
     role = derive_role(interview.track)
     topics = get_topics_for(role=role, difficulty=interview.difficulty)
+    # Prefer tech_allied topics derived from resume/skills when available
+    topics["tech_allied"] = tech_allied_from_resume(
+        resume_text=resume_context if isinstance(resume_context, str) else None,
+        skills=[str(s) for s in skills_list],
+        fallback=topics.get("tech_allied", []),
+    )
     ratio = compute_category_ratio(years_experience=years, has_resume_text=has_resume, has_skills=has_skills)
 
     influence = {

@@ -52,16 +52,21 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
             "tech": [
                 "JSX and rendering basics",
                 "Props vs State",
+                "Component composition and reusability",
                 "useState/useEffect fundamentals",
-                "Component composition",
-                "Basic event handling",
+                "Event handling and synthetic events",
+                "Conditional rendering patterns",
+                "Lists, keys, and reconciliation basics",
+                "Basic forms and controlled components",
             ],
             "tech_allied": [
-                "ES6+ features (let/const, arrow functions)",
-                "NPM/Yarn basics",
-                "CSS Modules vs styled-components",
-                "Simple bundling (Vite/Webpack basics)",
-                "Basic API calls with fetch/axios",
+                "ES6+ features (let/const, arrow functions, spread/rest)",
+                "NPM/Yarn basics and scripts",
+                "CSS approaches (CSS Modules, styled-components, Tailwind basics)",
+                "Bundling with Vite/Webpack basics",
+                "Data fetching with fetch/axios",
+                "Basic testing with Jest/RTL",
+                "Simple accessibility (labels, alt text, focus order)",
             ],
         },
         "medium": {
@@ -69,15 +74,18 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Context API vs prop drilling",
                 "React reconciliation and keys",
                 "Memoization (React.memo, useMemo, useCallback)",
-                "Forms and controlled components",
-                "Error boundaries",
+                "Custom hooks patterns",
+                "Error boundaries and error handling",
+                "Forms: validation and complex inputs",
+                "Performance (render cycles, batching)",
             ],
             "tech_allied": [
-                "Routing (React Router)",
-                "State mgmt (Redux/RTK, Zustand)",
-                "Performance optimizations",
-                "Testing (Jest, React Testing Library)",
-                "Accessibility (ARIA, keyboard nav)",
+                "Routing (React Router, nested routes)",
+                "State mgmt (Redux/RTK, Zustand, Jotai)",
+                "Testing (Jest, React Testing Library) including mocks",
+                "Accessibility (ARIA, keyboard navigation, focus management)",
+                "CSS performance and theming",
+                "Code splitting and lazy loading",
             ],
         },
         "hard": {
@@ -85,15 +93,17 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Concurrent features (useTransition, Suspense)",
                 "Server Components trade-offs",
                 "SSR/SSG hydration nuances",
-                "Custom hooks patterns and pitfalls",
-                "Rendering performance profiling",
+                "Advanced rendering and hydration failures",
+                "Complex state orchestration (state machines)",
+                "Rendering performance profiling and flame charts",
             ],
             "tech_allied": [
-                "Microfrontends",
-                "Code splitting strategies",
-                "Security (XSS, CSP in SPAs)",
-                "Internationalization at scale",
-                "Design systems and theming architecture",
+                "Microfrontends architectures",
+                "Advanced code splitting and prefetching",
+                "Security (XSS, CSP in SPAs, sandboxing)",
+                "Internationalization at scale (pluralization, RTL)",
+                "Design systems governance and tokens",
+                "Bundle budgets and performance regressions",
             ],
         },
     },
@@ -104,30 +114,32 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "CSS layout (Flexbox, Grid) basics",
                 "Responsive design fundamentals",
                 "Vanilla JS DOM manipulation",
-                "Form basics and validation",
+                "Forms, inputs, simple validation",
+                "SVG and icons basics",
             ],
             "tech_allied": [
-                "Accessibility basics (labels, roles)",
-                "Color contrast and typography",
-                "Image optimization basics",
+                "Accessibility basics (landmarks, roles, labels)",
+                "Color contrast & typography",
+                "Asset optimization (images, fonts)",
                 "Browser DevTools essentials",
-                "Basic performance metrics (LCP/FID/CLS)",
+                "Core Web Vitals (LCP/FID/CLS) basics",
             ],
         },
         "medium": {
             "tech": [
                 "Advanced CSS (Grid areas, container queries)",
                 "Component libraries (MUI/Ant/Tailwind)",
-                "State and events in complex UIs",
-                "Client-side routing and SPA patterns",
-                "Web APIs (IntersectionObserver, Storage)",
+                "Complex UI state & events",
+                "SPA patterns and routing",
+                "Web APIs (IntersectionObserver, Storage, Clipboard)",
+                "Animation basics (CSS/WAAPI)",
             ],
             "tech_allied": [
-                "WCAG 2.x conformance",
+                "WCAG 2.x and a11y testing",
                 "Design tokens and theming",
                 "Build tooling (Vite/Webpack/Rollup)",
                 "Unit/E2E testing (RTL, Playwright)",
-                "Performance audits (Lighthouse)",
+                "Performance audits (Lighthouse) and budgets",
             ],
         },
         "hard": {
@@ -136,12 +148,13 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Virtualization for large lists",
                 "Complex form architectures",
                 "Statecharts/XState for UI flows",
-                "Canvas/SVG advanced rendering",
+                "Canvas/WebGL/SVG advanced rendering",
+                "Accessibility of complex widgets",
             ],
             "tech_allied": [
                 "Advanced a11y (focus traps, screen readers)",
                 "Internationalization at scale",
-                "Design systems governance",
+                "Design systems governance & documentation",
                 "Performance budgets and regressions",
                 "Security (clickjacking, CSP)",
             ],
@@ -152,6 +165,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
             "tech": [
                 "Types and coercion",
                 "Scope and closures",
+                "Hoisting and TDZ",
                 "Array/object methods",
                 "Promises basics",
                 "Modules and imports",
@@ -171,6 +185,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Error handling strategies",
                 "Functional programming patterns",
                 "Performance (debounce/throttle)",
+                "Immutability and structural sharing",
             ],
             "tech_allied": [
                 "Bundlers and tree shaking",
@@ -186,7 +201,8 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Streaming and backpressure",
                 "Memory leaks and GC",
                 "Metaprogramming (Proxy, Reflect)",
-                "Concurrency patterns (Web Workers)",
+                "Concurrency patterns (Web Workers, Atomics)",
+                "Performance profiling",
             ],
             "tech_allied": [
                 "TypeScript advanced types",
@@ -205,6 +221,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "HTTP server basics",
                 "NPM and scripts",
                 "Environment variables",
+                "Filesystem & path APIs",
             ],
             "tech_allied": [
                 "REST fundamentals",
@@ -221,6 +238,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Async concurrency patterns",
                 "Cluster vs worker_threads",
                 "Security (helmet, rate limiting)",
+                "Configuration and 12-factor",
             ],
             "tech_allied": [
                 "Databases (Mongo/Postgres) drivers",
@@ -233,10 +251,11 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
         "hard": {
             "tech": [
                 "High-throughput APIs",
-                "Resilience patterns (circuit breaker)",
+                "Resilience patterns (circuit breaker, retries)",
                 "Streaming architectures",
                 "Native addons overview",
                 "Performance profiling (clinic)",
+                "Security reviews and threat modeling",
             ],
             "tech_allied": [
                 "Horizontal scaling",
@@ -255,6 +274,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "Error handlers",
                 "Static files",
                 "Template engines basics",
+                "Body parsing and validation basics",
             ],
             "tech_allied": [
                 "RESTful design",
@@ -271,6 +291,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "File uploads and streaming",
                 "Rate limiting and caching",
                 "Testing routes/controllers",
+                "Error propagation and logging",
             ],
             "tech_allied": [
                 "ORM/ODM (Prisma/Sequelize/Mongoose)",
@@ -287,6 +308,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "WebSockets and real-time",
                 "Security hardening",
                 "Large file streaming",
+                "Backpressure and timeouts",
             ],
             "tech_allied": [
                 "Microservices gateways",
@@ -305,6 +327,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "React components",
                 "Node runtime basics",
                 "Simple deployment",
+                "Env management",
             ],
             "tech_allied": [
                 "Data modeling basics",
@@ -321,6 +344,7 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
                 "React performance patterns",
                 "API consumption and caching",
                 "SSR/SSG with Next.js basics",
+                "State normalization and caching (RTK Query)",
             ],
             "tech_allied": [
                 "DevOps (Docker Compose)",
@@ -334,9 +358,10 @@ SYLLABUS: Dict[str, Dict[str, Dict[str, List[str]]]] = {
             "tech": [
                 "Sharding/replication (Mongo)",
                 "Advanced caching strategies",
-                "Streaming/real-time"
-                ,"Design for high availability",
+                "Streaming/real-time",
+                "Design for high availability",
                 "Complex React concurrency",
+                "Cross-cutting concerns (auth, logging) across stack",
             ],
             "tech_allied": [
                 "K8s deployments",
@@ -364,6 +389,44 @@ BEHAVIORAL_TOPICS: List[str] = [
 ]
 
 
+# Cross-cutting question archetypes to encourage variety
+ARCHETYPES: Dict[str, List[str]] = {
+    "tech": [
+        "Concept understanding (define, explain with example)",
+        "Why/How/Trade-offs",
+        "Debug/fix a broken snippet or scenario",
+        "Design a component/module/system",
+        "Predict output/behavior (code or scenario)",
+        "Optimize for performance or memory",
+        "Security or edge-case analysis",
+    ],
+    "tech_allied": [
+        "Tooling/setup decisions and rationale",
+        "Testing strategy and coverage",
+        "CI/CD and release process",
+        "Monitoring/observability, logs/metrics/traces",
+        "Security and compliance considerations",
+        "Data modeling and migrations",
+    ],
+    "behavioral": [
+        "STAR: situation-task-action-result",
+        "Teamwork & collaboration specifics",
+        "Conflict resolution specifics",
+        "Ownership and initiative",
+        "Handling mistakes & feedback",
+        "Communication with non-technical peers",
+        "Working under pressure/time constraints",
+    ],
+}
+
+
+DEPTH_GUIDELINES: Dict[str, str] = {
+    "easy": "Test fundamentals and terminology; include a small applied example but keep scope narrow.",
+    "medium": "Cover implementation details and trade-offs; include constraints, alternatives, and simple edge cases.",
+    "hard": "Address scaling, performance, failure modes, and security; require nuanced trade-offs and multiple constraints.",
+}
+
+
 def get_topics_for(role: str, difficulty: str) -> Dict[str, List[str]]:
     diff = (difficulty or "medium").lower()
     if diff not in ("easy", "medium", "hard"):
@@ -375,6 +438,8 @@ def get_topics_for(role: str, difficulty: str) -> Dict[str, List[str]]:
         "tech": list(level.get("tech", [])),
         "tech_allied": list(level.get("tech_allied", [])),
         "behavioral": list(BEHAVIORAL_TOPICS),
+        "archetypes": ARCHETYPES.get("tech", []) + ARCHETYPES.get("tech_allied", []) + ARCHETYPES.get("behavioral", []),
+        "depth_guidelines": [DEPTH_GUIDELINES.get(diff, DEPTH_GUIDELINES["medium"])],
     }
 
 
@@ -392,4 +457,56 @@ def compute_category_ratio(years_experience: float | None, has_resume_text: bool
     if has_resume_text and not has_skills:
         return {"tech": 3, "tech_allied": 0, "behavioral": 2}
     return {"tech": 2, "tech_allied": 2, "behavioral": 1}
+
+
+def tech_allied_from_resume(
+    resume_text: str | None,
+    skills: List[str] | None,
+    fallback: List[str] | None = None,
+) -> List[str]:
+    """
+    Build tech_allied topics primarily from resume content when available, else fallback.
+    - Uses explicit skills (if present) as first-class allied topics.
+    - Augments with lightweight keyword scan from resume text for common tools/platforms.
+    """
+    topics: List[str] = []
+    seen: set[str] = set()
+
+    def add(item: str):
+        key = item.strip()
+        if key and key.lower() not in seen:
+            seen.add(key.lower())
+            topics.append(key)
+
+    # 1) Add declared skills from profile extraction
+    for s in (skills or []):
+        add(str(s))
+
+    # 2) Derive from resume text by scanning for common tech keywords
+    corpus = (resume_text or "").lower()
+    if corpus:
+        keyword_bank = [
+            # Frontend/UI
+            "react", "redux", "next.js", "nextjs", "vite", "webpack", "babel", "typescript", "tailwind", "mui", "ant design", "sass", "styled-components", "rtl", "jest", "cypress", "playwright",
+            # Backend/Node
+            "node", "express", "nestjs", "koa", "fastify", "graphql", "rest", "websocket", "socket.io",
+            # Databases/Cache/Queues
+            "mongodb", "mongoose", "postgres", "mysql", "redis", "kafka", "rabbitmq",
+            # DevOps/Cloud
+            "docker", "kubernetes", "k8s", "aws", "azure", "gcp", "terraform", "github actions", "ci/cd", "jenkins",
+            # Security/Auth
+            "oauth", "oauth2", "oidc", "jwt", "helmet", "cors",
+            # Observability
+            "prometheus", "grafana", "opentelemetry", "sentry",
+        ]
+        for kw in keyword_bank:
+            if kw in corpus:
+                add(kw)
+
+    if not topics and fallback:
+        # Default back to role syllabus allied topics if resume gave nothing
+        for f in fallback:
+            add(f)
+
+    return topics
 
