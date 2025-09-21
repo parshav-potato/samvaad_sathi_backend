@@ -60,9 +60,10 @@ async def create_or_resume_interview(
     name="interviews:generate-questions",
     response_model=GeneratedQuestionsInResponse,
     status_code=fastapi.status.HTTP_201_CREATED,
-    summary="Generate interview questions for the active session",
+    summary="Generate interview questions for an interview",
     description=(
-        "Generates and persists a set of questions for the current user's active interview. Uses an LLM when available, "
+        "Generates and persists a set of questions for an interview belonging to the current user. By default targets the "
+        "active interview; you may also specify an explicit interviewId in the request body. Uses an LLM when available, "
         "falls back to static questions otherwise. Accepts optional 'use_resume' boolean (default true) to control whether "
         "resume text is used for question generation."
     ),
