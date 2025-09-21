@@ -147,9 +147,20 @@ def main() -> None:
                 r, err = safe_call(client, "PUT", f"{API}/interviews/{first_interview_id}", headers=headers, json={"track": "ml_engineering", "difficulty": "medium"})
                 print_result("PUT /api/interviews/{id}", r, err)
 
-            # Interviews: generate questions
+            # Interviews: generate questions (active fallback)
             r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers)
             print_result("POST /api/interviews/generate-questions", r, err)
+
+            # Interviews: generate questions for a specific interview id when known
+            if first_interview_id:
+                r, err = safe_call(
+                    client,
+                    "POST",
+                    f"{API}/interviews/generate-questions",
+                    headers=headers,
+                    json={"interviewId": first_interview_id, "use_resume": True},
+                )
+                print_result("POST /api/interviews/generate-questions (with interviewId)", r, err)
 
             # Test generate questions without resume
             r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json={"use_resume": False})
@@ -203,7 +214,13 @@ def main() -> None:
 
             # Audio transcription: test with real speech file after creating questions
             # First, generate questions for the current active interview to create question attempts
-            r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json={"use_resume": True})
+            r, err = safe_call(
+                client,
+                "POST",
+                f"{API}/interviews/generate-questions",
+                headers=headers,
+                json={"use_resume": True, "interviewId": current_interview_id} if 'current_interview_id' in locals() and current_interview_id else {"use_resume": True},
+            )
             print_result("POST /api/interviews/generate-questions (fixed)", r, err)
             
             # Get the current active interview ID (should be the last one created)
@@ -457,7 +474,7 @@ def main() -> None:
 
             # Interviews: complete session (explicit interview_id)
             if 'current_interview_id' in locals() and current_interview_id:
-                r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers, json={"interview_id": current_interview_id})
+                r, err = safe_call(client, "POST", f"{API}/interviews/complete", headers=headers, json={"interviewId": current_interview_id})
                 print_result("POST /api/interviews/complete", r, err)
 
             # Test DELETE interview (at the end after all other tests)
@@ -489,7 +506,7 @@ def main() -> None:
         # Final report generation (if we have a current interview id)
         try:
             if 'current_interview_id' in locals() and current_interview_id:
-                payload = {"interview_id": current_interview_id}
+                payload = {"interviewId": current_interview_id}
                 r, err = safe_call(client, "POST", f"{API}/final-report", headers=headers, json=payload)
                 print_result("POST /api/final-report", r, err)
                 # quick checks
