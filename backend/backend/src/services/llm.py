@@ -76,6 +76,7 @@ class QuestionsItemLLM(pydantic.BaseModel):
     text: str
     topic: str | None = None
     difficulty: str | None = None
+    category: str | None = None  # tech | tech_allied | behavioral
 
 
 class QuestionsResponseLLM(pydantic.BaseModel):
@@ -230,7 +231,16 @@ async def extract_resume_entities_v2_with_llm(text: str) -> tuple[dict[str, Any]
         return {}, str(e), latency_ms, model
 
 
-async def generate_interview_questions_with_llm(track: str, context_text: str | None = None, count: int = 3, difficulty: str | None = None) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
+async def generate_interview_questions_with_llm(
+    track: str,
+    context_text: str | None = None,
+    count: int = 3,
+    difficulty: str | None = None,
+    *,
+    syllabus_topics: dict[str, list[str]] | None = None,
+    ratio: dict[str, int] | None = None,
+    influence: dict[str, Any] | None = None,
+) -> tuple[list[str], str | None, int | None, str, list[dict[str, Any]] | None]:
     """
     Generate interview questions using an LLM given a track and optional context (e.g., resume_text).
     Returns (questions, error, latency_ms, model). On missing API key, returns empty questions and no error.
@@ -246,18 +256,35 @@ async def generate_interview_questions_with_llm(track: str, context_text: str | 
     structured_items: list[dict[str, Any]] | None = None
 
     sys_prompt = (
-        "You are an expert interviewer. Generate concise, clear interview questions tailored to the track. "
-        "Return ONLY valid JSON with keys: 'questions' (string[]) AND 'items' (array of objects with fields: text, topic, difficulty)."
+        "You are an expert interviewer. Generate concise, specific interview questions for a software candidate. "
+        "Avoid open-ended prompts; ask targeted questions that require concrete answers. "
+        "Return ONLY valid JSON with keys: 'questions' (string[]) AND 'items' (array of objects with fields: text, topic, difficulty, category)."
     )
     user_prompt = {
         "track": track,
         "count": max(1, min(10, int(count or 3))),
         "context": (context_text or "")[:4000],
         "difficulty": (difficulty or "medium"),
+        # Category mix and topics per product requirements
+        "categories": {
+            "definitions": {
+                "tech": "Core technical questions for the target role",
+                "tech_allied": "Technical questions allied to the candidate's background/experience",
+                "behavioral": "Behavioral questions from the provided list",
+            },
+            "ratio": ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1},
+        },
+        "syllabus": syllabus_topics or {},
+        "behavioral_topics": (syllabus_topics or {}).get("behavioral", []),
+        "influence": influence or {},
         "constraints": [
             "No preambles, no numbering in the JSON itself",
             "Questions should be single sentences when possible",
             "Avoid duplicate or trivial questions",
+            "Each item must include a 'category' of tech | tech_allied | behavioral",
+            "Behavioral questions must come from the provided behavioral topics and probe for specific actions/decisions",
+            "Tech-allied questions should be related to the candidate's experience/skills when available",
+            "Vary topics and ensure depth appropriate to difficulty; do not ask purely opinion-based questions",
         ],
     }
 
@@ -273,7 +300,7 @@ async def generate_interview_questions_with_llm(track: str, context_text: str | 
             questions = [str(x).strip() for x in (result.questions or [])]
             if result.items is not None:
                 structured_items = [
-                    {"text": it.text.strip(), "topic": it.topic, "difficulty": it.difficulty}
+                    {"text": it.text.strip(), "topic": it.topic, "difficulty": it.difficulty, "category": it.category}
                     for it in result.items
                 ]
         latency_ms = latency
