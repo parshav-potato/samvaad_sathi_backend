@@ -9,7 +9,7 @@ import fastapi
 import PyPDF2
 from src.api.dependencies.repository import get_repository
 from src.repository.crud.user import UserCRUDRepository
-from src.services.llm import extract_resume_entities_with_llm
+from src.services.llm import extract_resume_entities_with_llm, extract_resume_entities_v2_with_llm
 
 from src.api.dependencies.auth import get_current_user
 from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
@@ -125,9 +125,28 @@ async def extract_resume(
     normalized = re.sub(r"\s+", " ", extracted_text or "").strip()
     preview = normalized[:300]
 
-    # LLM extraction via service
-    from src.services.llm import extract_resume_entities_with_llm as async_extract
-    skills, years_experience, llm_error, llm_latency_ms, llm_model = await async_extract(normalized)
+    # LLM extraction via service (v2 with fallback to v1)
+    details: dict[str, Any] | None = None
+    skills: list[str] = []
+    years_experience: float | None = None
+    llm_error: str | None = None
+    llm_latency_ms: int | None = None
+    llm_model: str | None = None
+
+    data_v2, err_v2, latency_v2, model_v2 = await extract_resume_entities_v2_with_llm(normalized)
+    if data_v2:
+        details = data_v2
+        skills = [str(s) for s in (data_v2.get("skills") or [])]
+        years_experience = data_v2.get("years_experience")
+        llm_error = err_v2
+        llm_latency_ms = latency_v2
+        llm_model = model_v2
+    else:
+        skills, years_experience, err_v1, latency_v1, model_v1 = await extract_resume_entities_with_llm(normalized)
+        details = None
+        llm_error = err_v1
+        llm_latency_ms = latency_v1
+        llm_model = model_v1
 
     # Validation & structuring
     warnings: list[str] = []
@@ -187,6 +206,7 @@ async def extract_resume(
         "llm_model": llm_model,
         "llm_latency_ms": llm_latency_ms,
         "llm_error": llm_error,
+        "details": details,
         "validated": {
             "skills": normalized_skills,
             "years_experience": validated_years,
@@ -197,11 +217,30 @@ async def extract_resume(
 
     # Persist validated data to User model
     try:
+        # Try to persist additional profile hints if available
+        degree_hint = None
+        university_hint = None
+        company_hint = None
+        if details:
+            # Prefer first education / experience entries if present
+            edu_list = details.get("education") or []
+            if isinstance(edu_list, list) and edu_list:
+                first_edu = edu_list[0] or {}
+                degree_hint = (first_edu.get("degree") or None)
+                university_hint = (first_edu.get("institution") or None)
+            exp_list = details.get("experience") or []
+            if isinstance(exp_list, list) and exp_list:
+                first_exp = exp_list[0] or {}
+                company_hint = (first_exp.get("company") or None)
+
         await user_repo.update_resume_data(
             user_id=current_user.id,
             resume_text=normalized if normalized else None,
             years_experience=validated_years,
             skills=normalized_skills,
+            degree=degree_hint,
+            university=university_hint,
+            company=company_hint,
         )
         response["saved"] = True
     except Exception as e:
