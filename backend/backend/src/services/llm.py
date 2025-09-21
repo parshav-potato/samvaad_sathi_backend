@@ -18,7 +18,7 @@ def _get_client() -> AsyncOpenAI | None:
         return None
     _client = AsyncOpenAI(
         api_key=api_key,
-        timeout=30.0,
+        timeout=float(getattr(settings, "OPENAI_TIMEOUT_SECONDS", 60.0)),
         max_retries=3,
     )
     return _client
@@ -131,16 +131,23 @@ async def structured_output(
         client = _get_client()
         if client is None:
             return None, None, None, model
-        resp = await client.chat.completions.create(
-            model=model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-            max_tokens=2048,
-            messages=[
+        # Use Chat Completions for all models; switch token param for newer families
+        raw = "{}"
+        is_new_family = any(str(model).lower().startswith(p) for p in ("gpt-5", "gpt-4.1", "o4", "o3"))
+        token_param_key = "max_completion_tokens" if is_new_family else "max_tokens"
+        kwargs = {
+            "model": model,
+            "response_format": {"type": "json_object"},
+            token_param_key: 2048,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content if isinstance(user_content, str) else json.dumps(user_content, ensure_ascii=False)},
             ],
-        )
+        }
+        # Only include temperature for older models; new families accept only the default
+        if not is_new_family:
+            kwargs["temperature"] = temperature
+        resp = await client.chat.completions.create(**kwargs)
         raw = resp.choices[0].message.content or "{}"
         data = json.loads(raw)
         parsed = model_class.model_validate(data)
@@ -259,6 +266,7 @@ async def generate_interview_questions_with_llm(
         "You are an expert interviewer. Generate concise, specific interview questions for a software candidate. "
         "Avoid open-ended prompts; ask targeted questions that require concrete answers. "
         "Return ONLY valid JSON with keys: 'questions' (string[]) AND 'items' (array of objects with fields: text, topic, difficulty, category)."
+        "Understand that this is a verbal interview setting, so questions should be suitable for spoken responses."
     )
     user_prompt = {
         "track": track,
@@ -289,6 +297,7 @@ async def generate_interview_questions_with_llm(
             "Vary topics and ensure depth appropriate to difficulty; do not ask purely opinion-based questions",
             "Use a mix of the provided archetypes to ensure variety (e.g., concept, trade-offs, debug, design)",
             "Follow the depth guidelines for the given difficulty",
+            "Ask deep questions but make sure they have a clear, specific answer"
         ],
     }
 

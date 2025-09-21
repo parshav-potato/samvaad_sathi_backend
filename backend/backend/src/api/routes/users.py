@@ -131,7 +131,7 @@ async def update_profile(
     # Optional scalar fields submitted as form fields so that file upload can coexist
     degree: str | None = fastapi.Form(default=None),
     university: str | None = fastapi.Form(default=None, alias="university"),
-    target_position: TargetPositionEnum | None = fastapi.Form(default=None),
+    target_position: str | None = fastapi.Form(default=None),
     years_experience: float | None = fastapi.Form(default=None),
     current_user=fastapi.Depends(get_current_user),
     user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),

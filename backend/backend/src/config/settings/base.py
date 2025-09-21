@@ -93,6 +93,8 @@ class BackendBaseSettings(BaseSettings):
     MAX_AUDIO_SIZE_MB: int = decouple.config("MAX_AUDIO_SIZE_MB", cast=int, default=25)  # type: ignore
     OPENAI_MODEL: str = decouple.config("OPENAI_MODEL", cast=str, default="gpt-4o-mini")  # type: ignore
     OPENAI_API_KEY: str = decouple.config("OPENAI_API_KEY", cast=str, default="")  # type: ignore
+    # LLM/ OpenAI client timeout in seconds (request-level). Increase for longer prompts/outputs.
+    OPENAI_TIMEOUT_SECONDS: float = decouple.config("OPENAI_TIMEOUT_SECONDS", cast=float, default=60.0)  # type: ignore
 
     model_config = pydantic.ConfigDict(
         case_sensitive=True,
