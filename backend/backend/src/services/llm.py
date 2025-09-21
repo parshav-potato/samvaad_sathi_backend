@@ -275,6 +275,8 @@ async def generate_interview_questions_with_llm(
             "ratio": ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1},
         },
         "syllabus": syllabus_topics or {},
+        "archetypes": (syllabus_topics or {}).get("archetypes", []),
+        "depth_guidelines": (syllabus_topics or {}).get("depth_guidelines", []),
         "behavioral_topics": (syllabus_topics or {}).get("behavioral", []),
         "influence": influence or {},
         "constraints": [
@@ -285,6 +287,8 @@ async def generate_interview_questions_with_llm(
             "Behavioral questions must come from the provided behavioral topics and probe for specific actions/decisions",
             "Tech-allied questions should be related to the candidate's experience/skills when available",
             "Vary topics and ensure depth appropriate to difficulty; do not ask purely opinion-based questions",
+            "Use a mix of the provided archetypes to ensure variety (e.g., concept, trade-offs, debug, design)",
+            "Follow the depth guidelines for the given difficulty",
         ],
     }
 
