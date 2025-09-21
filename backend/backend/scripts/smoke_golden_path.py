@@ -39,7 +39,6 @@ def main() -> None:
         form = {
             "degree": "B.Tech",
             "university": "Test Univ",
-            "company": "Acme",
             "target_position": "Data Science",
             "years_experience": "1.5",
         }
