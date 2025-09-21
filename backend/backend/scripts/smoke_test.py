@@ -96,7 +96,7 @@ def main() -> None:
         if token:
             # update user profiling attributes to user's table
             import os
-            profile_attributes = {"degree":"xyz","university":"abc","company":"qwe",'target_position':'Data Science','years_experience':0}
+            profile_attributes = {"degree":"xyz","university":"abc","target_position":"Data Science","years_experience":0}
             r,err = safe_call(client,"PUT",f"{API}/users/profile",headers=headers,data=profile_attributes)
             print_result(f"PUT {API}/users/profile",r,err)
             

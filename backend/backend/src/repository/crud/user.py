@@ -83,10 +83,8 @@ class UserCRUDRepository(BaseCRUDRepository):
         user_id: int,
         degree: str | None = None,
         university: str | None = None,
-        profile_picture: bytes | None = None,
         target_position: TargetPositionEnum | None = None,
         years_experience: float | None = None,
-        company: str | None = None,
     ) -> User:
         """Update the profile attributes for a given user.
 
@@ -104,8 +102,6 @@ class UserCRUDRepository(BaseCRUDRepository):
             user.degree = degree.strip() if degree else None
         if university is not None:
             user.university = university.strip() if university else None
-        if profile_picture is not None:
-            user.profile_picture = profile_picture
         if target_position is not None:
             user.target_position = target_position  # type: ignore[assignment]
         if years_experience is not None:
@@ -113,8 +109,6 @@ class UserCRUDRepository(BaseCRUDRepository):
                 user.years_experience = float(years_experience)
             except Exception:
                 user.years_experience = None
-        if company is not None:
-            user.company = company.strip() if company else None
 
         await self.async_session.commit()
         await self.async_session.refresh(user)

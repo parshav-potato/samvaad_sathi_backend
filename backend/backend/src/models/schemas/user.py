@@ -28,7 +28,6 @@ class UserProfileUpdate(BaseSchemaModel):
     university: str | None = None
     target_position: TargetPositionEnum | None = None
     years_experience: float | None = None
-    company: str | None = None
 
     # profile_picture is not included here because it is uploaded as multipart file.
 
@@ -41,7 +40,7 @@ class UserProfileOut(BaseSchemaModel):
     university: str | None
     target_position: TargetPositionEnum | None
     years_experience: float | None
-    company: str | None
+    # company removed from response
 
 
 class UserWithToken(BaseSchemaModel):
@@ -54,7 +53,7 @@ class UserWithToken(BaseSchemaModel):
     university: str | None
     target_position: TargetPositionEnum | None
     years_experience: float | None
-    company: str | None
+    # company removed from response
 
 
 class UserInResponse(BaseSchemaModel):
