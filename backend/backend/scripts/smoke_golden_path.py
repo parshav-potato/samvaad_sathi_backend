@@ -67,8 +67,11 @@ def main() -> None:
         if isinstance(b, dict):
             interview_id = b.get("id") or b.get("interviewId") or b.get("interview_id")
 
-        # Generate questions (use resume)
-        r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json={"use_resume": True})
+        # Generate questions (use resume); include interview_id if available
+        gen_payload = {"use_resume": True}
+        if interview_id:
+            gen_payload["interviewId"] = interview_id
+        r, err = safe_call(client, "POST", f"{API}/interviews/generate-questions", headers=headers, json=gen_payload)
         print_result("POST /api/interviews/generate-questions", r, err)
 
         # Resume interview path
@@ -135,7 +138,7 @@ def main() -> None:
 
         # Final report
         if interview_id:
-            r, err = safe_call(client, "POST", f"{API}/final-report", headers=headers, json={"interview_id": interview_id})
+            r, err = safe_call(client, "POST", f"{API}/final-report", headers=headers, json={"interviewId": interview_id})
             print_result("POST /api/final-report", r, err)
             r2, err2 = safe_call(client, "GET", f"{API}/final-report/{interview_id}", headers=headers)
             print_result("GET /api/final-report/{id}", r2, err2)

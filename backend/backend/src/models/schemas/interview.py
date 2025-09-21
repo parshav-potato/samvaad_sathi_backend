@@ -28,6 +28,7 @@ class InterviewCreate(BaseSchemaModel):
 
 
 class GenerateQuestionsRequest(BaseSchemaModel):
+    interview_id: int | None = None
     use_resume: bool = True  # Whether to use resume text for question generation
 
 

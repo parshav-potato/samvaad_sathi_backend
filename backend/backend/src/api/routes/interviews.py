@@ -73,9 +73,18 @@ async def generate_questions(
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
 ) -> GeneratedQuestionsInResponse:
-    active = await interview_repo.get_active_by_user(user_id=current_user.id)
-    if active is None:
-        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
+    # Determine target interview: explicit interview_id (if provided and belongs to user) else current active
+    interview = None
+    if getattr(payload, "interview_id", None) is not None:
+        interview = await interview_repo.get_by_id(interview_id=payload.interview_id)  # type: ignore[arg-type]
+        if interview is None or interview.user_id != current_user.id:
+            raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+        if interview.status != "active":
+            raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Only active interviews can generate questions")
+    else:
+        interview = await interview_repo.get_active_by_user(user_id=current_user.id)
+        if interview is None:
+            raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
 
     # Generate questions (stateless - no caching for ECS compatibility)
     cached = False
@@ -83,18 +92,18 @@ async def generate_questions(
     # Use resume context if present on user and use_resume is True
     resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
     questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
-        track=active.track,
+        track=interview.track,
         context_text=resume_context,
         count=5,
-        difficulty=active.difficulty,
+        difficulty=interview.difficulty,
     )
     if not questions:
         questions = [
-            f"Describe your recent project in {active.track}.",
-            f"What core concepts are essential in {active.track}?",
-            f"Explain a challenging problem you solved in {active.track} and how.",
-            f"How do you evaluate models in {active.track}?",
-            f"Discuss trade-offs between common methods in {active.track}.",
+            f"Describe your recent project in {interview.track}.",
+            f"What core concepts are essential in {interview.track}?",
+            f"Explain a challenging problem you solved in {interview.track} and how.",
+            f"How do you evaluate models in {interview.track}?",
+            f"Discuss trade-offs between common methods in {interview.track}.",
         ]
     qs = {
         "questions": questions,
@@ -105,7 +114,7 @@ async def generate_questions(
     }
 
     # Persist question records only if they don't exist yet for this interview (idempotent-ish)
-    existing = await question_repo.list_by_interview(interview_id=active.id)
+    existing = await question_repo.list_by_interview(interview_id=interview.id)
     persisted = existing
     if not existing:
         # Convert questions and items to the format expected by create_batch
@@ -124,13 +133,13 @@ async def generate_questions(
                 })
         
         persisted = await question_repo.create_batch(
-            interview_id=active.id,
+            interview_id=interview.id,
             questions_data=questions_data
         )
 
     return GeneratedQuestionsInResponse(
-        interview_id=active.id,
-        track=active.track,
+        interview_id=interview.id,
+        track=interview.track,
         count=len(persisted),
         questions=[q.text for q in persisted],
         items=qs.get("items"),

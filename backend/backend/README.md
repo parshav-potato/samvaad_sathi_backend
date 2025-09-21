@@ -168,9 +168,9 @@ Base prefix: `/api`
 ### 🎯 Interviews (Auth Required)
 - `POST /api/interviews/create`: Create or resume an active interview session by `track` for the current user.
 - `POST /api/interviews/generate-questions`: Generate questions for the active interview (LLM-backed with fallback); persists them as QuestionAttempts.
-- `POST /api/interviews/complete`: Complete a specific interview by ID. Request: `{ "interview_id": number }`.
+- `POST /api/interviews/complete`: Complete a specific interview by ID. Request: `{ "interviewId": number }`.
 - `GET /api/interviews?limit=20&cursor=<lastId>`: Cursor-based listing (newest first). Response: `{ items: [...], next_cursor, limit }`.
-- `GET /api/interviews/{id}/questions?limit=20&cursor=<lastQuestionId>`: Cursor-based listing (oldest first). Response: `{ interview_id, items, next_cursor, limit }`.
+- `GET /api/interviews/{id}/questions?limit=20&cursor=<lastQuestionId>`: Cursor-based listing (oldest first). Response: `{ interviewId, items, next_cursor, limit }`.
 - `GET /api/interviews/{id}/question-attempts`: Get QuestionAttempt objects with IDs for audio transcription support.
 
 ### 🎤 Audio Transcription (Auth Required)
