@@ -155,7 +155,13 @@ async def refresh_access_token(
     if not user:
         raise fastapi.HTTPException(status_code=401, detail="User not found")
 
+    # Rotate refresh token: create a new one and delete the previous session
+    new_refresh = await session_repo.create_session(
+        user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES
+    )
+    await session_repo.delete_session_by_token(token=refresh_token)
+
     new_access = jwt_generator.generate_access_token_for_user(user=user)
-    return {"token": new_access}
+    return {"token": new_access, "refresh_token": new_refresh.token}
 
 
