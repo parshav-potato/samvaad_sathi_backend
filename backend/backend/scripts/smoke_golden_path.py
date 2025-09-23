@@ -98,8 +98,9 @@ def main() -> None:
         # Create attempt for first question
         qa_id = None
         if interview_id and first_qid:
-            r, err = safe_call(client, "POST", f"{API}/interviews/{interview_id}/questions/{first_qid}/attempts", headers=headers, json={"start_time": None})
-            print_result("POST /api/interviews/{id}/questions/{qid}/attempts", r, err)
+            attempt_payload = {"interviewId": interview_id, "questionId": first_qid}
+            r, err = safe_call(client, "POST", f"{API}/interviews/question-attempts", headers=headers, json=attempt_payload)
+            print_result("POST /api/interviews/question-attempts", r, err)
             ab = safe_json(r) if r else {}
             if isinstance(ab, dict):
                 qa_id = ab.get("questionAttemptId") or ab.get("question_attempt_id")

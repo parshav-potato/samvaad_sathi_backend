@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest, CreateAttemptRequest
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
@@ -395,44 +395,48 @@ async def list_interview_question_attempts(
 
 
 @router.post(
-    path="/interviews/{interview_id}/questions/{question_id}/attempts",
+    path="/interviews/question-attempts",
     name="interviews:create-question-attempt",
     response_model=CreateAttemptResponse,
     status_code=fastapi.status.HTTP_201_CREATED,
     summary="Start a question attempt",
     description=(
         "Creates a new QuestionAttempt record for the specified question. "
+        "Provide interviewId and questionId in the request body. "
         "Optionally updates the question status to 'in_progress'."
     ),
 )
 async def create_question_attempt(
-    interview_id: int,
-    question_id: int,
+    payload: CreateAttemptRequest,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
     attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> CreateAttemptResponse:
+    interview_id = payload.interview_id
+    question_id = payload.question_id
     # Verify interview exists and belongs to user
     interview = await interview_repo.get_by_id(interview_id=interview_id)
     if interview is None or interview.user_id != current_user.id:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
-    
+
     # Verify question exists and belongs to the interview
     question = await question_repo.get_by_id(question_id=question_id)
     if question is None or question.interview_id != interview_id:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Question not found")
-    
+
     # Update question status to in_progress
     await question_repo.update_status(question_id=question_id, status="in_progress")
-    
+
     # Create the question attempt
     attempt = await attempt_repo.create_attempt(
         interview_id=interview_id,
         question_id=question_id,
         question_text=question.text
     )
-    
+
     return CreateAttemptResponse(question_attempt_id=attempt.id)
+
+    
 
 
