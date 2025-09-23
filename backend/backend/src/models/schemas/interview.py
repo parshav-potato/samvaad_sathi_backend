@@ -16,6 +16,19 @@ class CreateAttemptResponse(BaseSchemaModel):
     question_attempt_id: int
 
 
+class CreateAttemptRequest(BaseSchemaModel):
+    interview_id: int
+    question_id: int
+
+    # Swagger example
+    model_config = BaseSchemaModel.model_config.copy()
+    model_config["json_schema_extra"] = {
+        "examples": [
+            {"interviewId": 123, "questionId": 456}
+        ]
+    }
+
+
 class QuestionItem(BaseSchemaModel):
     interview_question_id: int | None = None
     text: str

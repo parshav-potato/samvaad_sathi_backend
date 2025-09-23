@@ -242,10 +242,10 @@ def main() -> None:
                     if isinstance(first_question, dict) and "interviewQuestionId" in first_question:
                         question_id = first_question["interviewQuestionId"]
                         
-                        # Create a question attempt using the new endpoint
-                        attempt_payload = {"start_time": "2025-09-15T18:42:00Z"}
-                        r, err = safe_call(client, "POST", f"{API}/interviews/{current_interview_id}/questions/{question_id}/attempts", headers=headers, json=attempt_payload)
-                        print_result("POST /api/interviews/{id}/questions/{qid}/attempts", r, err)
+                        # Create a question attempt using the new endpoint (IDs in body)
+                        attempt_payload = {"interviewId": current_interview_id, "questionId": question_id}
+                        r, err = safe_call(client, "POST", f"{API}/interviews/question-attempts", headers=headers, json=attempt_payload)
+                        print_result("POST /api/interviews/question-attempts", r, err)
                         
                         attempt_response = safe_json(r) if r else {}
                         if isinstance(attempt_response, dict) and "questionAttemptId" in attempt_response:
