@@ -56,6 +56,7 @@ class GeneratedQuestionsInResponse(BaseSchemaModel):
     track: str
     count: int
     questions: list[str]
+    question_ids: list[int] | None = None  # Include question IDs for consistency with get-questions endpoint
     items: list[QuestionItem] | None = None
     cached: bool | None = None
     llm_model: str | None = None

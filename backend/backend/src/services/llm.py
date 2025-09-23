@@ -29,23 +29,29 @@ class ResumeEntitiesLLM(pydantic.BaseModel):
     years_experience: float | None = None
 
 
-class EducationItemLLM(pydantic.BaseModel):
+# Base class for items with date ranges
+class BaseDateRangeItemLLM(pydantic.BaseModel):
+    """Base class for items with start/end dates."""
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class EducationItemLLM(BaseDateRangeItemLLM):
+    """Education item with degree and institution."""
     degree: str | None = None
     institution: str | None = None
-    start_date: str | None = None
-    end_date: str | None = None
 
 
-class ExperienceItemLLM(pydantic.BaseModel):
+class ExperienceItemLLM(BaseDateRangeItemLLM):
+    """Experience item with company, role, and related data."""
     company: str | None = None
     role: str | None = None
-    start_date: str | None = None
-    end_date: str | None = None
     responsibilities: list[str] | None = None
     technologies: list[str] | None = None
 
 
 class ProjectItemLLM(pydantic.BaseModel):
+    """Project item with name, description, and technologies."""
     name: str | None = None
     description: str | None = None
     technologies: list[str] | None = None
@@ -72,34 +78,41 @@ class ResumeEntitiesV2LLM(pydantic.BaseModel):
     companies: list[str] | None = None
 
 
-class QuestionsItemLLM(pydantic.BaseModel):
+# Base classes for common patterns
+class BaseAnalysisLLM(pydantic.BaseModel):
+    """Base class for analysis responses with common fields."""
+    overall_score: float | None = None
+    criteria: dict[str, Any] | None = None
+    summary: str | None = None
+    suggestions: list[str] | None = None
+    confidence: float | None = None
+
+
+class BaseItemLLM(pydantic.BaseModel):
+    """Base class for item responses with common fields."""
     text: str
     topic: str | None = None
     difficulty: str | None = None
+
+
+class QuestionsItemLLM(BaseItemLLM):
+    """Question item with category field."""
     category: str | None = None  # tech | tech_allied | behavioral
 
 
 class QuestionsResponseLLM(pydantic.BaseModel):
-    questions: list[str] = pydantic.Field(default_factory=list)
-    items: list[QuestionsItemLLM] | None = None
+    """Response containing structured question items."""
+    items: list[QuestionsItemLLM] = pydantic.Field(default_factory=list)
 
 
-class DomainAnalysisLLM(pydantic.BaseModel):
-    overall_score: float | None = None
-    criteria: dict[str, Any] | None = None
-    summary: str | None = None
-    suggestions: list[str] | None = None
-    confidence: float | None = None
+class DomainAnalysisLLM(BaseAnalysisLLM):
+    """Domain knowledge analysis with specific fields."""
     misconceptions: dict[str, Any] | None = None
     examples: dict[str, Any] | None = None
 
 
-class CommunicationAnalysisLLM(pydantic.BaseModel):
-    overall_score: float | None = None
-    criteria: dict[str, Any] | None = None
-    summary: str | None = None
-    suggestions: list[str] | None = None
-    confidence: float | None = None
+class CommunicationAnalysisLLM(BaseAnalysisLLM):
+    """Communication analysis with specific fields."""
     jargon_use: dict[str, Any] | None = None
     tone_empathy: dict[str, Any] | None = None
 
@@ -265,8 +278,8 @@ async def generate_interview_questions_with_llm(
     sys_prompt = (
         "You are an expert interviewer. Generate concise, specific interview questions for a software candidate. "
         "Avoid open-ended prompts; ask targeted questions that require concrete answers. "
-        "Return ONLY valid JSON with keys: 'questions' (string[]) AND 'items' (array of objects with fields: text, topic, difficulty, category)."
-        "Understand that this is a verbal interview setting, so questions should be suitable for spoken responses."
+        "Return ONLY valid JSON with key: 'items' (array of objects with fields: text, topic, difficulty, category)."
+        "Understand that this is a verbal interview setting, so questions should STRICTLY be suitable for strictly spoken responses."
     )
     user_prompt = {
         "track": track,
@@ -310,8 +323,9 @@ async def generate_interview_questions_with_llm(
         )
         error = perr
         if result:
-            questions = [str(x).strip() for x in (result.questions or [])]
-            if result.items is not None:
+            # Extract questions from items and create structured items
+            if result.items:
+                questions = [it.text.strip() for it in result.items]
                 structured_items = [
                     {"text": it.text.strip(), "topic": it.topic, "difficulty": it.difficulty, "category": it.category}
                     for it in result.items
