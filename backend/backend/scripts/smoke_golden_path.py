@@ -143,6 +143,15 @@ def main() -> None:
             r2, err2 = safe_call(client, "GET", f"{API}/final-report/{interview_id}", headers=headers)
             print_result("GET /api/final-report/{id}", r2, err2)
 
+        # Summary report (independent from final-report)
+        if interview_id:
+            r, err = safe_call(client, "POST", f"{API}/summary-report", headers=headers, json={"interviewId": interview_id})
+            print_result("POST /api/summary-report", r, err)
+            if r and r.status_code == 200:
+                # Immediately fetch the persisted report
+                rg, erg = safe_call(client, "GET", f"{API}/summary-report/{interview_id}", headers=headers)
+                print_result("GET /api/summary-report/{id}", rg, erg)
+
 
 if __name__ == "__main__":
     main()

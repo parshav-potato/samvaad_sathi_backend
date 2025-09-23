@@ -528,6 +528,27 @@ def main() -> None:
                             for k in ("interviewId", "summary", "knowledgeCompetence", "speechStructureFluency", "overallScore"):
                                 if k not in body2:
                                     print(f"   WARN: final-report (GET) missing key: {k}")
+                # New: summary report generation (independent from final report)
+                try:
+                    sr_payload = {"interviewId": current_interview_id}
+                    r3, err3 = safe_call(client, "POST", f"{API}/summary-report", headers=headers, json=sr_payload)
+                    print_result("POST /api/summary-report", r3, err3)
+                    if r3 and 200 <= r3.status_code < 300:
+                        body3 = safe_json(r3)
+                        if isinstance(body3, dict):
+                            for k in ("interviewId", "overallScoreSummary", "finalSummary", "actionableSteps"):
+                                if k not in body3:
+                                    print(f"   WARN: summary-report missing key: {k}")
+                            # Light sanity: show averages if present
+                            try:
+                                kc = (body3.get("overallScoreSummary", {}) or {}).get("knowledgeCompetence", {}) or {}
+                                ssf = (body3.get("overallScoreSummary", {}) or {}).get("speechStructure", {}) or {}
+                                print(f"   KC avg (5pt): {kc.get('average5pt', 'N/A')}, %: {kc.get('averagePct', 'N/A')}")
+                                print(f"   SSF avg (5pt): {ssf.get('average5pt', 'N/A')}, %: {ssf.get('averagePct', 'N/A')}")
+                            except Exception:
+                                pass
+                except Exception as _e3:
+                    print_result("POST /api/summary-report", None, str(_e3))
         except Exception as _e:
             print_result("POST /api/final-report", None, str(_e))
 
