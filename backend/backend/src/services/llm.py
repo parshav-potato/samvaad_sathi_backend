@@ -1,4 +1,5 @@
 import json
+import random
 import time
 from typing import Any, Type
 
@@ -281,9 +282,39 @@ async def generate_interview_questions_with_llm(
         "Return ONLY valid JSON with key: 'items' (array of objects with fields: text, topic, difficulty, category)."
         "Understand that this is a verbal interview setting, so questions should STRICTLY be suitable for strictly spoken responses."
     )
+    # Prepare a sampled syllabus so we don't send the entire topic bank to the LLM
+    topics = syllabus_topics or {}
+    r = ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1}
+    total = max(1, min(10, int(count or 3)))
+    # Normalize ratio to total questions (we use it only as guidance for sampling size)
+    r_tech = max(0, int(r.get("tech", 0)))
+    r_allied = max(0, int(r.get("tech_allied", 0)))
+    r_beh = max(0, int(r.get("behavioral", 0)))
+
+    def _pick(ls: list[str] | None, n: int) -> list[str]:
+        pool = list(ls or [])
+        if not pool:
+            return []
+        k = min(len(pool), max(1, n))
+        # random.sample requires k <= len(pool)
+        return random.sample(pool, k)
+
+    # Heuristic: provide up to 2x topics per expected question in that category (min 3)
+    tech_pool = _pick(topics.get("tech"), max(2, r_tech * 2))
+    allied_pool = _pick(topics.get("tech_allied"), max(2, r_allied * 2))
+    beh_pool_full = list(topics.get("behavioral", []))
+    beh_pool = _pick(beh_pool_full, max(3, r_beh * 2 if r_beh > 0 else 3))
+
+    sampled_syllabus = {
+        "tech": tech_pool,
+        "tech_allied": allied_pool,
+        # Keep behavioral also as part of syllabus for uniformity; LLM will still honor categories
+        "behavioral": beh_pool,
+    }
+
     user_prompt = {
         "track": track,
-        "count": max(1, min(10, int(count or 3))),
+        "count": total,
         "context": (context_text or "")[:4000],
         "difficulty": (difficulty or "medium"),
         # Category mix and topics per product requirements
@@ -295,10 +326,12 @@ async def generate_interview_questions_with_llm(
             },
             "ratio": ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1},
         },
-        "syllabus": syllabus_topics or {},
+        # Only pass a random subset of topics so the model focuses and varies questions over runs
+        "syllabus": sampled_syllabus,
         "archetypes": (syllabus_topics or {}).get("archetypes", []),
         "depth_guidelines": (syllabus_topics or {}).get("depth_guidelines", []),
-        "behavioral_topics": (syllabus_topics or {}).get("behavioral", []),
+        # Also trim behavioral list passed separately to reinforce selection
+        "behavioral_topics": beh_pool,
         "influence": influence or {},
         "constraints": [
             "No preambles, no numbering in the JSON itself",
