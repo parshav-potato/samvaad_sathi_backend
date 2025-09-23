@@ -36,3 +36,28 @@ def test_final_report_response_has_example_without_startup():
     assert "knowledgeCompetence" in properties
     assert "speechStructureFluency" in properties
     assert "overallScore" in properties
+
+
+def test_interview_schemas_include_question_ids():
+    app = initialize_backend_application()
+    schema = app.openapi()
+
+    components = schema.get("components", {})
+    schemas = components.get("schemas", {})
+
+    # Check QuestionItem schema includes category field
+    qi_schema = schemas.get("QuestionItem")
+    assert qi_schema is not None
+    props = qi_schema.get("properties", {})
+    assert "category" in props
+    assert "text" in props
+    assert "topic" in props
+    assert "difficulty" in props
+
+    # Check GeneratedQuestionsInResponse includes question_ids
+    gq_schema = schemas.get("GeneratedQuestionsInResponse")
+    assert gq_schema is not None
+    gq_props = gq_schema.get("properties", {})
+    assert "question_ids" in gq_props
+    assert "questions" in gq_props
+    assert "cached" in gq_props

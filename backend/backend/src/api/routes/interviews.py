@@ -118,65 +118,58 @@ async def generate_questions(
         if interview is None:
             raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="No active interview to generate questions for")
 
-    # Generate questions (stateless - no caching for ECS compatibility)
-    cached = False
-    
-    # Use resume context if present on user and use_resume is True
-    resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
-    # Build influence knobs
-    years = getattr(current_user, "years_experience", None)
-    skills_json = getattr(current_user, "skills", None) or {}
-    skills_list = list(skills_json.get("items", []) if isinstance(skills_json, dict) else [])
-    has_resume = bool(resume_context)
-    has_skills = bool(skills_list)
-
-    role = derive_role(interview.track)
-    topics = get_topics_for(role=role, difficulty=interview.difficulty)
-    # Prefer tech_allied topics derived from resume/skills when available
-    topics["tech_allied"] = tech_allied_from_resume(
-        resume_text=resume_context if isinstance(resume_context, str) else None,
-        skills=[str(s) for s in skills_list],
-        fallback=topics.get("tech_allied", []),
-    )
-    ratio = compute_category_ratio(years_experience=years, has_resume_text=has_resume, has_skills=has_skills)
-
-    influence = {
-        "target_role": role,               # Tech influence
-        "difficulty": interview.difficulty, # Tech influence
-        "experience_years": years,         # Tech-allied influence
-        "skills": skills_list,             # Tech influence
-        "headline": getattr(current_user, "target_position", None),  # Tech-allied influence
-    }
-
-    questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
-        track=interview.track,
-        context_text=resume_context,
-        count=5,
-        difficulty=interview.difficulty,
-        syllabus_topics=topics,
-        ratio=ratio,
-        influence=influence,
-    )
-    if not questions:
-        questions = [
-            f"Describe your recent project in {interview.track}.",
-            f"What core concepts are essential in {interview.track}?",
-            f"Explain a challenging problem you solved in {interview.track} and how.",
-            f"How do you evaluate models in {interview.track}?",
-            f"Discuss trade-offs between common methods in {interview.track}.",
-        ]
-    qs = {
-        "questions": questions,
-        "llm_error": llm_error,
-        "latency_ms": latency_ms,
-        "llm_model": llm_model,
-        "items": items,
-    }
-
-    # Persist question records only if they don't exist yet for this interview (idempotent-ish)
+    # Check if questions already exist for this interview (idempotent)
     existing = await question_repo.list_by_interview(interview_id=interview.id)
     persisted = existing
+    cached = bool(existing)
+    
     if not existing:
+        # Generate questions only if they don't exist
+        # Use resume context if present on user and use_resume is True
+        resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
+        # Build influence knobs
+        years = getattr(current_user, "years_experience", None)
+        skills_json = getattr(current_user, "skills", None) or {}
+        skills_list = list(skills_json.get("items", []) if isinstance(skills_json, dict) else [])
+        has_resume = bool(resume_context)
+        has_skills = bool(skills_list)
+
+        role = derive_role(interview.track)
+        topics = get_topics_for(role=role, difficulty=interview.difficulty)
+        # Prefer tech_allied topics derived from resume/skills when available
+        topics["tech_allied"] = tech_allied_from_resume(
+            resume_text=resume_context if isinstance(resume_context, str) else None,
+            skills=[str(s) for s in skills_list],
+            fallback=topics.get("tech_allied", []),
+        )
+        ratio = compute_category_ratio(years_experience=years, has_resume_text=has_resume, has_skills=has_skills)
+
+        influence = {
+            "target_role": role,               # Tech influence
+            "difficulty": interview.difficulty, # Tech influence
+            "experience_years": years,         # Tech-allied influence
+            "skills": skills_list,             # Tech influence
+            "headline": getattr(current_user, "target_position", None),  # Tech-allied influence
+        }
+
+        questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
+            track=interview.track,
+            context_text=resume_context,
+            count=5,
+            difficulty=interview.difficulty,
+            syllabus_topics=topics,
+            ratio=ratio,
+            influence=influence,
+        )
+        if not questions:
+            questions = [
+                f"Describe your recent project in {interview.track}.",
+                f"What core concepts are essential in {interview.track}?",
+                f"Explain a challenging problem you solved in {interview.track} and how.",
+                f"How do you evaluate models in {interview.track}?",
+                f"Discuss trade-offs between common methods in {interview.track}.",
+            ]
+        
         # Convert questions and items to the format expected by create_batch
         questions_data = []
         if items:  # If we have structured data from LLM
@@ -196,12 +189,31 @@ async def generate_questions(
             interview_id=interview.id,
             questions_data=questions_data
         )
+        
+        # Prepare response data for newly generated questions
+        qs = {
+            "questions": questions,
+            "llm_error": llm_error,
+            "latency_ms": latency_ms,
+            "llm_model": llm_model,
+            "items": items,
+        }
+    else:
+        # Questions already exist, prepare response data from existing questions
+        qs = {
+            "questions": [q.text for q in existing],
+            "llm_error": None,
+            "latency_ms": None,
+            "llm_model": None,
+            "items": None,
+        }
 
     return GeneratedQuestionsInResponse(
         interview_id=interview.id,
         track=interview.track,
         count=len(persisted),
         questions=[q.text for q in persisted],
+        question_ids=[q.id for q in persisted],  # Include question IDs for consistency
         items=qs.get("items"),
         cached=cached,
         llm_model=qs.get("llm_model"),  # type: ignore[union-attr]
