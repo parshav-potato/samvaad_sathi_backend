@@ -191,21 +191,55 @@ async def generate_questions(
         )
         
         # Prepare response data for newly generated questions
+        # Ensure items include interviewQuestionId mapped to persisted IDs
+        response_items = []
+        if items and len(items) == len(persisted):
+            for p, it in zip(persisted, items):
+                merged = dict(it)
+                merged["interviewQuestionId"] = p.id
+                response_items.append(merged)
+        elif items:
+            # Length mismatch; still attach ids by order best-effort
+            for idx, it in enumerate(items):
+                merged = dict(it)
+                merged["interviewQuestionId"] = persisted[idx].id if idx < len(persisted) else None
+                response_items.append(merged)
+        else:
+            # No structured items; synthesize from persisted
+            for p in persisted:
+                response_items.append({
+                    "interviewQuestionId": p.id,
+                    "text": p.text,
+                    "topic": p.topic,
+                    "difficulty": None,
+                    "category": None,
+                })
+
         qs = {
             "questions": questions,
             "llm_error": llm_error,
             "latency_ms": latency_ms,
             "llm_model": llm_model,
-            "items": items,
+            "items": response_items,
         }
     else:
         # Questions already exist, prepare response data from existing questions
+        existing_items = [
+            {
+                "interviewQuestionId": q.id,
+                "text": q.text,
+                "topic": q.topic,
+                "difficulty": None,
+                "category": None,
+            }
+            for q in existing
+        ]
         qs = {
             "questions": [q.text for q in existing],
             "llm_error": None,
             "latency_ms": None,
             "llm_model": None,
-            "items": None,
+            "items": existing_items,
         }
 
     return GeneratedQuestionsInResponse(
