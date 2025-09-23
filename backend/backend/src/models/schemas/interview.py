@@ -17,6 +17,7 @@ class CreateAttemptResponse(BaseSchemaModel):
 
 
 class QuestionItem(BaseSchemaModel):
+    interview_question_id: int | None = None
     text: str
     topic: str | None = None
     difficulty: str | None = None
