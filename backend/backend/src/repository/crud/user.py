@@ -85,6 +85,19 @@ class UserCRUDRepository(BaseCRUDRepository):
         await self.async_session.refresh(user)
         return user
 
+    async def set_onboarded(self, *, user_id: int, value: bool = True) -> User:
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(statement=stmt)
+        user: User | None = query.scalar()  # type: ignore
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+        # If column exists, set; otherwise ignore to be backward compatible
+        if hasattr(user, "is_onboarded"):
+            user.is_onboarded = bool(value)
+            await self.async_session.commit()
+            await self.async_session.refresh(user)
+        return user  # type: ignore
+
     # ------------------------------------------------------------------
     # Profile update
     # ------------------------------------------------------------------

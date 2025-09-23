@@ -58,6 +58,12 @@ class User(Base):  # type: ignore
 
     # JSON skills (retained)
     skills: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)
+    
+    # Onboarding completion flag
+    is_onboarded: SQLAlchemyMapped[bool] = sqlalchemy_mapped_column(
+        sqlalchemy.Boolean, nullable=False, server_default=sqlalchemy.text("false"),
+        doc="Indicates whether the user has completed the onboarding flow via /api/users/profile"
+    )
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )

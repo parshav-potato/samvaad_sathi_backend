@@ -50,6 +50,7 @@ async def register_user(
                                     email=user.email, 
                                     name=user.name, 
                                     created_at=user.created_at,
+                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
                                     degree=None,
                                     university=None,
                                     target_position=None,
@@ -84,6 +85,7 @@ async def login_user(
                                     email=user.email, 
                                     name=user.name, 
                                     created_at=user.created_at,
+                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
                                     degree=None,
                                     university=None,
                                     target_position=None,
@@ -108,6 +110,7 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
             email=current_user.email,
             name=current_user.name,
             created_at=current_user.created_at,
+            is_onboarded=getattr(current_user, 'is_onboarded', False),
             degree=current_user.degree,
             university=current_user.university,
             target_position=current_user.target_position,
@@ -144,6 +147,11 @@ async def update_profile(
         target_position=target_position,
         years_experience=years_experience,
     )
+
+    # Mark onboarding complete when profile endpoint is used successfully
+    if hasattr(updated, 'is_onboarded') and not updated.is_onboarded:
+        await user_repo.set_onboarded(user_id=updated.id, value=True)
+        updated = await user_repo.get_user_by_id(user_id=updated.id)
 
     return UserProfileOut(
         user_id=updated.id,
