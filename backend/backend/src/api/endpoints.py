@@ -7,6 +7,7 @@ from src.api.routes.audio import router as audio_router
 from src.api.routes.analysis import router as analysis_router
 from src.api.routes.report import router as report_router
 from src.api.routes.auth_cognito import router as cognito_router
+from src.api.routes.summary_report import router as summary_report_router
 
 router = fastapi.APIRouter()
 
@@ -21,4 +22,5 @@ router.include_router(router=interviews_router)
 router.include_router(router=audio_router)
 router.include_router(router=analysis_router)
 router.include_router(router=report_router)
+router.include_router(router=summary_report_router)
 router.include_router(router=cognito_router)

@@ -1,11 +1,23 @@
 import json
 import random
 import time
-from typing import Any, Type
+from typing import Any, Type, List, Dict
 
 import pydantic
 from openai import AsyncOpenAI
 from src.config.manager import settings
+from src.models.schemas.summary_report import (
+    KnowledgeCompetenceBreakdown,
+    SpeechStructureBreakdown,
+    OverallScoreKnowledgeCompetence,
+    OverallScoreSpeechStructure,
+    OverallScoreSummary,
+    FinalSummarySection,
+    FinalSummary,
+    KnowledgeDevelopmentSteps,
+    SpeechStructureFluencySteps,
+    ActionableSteps,
+)
 
 # Lazy client holder; create only when needed and when API key is present
 _client: AsyncOpenAI | None = None
@@ -77,7 +89,149 @@ class ResumeEntitiesV2LLM(pydantic.BaseModel):
     languages: list[str] | None = None
     job_titles: list[str] | None = None
     companies: list[str] | None = None
+    llm_schema: str | None = None
 
+
+class LLMKnowledgeBreakdownStrict(pydantic.BaseModel):
+    accuracy: float = pydantic.Field(..., ge=0.0, le=5.0)
+    depth: float = pydantic.Field(..., ge=0.0, le=5.0)
+    coverage: float = pydantic.Field(..., ge=0.0, le=5.0)
+    relevance: float = pydantic.Field(..., ge=0.0, le=5.0)
+
+
+class LLMSpeechBreakdownStrict(pydantic.BaseModel):
+    pacing: float = pydantic.Field(..., ge=0.0, le=5.0)
+    structure: float = pydantic.Field(..., ge=0.0, le=5.0)
+    pauses: float = pydantic.Field(..., ge=0.0, le=5.0)
+    grammar: float = pydantic.Field(..., ge=0.0, le=5.0)
+
+
+class LLMKnowledgeCompetenceStrict(pydantic.BaseModel):
+    average5pt: float = pydantic.Field(..., ge=0.0, le=5.0)
+    averagePct: float = pydantic.Field(..., ge=0.0, le=100.0)
+    breakdown: LLMKnowledgeBreakdownStrict
+
+
+class LLMSpeechStructureStrict(pydantic.BaseModel):
+    average5pt: float = pydantic.Field(..., ge=0.0, le=5.0)
+    averagePct: float = pydantic.Field(..., ge=0.0, le=100.0)
+    breakdown: LLMSpeechBreakdownStrict
+
+
+class LLMOverallScoreSummaryStrict(pydantic.BaseModel):
+    knowledgeCompetence: LLMKnowledgeCompetenceStrict
+    speechStructure: LLMSpeechStructureStrict
+
+
+class LLMFinalSummarySectionStrict(pydantic.BaseModel):
+    knowledgeRelated: list[str] = pydantic.Field(default_factory=list)
+    speechFluencyRelated: list[str] = pydantic.Field(default_factory=list)
+
+
+class LLMFinalSummaryStrict(pydantic.BaseModel):
+    strengths: LLMFinalSummarySectionStrict
+    areasOfImprovement: LLMFinalSummarySectionStrict
+
+
+class LLMKnowledgeDevelopmentStepsStrict(pydantic.BaseModel):
+    targetedConceptReinforcement: list[str] = pydantic.Field(default_factory=list)
+    examplePractice: list[str] = pydantic.Field(default_factory=list)
+    conceptualDepth: list[str] = pydantic.Field(default_factory=list)
+
+
+class LLMSpeechStructureFluencyStepsStrict(pydantic.BaseModel):
+    fluencyDrills: list[str] = pydantic.Field(default_factory=list)
+    grammarPractice: list[str] = pydantic.Field(default_factory=list)
+    structureFramework: list[str] = pydantic.Field(default_factory=list)
+
+
+class LLMActionableStepsStrict(pydantic.BaseModel):
+    knowledgeDevelopment: LLMKnowledgeDevelopmentStepsStrict
+    speechStructureFluency: LLMSpeechStructureFluencyStepsStrict
+
+
+class LLMPerQuestionItemStrict(pydantic.BaseModel):
+    questionAttemptId: int
+    questionText: str | None = None
+    keyTakeaways: list[str] = pydantic.Field(default_factory=list)
+    knowledgeScorePct: float = pydantic.Field(..., ge=0.0, le=100.0)
+    speechScorePct: float = pydantic.Field(..., ge=0.0, le=100.0)
+
+
+class LLMTopicHighlightsStrict(pydantic.BaseModel):
+    strengthsTopics: list[str] = pydantic.Field(default_factory=list)
+    improvementTopics: list[str] = pydantic.Field(default_factory=list)
+
+
+class StrictSummarySynthesisLLM(pydantic.BaseModel):
+    """Strict, non-optional output for UI-style summary synthesis (no metadata)."""
+    overallScoreSummary: LLMOverallScoreSummaryStrict
+    finalSummary: LLMFinalSummaryStrict
+    actionableSteps: LLMActionableStepsStrict
+    perQuestion: list[LLMPerQuestionItemStrict] | None = None
+    topicHighlights: LLMTopicHighlightsStrict | None = None
+
+
+async def synthesize_summary_sections(
+    *,
+    per_question_inputs: List[dict],
+    computed_metrics: Dict[str, Any],
+    max_questions: int | None = None,
+) -> tuple[dict, str | None, int | None, str]:
+    """
+    Drive the LLM to create the three sections from complete per-question analyses.
+    Returns: (summary_json, error, latency_ms, model)
+    """
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        # No key: return empty structures; caller can fallback to heuristic
+        return {"overallScoreSummary": {}, "finalSummary": {}, "actionableSteps": {}}, None, None, model
+
+    if max_questions is not None:
+        per_question_inputs = per_question_inputs[:max_questions]
+
+    sys_prompt = (
+        "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
+        "pause) for up to 5 questions with scores and suggestions, synthesize a concise report with the exact JSON "
+        "shape below. Use measured data to compute averages and select concrete strengths and prioritized "
+        "improvements. Keep tone constructive and actionable. Return ONLY valid JSON (no markdown). Do NOT output nulls anywhere.\n\n"
+        "Strict JSON schema and constraints (no nulls): {\n"
+        "  overallScoreSummary: {\n"
+        "    knowledgeCompetence: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{accuracy:number(0..5), depth:number(0..5), coverage:number(0..5), relevance:number(0..5)} },\n"
+        "    speechStructure: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{pacing:number(0..5), structure:number(0..5), pauses:number(0..5), grammar:number(0..5)} }\n"
+        "  },\n"
+        "  finalSummary: { strengths:{ knowledgeRelated:string[], speechFluencyRelated:string[] }, areasOfImprovement:{ knowledgeRelated:string[], speechFluencyRelated:string[] } },\n"
+        "  actionableSteps: { knowledgeDevelopment:{ targetedConceptReinforcement:string[], examplePractice:string[], conceptualDepth:string[] }, speechStructureFluency:{ fluencyDrills:string[], grammarPractice:string[], structureFramework:string[] } },\n"
+        "  perQuestion?: [{ questionAttemptId:number, questionText?:string, keyTakeaways:string[], knowledgeScorePct:number(0..100), speechScorePct:number(0..100) }],\n"
+        "  topicHighlights?: { strengthsTopics:string[], improvementTopics:string[] }\n"
+        "}\n\n"
+        "Use the provided computed_metrics directly for knowledgeCompetence: averagePct equals computed kc_avg_pct, "
+        "average5pt equals kc_avg_pct/20, and breakdown items equal kc_breakdown_pct items/20 rounded to two decimals. "
+        "Do not invent numbers for knowledgeCompetence; derive exactly from computed_metrics."
+    )
+
+    user_content = {
+        "per_question": per_question_inputs,
+        "computed_metrics": computed_metrics,
+        "guidelines": [
+            "Base averages on provided metrics; do not invent numbers",
+            "Summaries must reflect specific issues observed in analyses",
+            "Actionable steps should be concrete and phrased as imperatives",
+        ],
+    }
+
+    result, error, latency_ms, model = await structured_output(
+        StrictSummarySynthesisLLM,
+        system_prompt=sys_prompt,
+        user_content=user_content,
+        temperature=0,
+    )
+
+    data: dict = {}
+    if result:
+        data = result.model_dump()
+    return data, error, latency_ms, model
 
 # Base classes for common patterns
 class BaseAnalysisLLM(pydantic.BaseModel):

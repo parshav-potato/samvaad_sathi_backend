@@ -42,7 +42,11 @@ def main() -> None:
         r, err = safe_call(client, "POST", f"{API}/extract-resume", files=files_txt)
         print_result("POST /api/extract-resume (no auth)", r, err)
 
-        # Create interview user1 and list with pagination
+        # Summary-report should require auth (expect 401/403)
+        r, err = safe_call(client, "POST", f"{API}/summary-report", json={"interviewId": 1})
+        print_result("POST /api/summary-report (no auth)", r, err)
+
+    # Create interview user1 and list with pagination
         r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers1, json={"track": "data_science"})
         print_result("POST /api/interviews/create (u1)", r, err)
         r, err = safe_call(client, "GET", f"{API}/interviews?limit=1", headers=headers1)
