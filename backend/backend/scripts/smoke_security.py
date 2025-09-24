@@ -95,7 +95,7 @@ def main() -> None:
 
         # Invalid transcribe-whisper (non-existent QA)
         files_audio = {"file": ("Speech.mp3", b"\x00\x01", "audio/mpeg")}
-        r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers1, files=files_audio, data={"question_attempt_id": 999999})
+        r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers1, files=files_audio, data={"question_attempt_id": "999999"})
         print_result("POST /api/transcribe-whisper (non-existent QA)", r, err)
 
 

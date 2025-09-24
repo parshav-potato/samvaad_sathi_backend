@@ -24,7 +24,7 @@ router = fastapi.APIRouter(prefix="", tags=["audio"])
     ),
 )
 async def transcribe_audio_answer(
-    question_attempt_id: int = Form(..., description="ID of the question attempt this audio answer belongs to"),
+    question_attempt_id: str = Form(..., description="ID of the question attempt this audio answer belongs to"),
     language: str = Form(default="en", description="Language code for transcription (e.g., 'en', 'es', 'fr')"),
     file: UploadFile = File(..., description="Audio file to transcribe. Supported: .mp3, .wav, .m4a, .flac (max 25MB)"),
     current_user = fastapi.Depends(get_current_user),
@@ -40,8 +40,16 @@ async def transcribe_audio_answer(
     """
     
     # Step 1: Verify question attempt exists and belongs to current user
+    try:
+        question_attempt_id_int = int(question_attempt_id)
+    except ValueError:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid question_attempt_id format. Must be a valid integer."
+        )
+    
     question_attempt = await question_repo.get_by_id_and_user(
-        question_attempt_id=question_attempt_id,
+        question_attempt_id=question_attempt_id_int,
         user_id=current_user.id
     )
     
@@ -84,7 +92,7 @@ async def transcribe_audio_answer(
             audio_bytes=audio_bytes,
             filename=file_metadata["filename"],
             user_id=current_user.id,
-            question_attempt_id=question_attempt_id
+            question_attempt_id=question_attempt_id_int
         )
         # Note: audio_url is just a reference name for database storage
         # temp_file_path is the actual temporary file that will be cleaned up
@@ -97,7 +105,7 @@ async def transcribe_audio_answer(
     if audio_url and transcription and not save_error:
         try:
             updated_qa = await question_repo.update_audio_transcription(
-                question_attempt_id=question_attempt_id,
+                question_attempt_id=question_attempt_id_int,
                 audio_url=audio_url,  # Just a reference name, not a real file path
                 transcription=transcription
             )
@@ -128,7 +136,7 @@ async def transcribe_audio_answer(
         message = "Audio upload failed"
 
     return AudioTranscriptionResponse(
-        question_attempt_id=question_attempt_id,
+        question_attempt_id=question_attempt_id_int,
         filename=file_metadata["filename"],
         content_type=file_metadata["content_type"],
         size=file_metadata["size"],

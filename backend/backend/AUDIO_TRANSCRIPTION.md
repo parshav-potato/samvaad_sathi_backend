@@ -18,7 +18,7 @@ Upload and transcribe audio files linked to interview questions.
 
 **Request:**
 - `file`: Audio file (multipart/form-data)
-- `question_attempt_id`: Integer (form data)
+- `question_attempt_id`: String (form data) - ID of the question attempt this audio answer belongs to
 - `language`: Optional language code (default: "en")
 
 **Response:**
