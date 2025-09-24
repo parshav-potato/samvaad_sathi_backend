@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List, Tuple
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, func, desc
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.models.db.summary_report import SummaryReport
+from src.models.db.interview import Interview
 from src.repository.crud.base import BaseCRUDRepository
 
 
@@ -28,3 +30,25 @@ class SummaryReportCRUDRepository(BaseCRUDRepository):
         )
         res = await self.async_session.execute(stmt)
         return res.scalar_one()
+
+    async def get_last_x_for_user(self, user_id: int, limit: int = 10) -> List[Tuple[SummaryReport, Interview]]:
+        """
+        Get the last x summary reports for a user, ordered by creation date (most recent first).
+        
+        Args:
+            user_id: ID of the user
+            limit: Maximum number of reports to return (default: 10)
+            
+        Returns:
+            List of tuples containing (SummaryReport, Interview) objects
+        """
+        stmt = (
+            select(SummaryReport, Interview)
+            .join(Interview, SummaryReport.interview_id == Interview.id)
+            .where(Interview.user_id == user_id)
+            .order_by(desc(SummaryReport.created_at))
+            .limit(limit)
+        )
+        
+        res = await self.async_session.execute(stmt)
+        return list(res.all())

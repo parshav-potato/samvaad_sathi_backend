@@ -549,6 +549,29 @@ def main() -> None:
                                 pass
                 except Exception as _e3:
                     print_result("POST /api/summary-report", None, str(_e3))
+                
+                # Test the new summary reports list endpoint
+                try:
+                    rl, errl = safe_call(client, "GET", f"{API}/summary-reports?limit=3", headers=headers)
+                    print_result("GET /api/summary-reports", rl, errl)
+                    if rl and 200 <= rl.status_code < 300:
+                        body_list = safe_json(rl)
+                        if isinstance(body_list, dict):
+                            items = body_list.get("items", [])
+                            print(f"   Found {len(items)} summary reports")
+                            for item in items[:2]:  # Show first 2 items
+                                if isinstance(item, dict):
+                                    print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('difficulty', 'N/A')})")
+                                    # Show report details if available
+                                    report = item.get('report', {})
+                                    if isinstance(report, dict):
+                                        overall_score = report.get('overallScoreSummary', {})
+                                        if overall_score:
+                                            kc = overall_score.get('knowledgeCompetence', {})
+                                            ss = overall_score.get('speechStructure', {})
+                                            print(f"     KC: {kc.get('averagePct', 'N/A')}%, SS: {ss.get('averagePct', 'N/A')}%")
+                except Exception as _e4:
+                    print_result("GET /api/summary-reports", None, str(_e4))
         except Exception as _e:
             print_result("POST /api/final-report", None, str(_e))
 
