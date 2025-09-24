@@ -114,3 +114,20 @@ class SummaryReportResponse(BaseSchemaModel):
     metadata: ReportMetadata | None = None
     perQuestion: List[PerQuestionItem] = pydantic.Field(default_factory=list)
     topicHighlights: TopicHighlights | None = None
+
+
+class SummaryReportListItem(BaseSchemaModel):
+    """Individual summary report item for the list endpoint."""
+    interview_id: int = pydantic.Field(description="Unique identifier for the interview")
+    track: str = pydantic.Field(description="Interview track (e.g., 'javascript developer')")
+    difficulty: str = pydantic.Field(description="Interview difficulty level")
+    created_at: str = pydantic.Field(description="When the summary report was created")
+    overall_score: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Overall score percentage")
+    report: SummaryReportResponse = pydantic.Field(description="Complete summary report data")
+
+
+class SummaryReportsListResponse(BaseSchemaModel):
+    """Response for the summary reports list endpoint."""
+    items: List[SummaryReportListItem] = pydantic.Field(description="List of summary reports")
+    total_count: int = pydantic.Field(description="Total number of summary reports found")
+    limit: int = pydantic.Field(description="Maximum number of items requested")

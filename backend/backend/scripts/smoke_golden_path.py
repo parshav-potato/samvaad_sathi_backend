@@ -151,6 +151,21 @@ def main() -> None:
                 # Immediately fetch the persisted report
                 rg, erg = safe_call(client, "GET", f"{API}/summary-report/{interview_id}", headers=headers)
                 print_result("GET /api/summary-report/{id}", rg, erg)
+                
+                # Test the new summary reports list endpoint
+                rl, errl = safe_call(client, "GET", f"{API}/summary-reports?limit=5", headers=headers)
+                print_result("GET /api/summary-reports", rl, errl)
+                if rl and rl.status_code == 200:
+                    body_list = safe_json(rl)
+                    if isinstance(body_list, dict):
+                        items = body_list.get("items", [])
+                        print(f"   Found {len(items)} summary reports with full data")
+                        for item in items[:2]:  # Show first 2 items
+                            if isinstance(item, dict):
+                                print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('difficulty', 'N/A')})")
+                                report = item.get('report', {})
+                                if isinstance(report, dict) and 'overallScoreSummary' in report:
+                                    print(f"     Full report data included with {len(report)} top-level fields")
 
 
 if __name__ == "__main__":

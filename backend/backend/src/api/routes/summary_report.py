@@ -9,7 +9,7 @@ from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
 from src.api.dependencies.session import get_async_session
 from src.models.db.user import User
-from src.models.schemas.summary_report import SummaryReportRequest, SummaryReportResponse
+from src.models.schemas.summary_report import SummaryReportRequest, SummaryReportResponse, SummaryReportsListResponse, SummaryReportListItem
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.repository.crud.summary_report import SummaryReportCRUDRepository
@@ -90,3 +90,52 @@ async def get_summary_report(
         raise fastapi.HTTPException(status_code=404, detail="Summary report not found for this interview")
 
     return SummaryReportResponse(**record.report_json)
+
+
+@router.get(
+    "/summary-reports",
+    response_model=SummaryReportsListResponse,
+    status_code=200,
+    summary="Get user's last x summary reports",
+    description="Retrieves the user's most recent summary reports with interview IDs and tracks.",
+)
+async def get_summary_reports(
+    limit: int = fastapi.Query(default=10, ge=1, le=50, description="Maximum number of reports to return"),
+    current_user: User = Depends(get_current_user),
+    sr_repo: SummaryReportCRUDRepository = Depends(get_repository(SummaryReportCRUDRepository)),
+):
+    logger = logging.getLogger(__name__)
+    logger.info("GET /summary-reports?limit=%d by user_id=%s", limit, current_user.id)
+
+    # Get the last x summary reports for the user
+    reports_data = await sr_repo.get_last_x_for_user(user_id=current_user.id, limit=limit)
+    
+    # Convert to response format
+    items = []
+    for summary_report, interview in reports_data:
+        # Extract overall score from the report JSON if available
+        overall_score = None
+        if summary_report.report_json and "overallScoreSummary" in summary_report.report_json:
+            overall_score_summary = summary_report.report_json["overallScoreSummary"]
+            if "knowledgeCompetence" in overall_score_summary and "averagePct" in overall_score_summary["knowledgeCompetence"]:
+                overall_score = overall_score_summary["knowledgeCompetence"]["averagePct"]
+        
+        # Create the complete summary report response
+        report_data = SummaryReportResponse(**summary_report.report_json) if summary_report.report_json else None
+        
+        if report_data:
+            item = SummaryReportListItem(
+                interview_id=interview.id,
+                track=interview.track,
+                difficulty=interview.difficulty,
+                created_at=summary_report.created_at.isoformat(),
+                overall_score=overall_score,
+                report=report_data
+            )
+            items.append(item)
+    
+    return SummaryReportsListResponse(
+        items=items,
+        total_count=len(items),
+        limit=limit
+    )
