@@ -257,7 +257,7 @@ def main() -> None:
                             if os.path.exists(speech_file_path):
                                 with open(speech_file_path, "rb") as audio_file:
                                     files_audio = {"file": ("test_audio.mp3", audio_file, "audio/mpeg")}
-                                    audio_data = {"question_attempt_id": question_attempt_id, "language": "en"}
+                                    audio_data = {"question_attempt_id": str(question_attempt_id), "language": "en"}
                                     r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
                                     print_result("POST /api/transcribe-whisper (test_audio)", r, err)
                             else:
@@ -286,7 +286,7 @@ def main() -> None:
                         if os.path.exists(speech_file_path):
                             with open(speech_file_path, "rb") as audio_file:
                                 files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
-                                audio_data = {"question_attempt_id": question_attempt_id, "language": "en"}
+                                audio_data = {"question_attempt_id": str(question_attempt_id), "language": "en"}
                                 r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
                                 print_result("POST /api/transcribe-whisper (fallback)", r, err)
                         else:
@@ -302,7 +302,7 @@ def main() -> None:
                     if os.path.exists(speech_file_path):
                         with open(speech_file_path, "rb") as audio_file:
                             files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
-                            audio_data = {"question_attempt_id": 1, "language": "en"}
+                            audio_data = {"question_attempt_id": "1", "language": "en"}
                             r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
                             print_result("POST /api/transcribe-whisper (no questions)", r, err)
                     else:
@@ -329,7 +329,7 @@ def main() -> None:
                     # Now test audio transcription with fresh file handle
                     with open(speech_file_path, "rb") as audio_file:
                         files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
-                        audio_data = {"question_attempt_id": qa_id, "language": "en"}
+                        audio_data = {"question_attempt_id": str(qa_id), "language": "en"}
                         r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=audio_data)
                         print_result("POST /api/transcribe-whisper (comprehensive)", r, err)
                         
