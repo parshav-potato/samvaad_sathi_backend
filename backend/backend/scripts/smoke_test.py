@@ -226,6 +226,10 @@ def main() -> None:
                                 print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('status', 'N/A')})")
                                 if item.get('summary_report_available'):
                                     print(f"     Knowledge: {item.get('knowledge_percentage', 'N/A')}%, Speech: {item.get('speech_fluency_percentage', 'N/A')}%")
+                                    print(f"     Attempts: {item.get('attempts_count', 0)}")
+                                    action_items = item.get('top_action_items', [])
+                                    if action_items:
+                                        print(f"     Top Actions: {', '.join(action_items[:2])}")  # Show first 2 action items
                                 else:
                                     print(f"     No summary report available")
             except Exception as _e_enhanced:

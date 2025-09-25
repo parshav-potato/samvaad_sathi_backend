@@ -460,16 +460,20 @@ async def list_my_interviews_with_summary(
     rows, next_cursor = await interview_repo.list_by_user_cursor_with_summary(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
     
     items = []
-    for interview, summary_report in rows:
-        # Extract percentages from summary report if available
+    for interview, summary_reports in rows:
+        # Count attempts (summary reports)
+        attempts_count = len(summary_reports)
+        
+        # Extract percentages and action items from the latest report (first in the list since it's ordered by created_at desc)
         knowledge_percentage = None
         speech_fluency_percentage = None
-        summary_report_available = summary_report is not None
+        summary_report_available = attempts_count > 0
+        top_action_items = []
         
-        if summary_report and summary_report.report_json:
-            report_data = summary_report.report_json
-            if "overallScoreSummary" in report_data:
-                overall_score = report_data["overallScoreSummary"]
+        if summary_reports and summary_reports[0].report_json:
+            latest_report = summary_reports[0].report_json
+            if "overallScoreSummary" in latest_report:
+                overall_score = latest_report["overallScoreSummary"]
                 
                 # Extract knowledge competence percentage
                 if "knowledgeCompetence" in overall_score and "averagePct" in overall_score["knowledgeCompetence"]:
@@ -478,6 +482,34 @@ async def list_my_interviews_with_summary(
                 # Extract speech structure percentage
                 if "speechStructure" in overall_score and "averagePct" in overall_score["speechStructure"]:
                     speech_fluency_percentage = overall_score["speechStructure"]["averagePct"]
+            
+            # Extract top 3 action items from actionableSteps
+            if "actionableSteps" in latest_report:
+                actionable_steps = latest_report["actionableSteps"]
+                action_items = []
+                
+                # Collect action items from knowledge development
+                if "knowledgeDevelopment" in actionable_steps:
+                    kd = actionable_steps["knowledgeDevelopment"]
+                    if "targetedConceptReinforcement" in kd:
+                        action_items.extend(kd["targetedConceptReinforcement"])
+                    if "examplePractice" in kd:
+                        action_items.extend(kd["examplePractice"])
+                    if "conceptualDepth" in kd:
+                        action_items.extend(kd["conceptualDepth"])
+                
+                # Collect action items from speech structure fluency
+                if "speechStructureFluency" in actionable_steps:
+                    ssf = actionable_steps["speechStructureFluency"]
+                    if "fluencyDrills" in ssf:
+                        action_items.extend(ssf["fluencyDrills"])
+                    if "grammarPractice" in ssf:
+                        action_items.extend(ssf["grammarPractice"])
+                    if "structureFramework" in ssf:
+                        action_items.extend(ssf["structureFramework"])
+                
+                # Take top 3 action items
+                top_action_items = action_items[:3]
         
         item = InterviewItemWithSummary(
             interview_id=interview.id,
@@ -487,7 +519,9 @@ async def list_my_interviews_with_summary(
             created_at=interview.created_at,
             knowledge_percentage=knowledge_percentage,
             speech_fluency_percentage=speech_fluency_percentage,
-            summary_report_available=summary_report_available
+            summary_report_available=summary_report_available,
+            attempts_count=attempts_count,
+            top_action_items=top_action_items
         )
         items.append(item)
     
