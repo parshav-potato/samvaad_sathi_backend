@@ -96,6 +96,8 @@ class InterviewItemWithSummary(BaseSchemaModel):
     knowledge_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Knowledge competence percentage from summary report")
     speech_fluency_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Speech fluency percentage from summary report")
     summary_report_available: bool = pydantic.Field(default=False, description="Whether a summary report exists for this interview")
+    attempts_count: int = pydantic.Field(default=0, ge=0, description="Number of summary reports/attempts for this interview")
+    top_action_items: list[str] = pydantic.Field(default_factory=list, description="Top 3 action items from the latest summary report")
 
 
 class InterviewsListResponse(BaseSchemaModel):
