@@ -211,6 +211,25 @@ def main() -> None:
                 if next_cursor is not None:
                     r, err = safe_call(client, "GET", f"{API}/interviews?limit=1&cursor={next_cursor}", headers=headers)
                     print_result("GET /api/interviews (page 2)", r, err)
+            
+            # Test the new enhanced interviews endpoint
+            try:
+                r_enhanced, err_enhanced = safe_call(client, "GET", f"{API}/interviews-with-summary?limit=3", headers=headers)
+                print_result("GET /api/interviews-with-summary", r_enhanced, err_enhanced)
+                if r_enhanced and 200 <= r_enhanced.status_code < 300:
+                    enhanced_body = safe_json(r_enhanced)
+                    if isinstance(enhanced_body, dict):
+                        items = enhanced_body.get("items", [])
+                        print(f"   Found {len(items)} interviews with summary data")
+                        for item in items[:2]:  # Show first 2 items
+                            if isinstance(item, dict):
+                                print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('status', 'N/A')})")
+                                if item.get('summary_report_available'):
+                                    print(f"     Knowledge: {item.get('knowledge_percentage', 'N/A')}%, Speech: {item.get('speech_fluency_percentage', 'N/A')}%")
+                                else:
+                                    print(f"     No summary report available")
+            except Exception as _e_enhanced:
+                print_result("GET /api/interviews-with-summary", None, str(_e_enhanced))
 
             # Audio transcription: test with real speech file after creating questions
             # First, generate questions for the current active interview to create question attempts

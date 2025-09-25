@@ -84,6 +84,20 @@ def main() -> None:
         if not interview_id and isinstance(lb, dict) and lb.get("items"):
             interview_id = lb["items"][0].get("interviewId")
 
+        # Test the new enhanced interviews endpoint
+        r_enhanced, err_enhanced = safe_call(client, "GET", f"{API}/interviews-with-summary?limit=5", headers=headers)
+        print_result("GET /api/interviews-with-summary", r_enhanced, err_enhanced)
+        if r_enhanced and r_enhanced.status_code == 200:
+            enhanced_body = safe_json(r_enhanced)
+            if isinstance(enhanced_body, dict):
+                items = enhanced_body.get("items", [])
+                print(f"   Found {len(items)} interviews with summary data")
+                for item in items[:2]:  # Show first 2 items
+                    if isinstance(item, dict):
+                        print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('status', 'N/A')})")
+                        if item.get('summary_report_available'):
+                            print(f"     Knowledge: {item.get('knowledge_percentage', 'N/A')}%, Speech: {item.get('speech_fluency_percentage', 'N/A')}%")
+
         # List questions for interview
         first_qid = None
         if interview_id:
