@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest, CreateAttemptRequest
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest, CreateAttemptRequest, InterviewItemWithSummary, InterviewsListWithSummaryResponse
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
@@ -436,6 +436,66 @@ async def create_question_attempt(
     )
 
     return CreateAttemptResponse(question_attempt_id=attempt.id)
+
+
+@router.get(
+    path="/interviews-with-summary",
+    name="interviews:list-with-summary",
+    response_model=InterviewsListWithSummaryResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="List my interviews with summary report data (cursor-based)",
+    description=(
+        "Returns the user's interviews in reverse chronological order with summary report data for completed interviews. "
+        "Includes knowledge percentage and speech fluency percentage from summary reports when available. "
+        "Use the returned next_cursor to fetch the next page."
+    ),
+)
+async def list_my_interviews_with_summary(
+    limit: int = 20,
+    cursor: int | None = None,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+) -> InterviewsListWithSummaryResponse:
+    safe_limit = max(1, min(100, int(limit)))
+    rows, next_cursor = await interview_repo.list_by_user_cursor_with_summary(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
+    
+    items = []
+    for interview, summary_report in rows:
+        # Extract percentages from summary report if available
+        knowledge_percentage = None
+        speech_fluency_percentage = None
+        summary_report_available = summary_report is not None
+        
+        if summary_report and summary_report.report_json:
+            report_data = summary_report.report_json
+            if "overallScoreSummary" in report_data:
+                overall_score = report_data["overallScoreSummary"]
+                
+                # Extract knowledge competence percentage
+                if "knowledgeCompetence" in overall_score and "averagePct" in overall_score["knowledgeCompetence"]:
+                    knowledge_percentage = overall_score["knowledgeCompetence"]["averagePct"]
+                
+                # Extract speech structure percentage
+                if "speechStructure" in overall_score and "averagePct" in overall_score["speechStructure"]:
+                    speech_fluency_percentage = overall_score["speechStructure"]["averagePct"]
+        
+        item = InterviewItemWithSummary(
+            interview_id=interview.id,
+            track=interview.track,
+            difficulty=interview.difficulty,
+            status=interview.status,
+            created_at=interview.created_at,
+            knowledge_percentage=knowledge_percentage,
+            speech_fluency_percentage=speech_fluency_percentage,
+            summary_report_available=summary_report_available
+        )
+        items.append(item)
+    
+    return InterviewsListWithSummaryResponse(
+        items=items,
+        next_cursor=next_cursor,
+        limit=safe_limit,
+    )
 
     
 

@@ -86,8 +86,27 @@ class InterviewItem(BaseSchemaModel):
     created_at: datetime.datetime
 
 
+class InterviewItemWithSummary(BaseSchemaModel):
+    """Enhanced interview item that includes summary report data for completed interviews."""
+    interview_id: int = pydantic.Field(description="Unique identifier for the interview")
+    track: str
+    difficulty: str
+    status: str
+    created_at: datetime.datetime
+    knowledge_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Knowledge competence percentage from summary report")
+    speech_fluency_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Speech fluency percentage from summary report")
+    summary_report_available: bool = pydantic.Field(default=False, description="Whether a summary report exists for this interview")
+
+
 class InterviewsListResponse(BaseSchemaModel):
     items: list[InterviewItem]
+    next_cursor: int | None
+    limit: int
+
+
+class InterviewsListWithSummaryResponse(BaseSchemaModel):
+    """Enhanced interviews list response that includes summary report data."""
+    items: list[InterviewItemWithSummary]
     next_cursor: int | None
     limit: int
 
