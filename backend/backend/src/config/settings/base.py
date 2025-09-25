@@ -59,6 +59,7 @@ class BackendBaseSettings(BaseSettings):
         "http://0.0.0.0:5173",
         "http://127.0.0.1:5173",  # Qwik docker port
         "http://127.0.0.1:5174",
+        "https://samvaad-sathi.barabaricollective.org",  # Production frontend
     ]
     ALLOWED_METHODS: list[str] = ["*"]
     ALLOWED_HEADERS: list[str] = ["*"]
