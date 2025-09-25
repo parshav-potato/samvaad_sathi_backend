@@ -7,7 +7,7 @@ from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
-from src.services.syllabus import derive_role, get_topics_for, compute_category_ratio, tech_allied_from_resume
+from src.services.syllabus_service import syllabus_service
 from src.services.whisper import strip_word_level_data
 
 
@@ -134,15 +134,36 @@ async def generate_questions(
         has_resume = bool(resume_context)
         has_skills = bool(skills_list)
 
-        role = derive_role(interview.track)
-        topics = get_topics_for(role=role, difficulty=interview.difficulty)
+        role = syllabus_service._role_manager.derive_role(interview.track)
+        topic_bank = syllabus_service.get_topics_for_role(role=role, difficulty=interview.difficulty)
+        
+        # Convert TopicBank to dict format for backward compatibility
+        topics = {
+            "tech": topic_bank.tech,
+            "tech_allied": topic_bank.tech_allied,
+            "behavioral": topic_bank.behavioral,
+            "archetypes": topic_bank.archetypes,
+            "depth_guidelines": topic_bank.depth_guidelines,
+        }
+        
         # Prefer tech_allied topics derived from resume/skills when available
-        topics["tech_allied"] = tech_allied_from_resume(
+        topics["tech_allied"] = syllabus_service.extract_tech_allied_from_resume(
             resume_text=resume_context if isinstance(resume_context, str) else None,
             skills=[str(s) for s in skills_list],
-            fallback=topics.get("tech_allied", []),
+            fallback_topics=topics.get("tech_allied", []),
         )
-        ratio = compute_category_ratio(years_experience=years, has_resume_text=has_resume, has_skills=has_skills)
+        question_ratio = syllabus_service.compute_question_ratio(
+            years_experience=years, 
+            has_resume_text=has_resume, 
+            has_skills=has_skills
+        )
+        
+        # Convert QuestionRatio to dict format for backward compatibility
+        ratio = {
+            "tech": question_ratio.tech,
+            "tech_allied": question_ratio.tech_allied,
+            "behavioral": question_ratio.behavioral,
+        }
 
         influence = {
             "target_role": role,               # Tech influence
