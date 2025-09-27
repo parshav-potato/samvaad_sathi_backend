@@ -131,21 +131,17 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
     ),
 )
 async def update_profile(
-    # Optional scalar fields submitted as form fields so that file upload can coexist
-    degree: str | None = fastapi.Form(default=None),
-    university: str | None = fastapi.Form(default=None, alias="university"),
-    target_position: str | None = fastapi.Form(default=None),
-    years_experience: float | None = fastapi.Form(default=None),
+    profile_update: UserProfileUpdate,
     current_user=fastapi.Depends(get_current_user),
     user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
 ) -> UserProfileOut:
     # Persist updates via repository
     updated = await user_repo.update_user_profile(
         user_id=current_user.id,
-        degree=degree,
-        university=university,
-        target_position=target_position,
-        years_experience=years_experience,
+        degree=profile_update.degree,
+        university=profile_update.university,
+        target_position=profile_update.target_position,
+        years_experience=profile_update.years_experience,
     )
 
     # Mark onboarding complete when profile endpoint is used successfully

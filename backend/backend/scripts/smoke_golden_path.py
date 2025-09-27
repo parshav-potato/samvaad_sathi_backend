@@ -22,7 +22,7 @@ def main() -> None:
         print_result("POST /api/users", r, err)
         body = safe_json(r) if r else {}
         token = extract_token(body) if isinstance(body, dict) else None
-
+        # token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImRhc2hhc2h1dG9zaDE5OTlAZ21haWwuY29tIiwiZW1haWwiOiJkYXNoYXNodXRvc2gxOTk5QGdtYWlsLmNvbSIsIm5hbWUiOiJBc2h1dG9zaCBEYXNoIiwiZXhwIjoxNzU4OTg3MDQ4LCJzdWIiOiJhY2Nlc3MifQ.VXejX1R4X0YBZrSBldwK_2enlAr0H6P9T3f2DCl9PHU"
         # Login
         r, err = safe_call(client, "POST", f"{API}/login", json={"email": email, "password": password})
         print_result("POST /api/login", r, err)
@@ -35,14 +35,14 @@ def main() -> None:
         r, err = safe_call(client, "GET", f"{API}/me", headers=headers)
         print_result("GET /api/me", r, err)
 
-        # Update profile (form)
-        form = {
+        # Update profile (JSON)
+        profile_data = {
             "degree": "B.Tech",
             "university": "Test Univ",
             "target_position": "javascript developer",
-            "years_experience": "1.5",
+            "years_experience": 1.5,
         }
-        r, err = safe_call(client, "PUT", f"{API}/users/profile", headers=headers, data=form)
+        r, err = safe_call(client, "PUT", f"{API}/users/profile", headers=headers, json=profile_data)
         print_result("PUT /api/users/profile", r, err)
 
         # Upload resume (text)
