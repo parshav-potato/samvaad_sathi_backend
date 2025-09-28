@@ -2,7 +2,7 @@ import fastapi
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
-from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest, CreateAttemptRequest, InterviewItemWithSummary, InterviewsListWithSummaryResponse
+from src.models.schemas.interview import InterviewCreate, InterviewInResponse, GeneratedQuestionsInResponse, InterviewsListResponse, InterviewItem, QuestionsListResponse, QuestionAttemptsListResponse, QuestionAttemptItem, GenerateQuestionsRequest, CreateAttemptResponse, InterviewQuestionOut, CompleteInterviewRequest, CreateAttemptRequest, InterviewItemWithSummary, InterviewsListWithSummaryResponse, ResumeInterviewResponse
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
@@ -552,6 +552,58 @@ async def list_my_interviews_with_summary(
         limit=safe_limit,
     )
 
+
+@router.get(
+    path="/interviews/{interview_id}/resume",
+    name="interviews:resume-interview",
+    response_model=ResumeInterviewResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Resume interview - get questions without attempts",
+    description=(
+        "Fetches questions from an interview that don't have any QuestionAttempt records. "
+        "This is useful for resuming an interview where some questions have been answered."
+    ),
+)
+async def resume_interview(
+    interview_id: int,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+) -> ResumeInterviewResponse:
+    # Verify interview belongs to current user
+    interview = await interview_repo.get_by_id_and_user(interview_id, current_user.id)
+    if not interview:
+        raise fastapi.HTTPException(status_code=404, detail="Interview not found or access denied")
+
+    # Get questions without attempts
+    questions_without_attempts = await question_repo.get_questions_without_attempts(interview_id=interview.id)
     
+    # Get total questions count
+    all_questions = await question_repo.list_by_interview(interview_id=interview.id)
+    total_questions = len(all_questions)
+    
+    # Get count of questions with attempts
+    attempted_count = await question_repo.get_questions_with_attempts_count(interview_id=interview.id)
+    
+    # Convert to response format
+    question_items = [
+        InterviewQuestionOut(
+            interview_question_id=q.id,
+            text=q.text,
+            topic=q.topic,
+            status=q.status,
+        )
+        for q in questions_without_attempts
+    ]
+
+    return ResumeInterviewResponse(
+        interview_id=interview.id,
+        track=interview.track,
+        difficulty=interview.difficulty,
+        questions=question_items,
+        total_questions=total_questions,
+        attempted_questions=attempted_count,
+        remaining_questions=len(questions_without_attempts),
+    )
 
 

@@ -85,3 +85,42 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
             await self.async_session.refresh(question)
         
         return question
+
+    async def get_questions_without_attempts(self, *, interview_id: int) -> list[InterviewQuestion]:
+        """Get all questions for an interview that don't have any attempts"""
+        from src.models.db.question_attempt import QuestionAttempt
+        
+        # Subquery to get question IDs that have attempts
+        attempted_question_ids = sqlalchemy.select(QuestionAttempt.question_id).where(
+            QuestionAttempt.interview_id == interview_id,
+            QuestionAttempt.question_id.is_not(None)
+        ).distinct()
+        
+        # Main query to get questions without attempts
+        stmt = (
+            sqlalchemy.select(InterviewQuestion)
+            .where(
+                InterviewQuestion.interview_id == interview_id,
+                InterviewQuestion.id.not_in(attempted_question_ids)
+            )
+            .order_by(InterviewQuestion.order.asc())
+        )
+        
+        query = await self.async_session.execute(statement=stmt)
+        rows = query.scalars().all()
+        return list(rows)
+
+    async def get_questions_with_attempts_count(self, *, interview_id: int) -> int:
+        """Get count of questions that have attempts"""
+        from src.models.db.question_attempt import QuestionAttempt
+        
+        stmt = (
+            sqlalchemy.select(sqlalchemy.func.count(sqlalchemy.distinct(QuestionAttempt.question_id)))
+            .where(
+                QuestionAttempt.interview_id == interview_id,
+                QuestionAttempt.question_id.is_not(None)
+            )
+        )
+        
+        query = await self.async_session.execute(statement=stmt)
+        return query.scalar() or 0

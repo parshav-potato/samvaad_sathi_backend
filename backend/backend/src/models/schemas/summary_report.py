@@ -107,6 +107,7 @@ class TopicHighlights(BaseSchemaModel):
 
 class SummaryReportResponse(BaseSchemaModel):
     interview_id: int
+    track: str = pydantic.Field(description="Interview track/role (e.g., 'javascript developer')")
     overallScoreSummary: OverallScoreSummary
     finalSummary: FinalSummary
     actionableSteps: ActionableSteps

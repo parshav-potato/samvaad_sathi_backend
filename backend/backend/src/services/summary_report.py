@@ -62,7 +62,7 @@ class SummaryReportService:
         self._db = db
 
     async def generate_for_interview(
-        self, interview_id: int, question_attempts: Iterable[QuestionAttempt]
+        self, interview_id: int, question_attempts: Iterable[QuestionAttempt], track: str
     ) -> Dict[str, Any]:
         # Materialize attempts to allow multiple passes (metrics + LLM input build)
         question_attempts = list(question_attempts)
@@ -360,6 +360,7 @@ class SummaryReportService:
 
         candidate = {
             "interview_id": interview_id,
+            "track": track,
             "overallScoreSummary": oss,
             "finalSummary": llm_data.get("finalSummary", {}),
             "actionableSteps": llm_data.get("actionableSteps", {}),

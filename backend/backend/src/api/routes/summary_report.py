@@ -50,7 +50,7 @@ async def generate_summary_report(
     logger.debug("/summary-report assembling %d question attempts for interview_id=%s", len(attempts), interview.id)
 
     service = SummaryReportService(session)
-    result = await service.generate_for_interview(interview.id, attempts)
+    result = await service.generate_for_interview(interview.id, attempts, interview.track)
 
     # Persist summary report (idempotent per interview)
     try:
