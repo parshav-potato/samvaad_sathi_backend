@@ -9,6 +9,7 @@ class InterviewQuestionOut(BaseSchemaModel):
     interview_question_id: int = pydantic.Field(description="Unique identifier for the interview question")
     text: str
     topic: str | None = None
+    category: str | None = None
     status: str
     resume_used: bool
 
