@@ -360,6 +360,9 @@ class SummaryReportService:
                 md["model"] = model_name
             if resume_used is not None:
                 md["resumeUsed"] = resume_used
+            # Set the generation timestamp
+            from datetime import datetime, timezone
+            md["generatedAt"] = datetime.now(timezone.utc).isoformat()
 
         # Backfill missing KC averages/breakdown from computed metrics if LLM omitted them
         if kc.get("averagePct") is None and computed_metrics.get("kc_avg_pct") is not None:
