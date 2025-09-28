@@ -10,6 +10,7 @@ class InterviewQuestionOut(BaseSchemaModel):
     text: str
     topic: str | None = None
     status: str
+    resume_used: bool
 
 
 class CreateAttemptResponse(BaseSchemaModel):

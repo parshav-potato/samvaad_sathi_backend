@@ -90,6 +90,7 @@ class ReportMetadata(BaseSchemaModel):
     model: str | None = None
     latencyMs: int | None = None
     generatedAt: str | None = None
+    resumeUsed: bool | None = None
 
 
 class PerQuestionItem(BaseSchemaModel):

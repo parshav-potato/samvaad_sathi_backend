@@ -49,8 +49,14 @@ async def generate_summary_report(
     attempts = await qa_repo.list_by_interview(interview_id=interview.id)
     logger.debug("/summary-report assembling %d question attempts for interview_id=%s", len(attempts), interview.id)
 
+    # Check if resume was used for any questions in this interview
+    from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
+    question_repo = InterviewQuestionCRUDRepository(session)
+    questions = await question_repo.list_by_interview(interview_id=interview.id)
+    resume_used = any(q.resume_used for q in questions) if questions else None
+
     service = SummaryReportService(session)
-    result = await service.generate_for_interview(interview.id, attempts, interview.track)
+    result = await service.generate_for_interview(interview.id, attempts, interview.track, resume_used)
 
     # Persist summary report (idempotent per interview)
     try:

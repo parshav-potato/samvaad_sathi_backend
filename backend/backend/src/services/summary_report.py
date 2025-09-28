@@ -62,7 +62,7 @@ class SummaryReportService:
         self._db = db
 
     async def generate_for_interview(
-        self, interview_id: int, question_attempts: Iterable[QuestionAttempt], track: str
+        self, interview_id: int, question_attempts: Iterable[QuestionAttempt], track: str, resume_used: bool | None = None
     ) -> Dict[str, Any]:
         # Materialize attempts to allow multiple passes (metrics + LLM input build)
         question_attempts = list(question_attempts)
@@ -348,6 +348,8 @@ class SummaryReportService:
                 md["latencyMs"] = latency_ms
             if model_name:
                 md["model"] = model_name
+            if resume_used is not None:
+                md["resumeUsed"] = resume_used
 
         # Backfill missing KC averages/breakdown from computed metrics if LLM omitted them
         if kc.get("averagePct") is None and computed_metrics.get("kc_avg_pct") is not None:
