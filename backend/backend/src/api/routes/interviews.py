@@ -592,7 +592,7 @@ async def list_my_interviews_with_summary(
 
 
 @router.post(
-    path="/interviews/{interview_id}/resume",
+    path="/interviews/resume",
     name="interviews:resume-interview",
     response_model=ResumeInterviewResponse,
     status_code=fastapi.status.HTTP_200_OK,
@@ -603,14 +603,13 @@ async def list_my_interviews_with_summary(
     ),
 )
 async def resume_interview(
-    interview_id: int,
     request: ResumeInterviewRequest,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
 ) -> ResumeInterviewResponse:
     # Verify interview belongs to current user
-    interview = await interview_repo.get_by_id_and_user(interview_id, current_user.id)
+    interview = await interview_repo.get_by_id_and_user(request.interview_id, current_user.id)
     if not interview:
         raise fastapi.HTTPException(status_code=404, detail="Interview not found or access denied")
 
