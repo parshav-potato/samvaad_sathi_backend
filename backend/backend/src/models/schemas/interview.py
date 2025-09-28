@@ -146,6 +146,10 @@ class CompleteInterviewRequest(BaseSchemaModel):
     interview_id: int
 
 
+class ResumeInterviewRequest(BaseSchemaModel):
+    interview_id: int = pydantic.Field(description="ID of the interview to resume")
+
+
 class ResumeInterviewResponse(BaseSchemaModel):
     interview_id: int = pydantic.Field(description="ID of the interview")
     track: str = pydantic.Field(description="Interview track")

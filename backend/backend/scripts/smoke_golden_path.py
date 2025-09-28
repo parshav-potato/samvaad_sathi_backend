@@ -201,8 +201,9 @@ def main() -> None:
 
         # Test resume interview endpoint
         if interview_id:
-            r_resume, err_resume = safe_call(client, "GET", f"{API}/interviews/{interview_id}/resume", headers=headers)
-            print_result("GET /api/interviews/{id}/resume", r_resume, err_resume)
+            resume_payload = {"interview_id": interview_id}
+            r_resume, err_resume = safe_call(client, "POST", f"{API}/interviews/{interview_id}/resume", headers=headers, json=resume_payload)
+            print_result("POST /api/interviews/{id}/resume", r_resume, err_resume)
             if r_resume and r_resume.status_code == 200:
                 body_resume = safe_json(r_resume)
                 if isinstance(body_resume, dict):
