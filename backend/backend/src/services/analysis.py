@@ -221,14 +221,21 @@ class AnalysisAggregationService:
                 strengths = analysis.get("strengths") or []
                 improvements = analysis.get("improvements") or analysis.get("suggestions") or []
                 
-                data = DomainAnalysisResponse(
-                    question_attempt_id=question_attempt_id,
-                    domain_score=float(score),
-                    domain_feedback=str(feedback),
-                    knowledge_areas=[str(x) for x in knowledge_areas][:10],
-                    strengths=[str(x) for x in strengths][:10],
-                    improvements=[str(x) for x in improvements][:10]
-                ).model_dump()
+                # Preserve the full analysis structure including criteria breakdown
+                data = {
+                    "question_attempt_id": question_attempt_id,
+                    "domain_score": float(score),
+                    "domain_feedback": str(feedback),
+                    "knowledge_areas": [str(x) for x in knowledge_areas][:10],
+                    "strengths": [str(x) for x in strengths][:10],
+                    "improvements": [str(x) for x in improvements][:10],
+                    # Preserve the full analysis structure for summary report processing
+                    "overall_score": score,
+                    "criteria": analysis.get("criteria", {}),
+                    "summary": feedback,
+                    "suggestions": improvements,
+                    "confidence": analysis.get("confidence", 0.0)
+                }
                 
             elif analysis_type == "communication":
                 # Build user profile for LLM analysis
@@ -268,16 +275,23 @@ class AnalysisAggregationService:
                 feedback = analysis.get("summary") or "Communication analysis completed"
                 recommendations = analysis.get("suggestions") or []
                 
-                data = CommunicationAnalysisResponse(
-                    question_attempt_id=question_attempt_id,
-                    communication_score=base_score,
-                    clarity_score=base_score,  # Could be enhanced to get specific scores from LLM
-                    vocabulary_score=base_score,
-                    grammar_score=base_score,
-                    structure_score=base_score,
-                    communication_feedback=str(feedback),
-                    recommendations=[str(x) for x in recommendations][:10]
-                ).model_dump()
+                # Preserve the full analysis structure including criteria breakdown
+                data = {
+                    "question_attempt_id": question_attempt_id,
+                    "communication_score": base_score,
+                    "clarity_score": base_score,  # Could be enhanced to get specific scores from LLM
+                    "vocabulary_score": base_score,
+                    "grammar_score": base_score,
+                    "structure_score": base_score,
+                    "communication_feedback": str(feedback),
+                    "recommendations": [str(x) for x in recommendations][:10],
+                    # Preserve the full analysis structure for summary report processing
+                    "overall_score": base_score,
+                    "criteria": analysis.get("criteria", {}),
+                    "summary": feedback,
+                    "suggestions": recommendations,
+                    "confidence": analysis.get("confidence", 0.0)
+                }
                 
             elif analysis_type == "pace":
                 # Get word-level timestamps for pace analysis
