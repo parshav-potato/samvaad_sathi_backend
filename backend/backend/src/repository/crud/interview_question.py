@@ -14,6 +14,7 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
                 interview_id=interview_id,
                 text=str(q_data.get("text", "")),
                 topic=q_data.get("topic"),
+                category=q_data.get("category"),
                 order=i + 1,  # 1-indexed ordering
                 status="pending",
                 resume_used=resume_used

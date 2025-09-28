@@ -197,13 +197,15 @@ async def generate_questions(
             for item in items:
                 questions_data.append({
                     "text": item.get("text", ""),
-                    "topic": item.get("topic")
+                    "topic": item.get("topic"),
+                    "category": item.get("category")
                 })
         else:  # Fallback to plain question strings
             for question in questions:
                 questions_data.append({
                     "text": question,
-                    "topic": None
+                    "topic": None,
+                    "category": None
                 })
         
         persisted = await question_repo.create_batch(
@@ -229,12 +231,12 @@ async def generate_questions(
         else:
             # No structured items; synthesize from persisted
             for p in persisted:
-                response_items.append({
+                response_items.append(                {
                     "interviewQuestionId": p.id,
                     "text": p.text,
                     "topic": p.topic,
                     "difficulty": None,
-                    "category": None,
+                    "category": p.category,
                 })
 
         qs = {
@@ -252,7 +254,7 @@ async def generate_questions(
                 "text": q.text,
                 "topic": q.topic,
                 "difficulty": None,
-                "category": None,
+                "category": q.category,
             }
             for q in existing
         ]
@@ -401,6 +403,7 @@ async def list_interview_questions(
                 interview_question_id=q.id,
                 text=q.text,
                 topic=q.topic,
+                category=q.category,
                 status=q.status,
                 resume_used=q.resume_used
             ) for q in items
@@ -626,6 +629,7 @@ async def resume_interview(
             interview_question_id=q.id,
             text=q.text,
             topic=q.topic,
+            category=q.category,
             status=q.status,
             resume_used=q.resume_used,
         )

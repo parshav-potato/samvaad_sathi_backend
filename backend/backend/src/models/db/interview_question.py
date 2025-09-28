@@ -13,6 +13,7 @@ class InterviewQuestion(Base):  # type: ignore
     id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(primary_key=True, autoincrement="auto")
     text: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=False)
     topic: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=128), nullable=True)
+    category: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=32), nullable=True)
     status: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(
         sqlalchemy.String(length=32), nullable=False, default="pending", index=True
     )
