@@ -328,8 +328,41 @@ async def list_my_interviews(
 ) -> InterviewsListResponse:
     safe_limit = max(1, min(100, int(limit)))
     rows, next_cursor = await interview_repo.list_by_user_cursor(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
+    
+    items = []
+    for interview, summary_reports, resume_used in rows:
+        # Count attempts (summary reports)
+        attempts_count = len(summary_reports)
+        
+        # Extract percentages from the latest report (first in the list since it's ordered by created_at desc)
+        knowledge_percentage = None
+        speech_fluency_percentage = None
+        
+        if summary_reports:
+            latest_report = summary_reports[0]
+            if latest_report.report_json:
+                overall_score = latest_report.report_json.get("overallScoreSummary", {})
+                knowledge_competence = overall_score.get("knowledgeCompetence", {})
+                speech_structure_fluency = overall_score.get("speechStructureFluency", {})
+                
+                knowledge_percentage = knowledge_competence.get("averagePct")
+                speech_fluency_percentage = speech_structure_fluency.get("averagePct")
+        
+        item = InterviewItem(
+            interview_id=interview.id,
+            track=interview.track,
+            difficulty=interview.difficulty,
+            status=interview.status,
+            created_at=interview.created_at,
+            knowledge_percentage=knowledge_percentage,
+            speech_fluency_percentage=speech_fluency_percentage,
+            attempts_count=attempts_count,
+            resume_used=resume_used
+        )
+        items.append(item)
+    
     return InterviewsListResponse(
-        items=[InterviewItem(interview_id=r.id, track=r.track, difficulty=r.difficulty, status=r.status, created_at=r.created_at) for r in rows],
+        items=items,
         next_cursor=next_cursor,
         limit=safe_limit,
     )

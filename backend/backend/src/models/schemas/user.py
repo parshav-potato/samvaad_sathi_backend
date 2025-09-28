@@ -54,6 +54,7 @@ class UserWithToken(BaseSchemaModel):
     university: str | None
     target_position: str | None
     years_experience: float | None
+    total_attempts: int = pydantic.Field(default=0, ge=0, description="Total number of summary reports (attempts)")
     # company removed from response
 
 

@@ -85,6 +85,10 @@ class InterviewItem(BaseSchemaModel):
     difficulty: str
     status: str
     created_at: datetime.datetime
+    knowledge_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Knowledge competence percentage from summary report")
+    speech_fluency_percentage: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Speech fluency percentage from summary report")
+    attempts_count: int = pydantic.Field(default=0, ge=0, description="Number of summary reports/attempts for this interview")
+    resume_used: bool = pydantic.Field(default=False, description="Whether resume was used for question generation")
 
 
 class InterviewItemWithSummary(BaseSchemaModel):

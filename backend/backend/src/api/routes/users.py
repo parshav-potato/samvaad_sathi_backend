@@ -13,6 +13,7 @@ from src.models.schemas.user import (
 )
 from src.repository.crud.user import UserCRUDRepository
 from src.repository.crud.session import SessionCRUDRepository
+from src.repository.crud.summary_report import SummaryReportCRUDRepository
 from src.securities.authorizations.jwt import jwt_generator
 from src.utilities.exceptions.database import EntityAlreadyExists, EntityDoesNotExist
 from src.utilities.exceptions.password import PasswordDoesNotMatch
@@ -55,6 +56,7 @@ async def register_user(
                                     university=None,
                                     target_position=None,
                                     years_experience=None,
+                                    total_attempts=0,
                                     company=None),
     )
 
@@ -90,6 +92,7 @@ async def login_user(
                                     university=None,
                                     target_position=None,
                                     years_experience=None,
+                                    total_attempts=0,
                                     company=None),
     )
 
@@ -100,7 +103,13 @@ async def login_user(
     response_model=UserInResponse,
     status_code=fastapi.status.HTTP_200_OK,
 )
-async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInResponse:
+async def get_me(
+    current_user=fastapi.Depends(get_current_user),
+    summary_repo: SummaryReportCRUDRepository = fastapi.Depends(get_repository(repo_type=SummaryReportCRUDRepository)),
+) -> UserInResponse:
+    # Get total attempts count
+    total_attempts = await summary_repo.count_by_user(user_id=current_user.id)
+    
     token = jwt_generator.generate_access_token_for_user(user=current_user)
     return UserInResponse(
         user_id=current_user.id,
@@ -115,6 +124,7 @@ async def get_me(current_user=fastapi.Depends(get_current_user)) -> UserInRespon
             university=current_user.university,
             target_position=current_user.target_position,
             years_experience=current_user.years_experience,
+            total_attempts=total_attempts,
             company=current_user.company,
         ),
     )

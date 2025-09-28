@@ -35,19 +35,52 @@ class InterviewCRUDRepository(BaseCRUDRepository):
         await self.async_session.refresh(interview)
         return interview
 
-    async def list_by_user_cursor(self, *, user_id: int, limit: int, cursor_id: int | None) -> tuple[list[Interview], int | None]:
+    async def list_by_user_cursor(self, *, user_id: int, limit: int, cursor_id: int | None) -> tuple[list[Tuple[Interview, List[SummaryReport], bool]], int | None]:
+        """Get user's interviews with summary reports and resume_used flag."""
+        # Build the base query for interviews
         stmt = sqlalchemy.select(Interview).where(Interview.user_id == user_id)
         if cursor_id is not None:
-            # created_at desc + id tie-breaker would be ideal; simplify to id cursor desc
             stmt = stmt.where(Interview.id < cursor_id)
         stmt = stmt.order_by(Interview.id.desc()).limit(limit + 1)
+        
         query = await self.async_session.execute(statement=stmt)
-        rows = list(query.scalars().all())
+        interviews = list(query.scalars().all())
+        
+        # Determine next cursor
         next_cursor: int | None = None
-        if len(rows) > limit:
-            next_cursor = rows[-1].id
-            rows = rows[:limit]
-        return rows, next_cursor
+        if len(interviews) > limit:
+            next_cursor = interviews[-1].id
+            interviews = interviews[:limit]
+        
+        # Get all summary reports for these interviews
+        interview_ids = [interview.id for interview in interviews]
+        summary_stmt = sqlalchemy.select(SummaryReport).where(SummaryReport.interview_id.in_(interview_ids)).order_by(SummaryReport.created_at.desc())
+        summary_query = await self.async_session.execute(statement=summary_stmt)
+        all_summary_reports = list(summary_query.scalars().all())
+        
+        # Group summary reports by interview_id
+        summary_reports_by_interview = {}
+        for sr in all_summary_reports:
+            if sr.interview_id not in summary_reports_by_interview:
+                summary_reports_by_interview[sr.interview_id] = []
+            summary_reports_by_interview[sr.interview_id].append(sr)
+        
+        # Get resume_used flag for each interview (from first question if exists)
+        from src.models.db.interview_question import InterviewQuestion
+        resume_used_stmt = sqlalchemy.select(InterviewQuestion.interview_id, InterviewQuestion.resume_used).where(
+            InterviewQuestion.interview_id.in_(interview_ids)
+        ).distinct(InterviewQuestion.interview_id)
+        resume_used_query = await self.async_session.execute(statement=resume_used_stmt)
+        resume_used_flags = {row[0]: row[1] for row in resume_used_query.fetchall()}
+        
+        # Combine interviews with their summary reports and resume_used flag
+        result = []
+        for interview in interviews:
+            summary_reports = summary_reports_by_interview.get(interview.id, [])
+            resume_used = resume_used_flags.get(interview.id, False)
+            result.append((interview, summary_reports, resume_used))
+        
+        return result, next_cursor
 
     async def get_by_id(self, *, interview_id: int) -> Interview | None:
         stmt = sqlalchemy.select(Interview).where(Interview.id == interview_id)

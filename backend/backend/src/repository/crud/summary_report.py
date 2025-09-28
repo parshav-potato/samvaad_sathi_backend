@@ -52,3 +52,22 @@ class SummaryReportCRUDRepository(BaseCRUDRepository):
         
         res = await self.async_session.execute(stmt)
         return list(res.all())
+
+    async def count_by_user(self, user_id: int) -> int:
+        """
+        Count total summary reports for a user.
+        
+        Args:
+            user_id: ID of the user
+            
+        Returns:
+            Total count of summary reports for the user
+        """
+        stmt = (
+            select(func.count(SummaryReport.id))
+            .join(Interview, SummaryReport.interview_id == Interview.id)
+            .where(Interview.user_id == user_id)
+        )
+        
+        res = await self.async_session.execute(stmt)
+        return res.scalar() or 0
