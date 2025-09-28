@@ -44,7 +44,7 @@ class DatabaseManager:
                 await connection.execute(text("SELECT 1"))
                 return True
         except Exception as e:
-            print(f"❌ Database connection failed: {e}")
+            print(f"Database connection failed: {e}")
             return False
     
     async def check_alembic_setup(self) -> bool:
@@ -89,14 +89,14 @@ class DatabaseManager:
     
     async def initialize_database(self) -> bool:
         """Initialize database with proper migration setup"""
-        print("🔧 Initializing database...")
+        print("Initializing database...")
         
         if not await self.check_connection():
             return False
             
         # Check if alembic is set up
         if not await self.check_alembic_setup():
-            print("📝 Setting up Alembic migration tracking...")
+            print("Setting up Alembic migration tracking...")
             
             # Run alembic stamp head to mark current schema as up-to-date
             result = subprocess.run(
@@ -107,19 +107,19 @@ class DatabaseManager:
             )
             
             if result.returncode != 0:
-                print(f"❌ Failed to initialize Alembic: {result.stderr}")
+                print(f"Failed to initialize Alembic: {result.stderr}")
                 return False
                 
-            print("✅ Alembic migration tracking initialized")
+            print("Alembic migration tracking initialized")
         else:
-            print("📋 Alembic already set up, running pending migrations...")
+            print("Alembic already set up, running pending migrations...")
             await self.run_migrations()
             
         return True
     
     async def run_migrations(self) -> bool:
         """Run pending migrations"""
-        print("🚀 Running database migrations...")
+        print("Running database migrations...")
         
         try:
             result = subprocess.run(
@@ -130,93 +130,121 @@ class DatabaseManager:
             )
             
             if result.returncode == 0:
-                print("✅ Migrations completed successfully")
+                print("Migrations completed successfully")
                 if result.stdout.strip():
                     print(f"Output: {result.stdout}")
                 return True
             else:
-                print(f"❌ Migration failed: {result.stderr}")
+                print(f"Migration failed: {result.stderr}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Error running migrations: {e}")
+            print(f"Error running migrations: {e}")
             return False
     
     async def reset_database(self, confirm: bool = False) -> bool:
         """Reset database (DESTRUCTIVE - development only)"""
         if not confirm:
-            print("⚠️  WARNING: This will DELETE ALL DATA in the database!")
+            print("WARNING: This will DELETE ALL DATA in the database!")
             response = input("Are you sure you want to continue? Type 'yes' to confirm: ")
             if response.lower() != 'yes':
-                print("❌ Operation cancelled")
+                print("Operation cancelled")
                 return False
         
         if settings.ENVIRONMENT == "PROD":
-            print("❌ Database reset is not allowed in production environment")
+            print("Database reset is not allowed in production environment")
             return False
             
-        print("🗑️  Resetting database...")
+        print("Resetting database...")
         
         try:
             async with self.engine.begin() as connection:
-                # Drop all tables
-                await connection.run_sync(Base.metadata.drop_all)
-                print("📋 Dropped all existing tables")
+                print("Using schema drop and recreate approach...")
+                
+                # First, terminate all other connections to the database
+                print("Terminating active database connections...")
+                await connection.execute(text("""
+                    SELECT pg_terminate_backend(pid) 
+                    FROM pg_stat_activity 
+                    WHERE datname = current_database() 
+                    AND pid <> pg_backend_pid()
+                """))
+                print("Terminated active connections")
+                
+                # Drop the entire public schema and recreate it
+                # This is more reliable than dropping individual tables
+                await connection.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+                print("Dropped public schema")
+                
+                await connection.execute(text("CREATE SCHEMA public"))
+                print("Created public schema")
+                
+                await connection.execute(text("GRANT ALL ON SCHEMA public TO postgres"))
+                await connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
+                print("Granted permissions on public schema")
                 
                 # Create all tables
+                print("Creating all tables from current schema...")
                 await connection.run_sync(Base.metadata.create_all)
-                print("🏗️  Created all tables from current schema")
+                print("Created all tables from current schema")
                 
                 # Mark as up-to-date with migrations
-                result = subprocess.run(
-                    ["python", "-m", "alembic", "stamp", "head"],
-                    cwd=Path(__file__).parent.parent,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0:
-                    print("✅ Database reset complete and marked as up-to-date")
+                print("Updating Alembic version...")
+                try:
+                    result = subprocess.run(
+                        ["python", "-m", "alembic", "stamp", "head"],
+                        cwd=Path(__file__).parent.parent,
+                        capture_output=True,
+                        text=True,
+                        timeout=30  # 30 second timeout
+                    )
+                    
+                    if result.returncode == 0:
+                        print("Database reset complete and marked as up-to-date")
+                        return True
+                    else:
+                        print(f"Database reset complete but failed to update Alembic: {result.stderr}")
+                        return False
+                except subprocess.TimeoutExpired:
+                    print("Alembic stamp timed out - database reset complete but Alembic version not updated")
+                    print("You can manually run: python -m alembic stamp head")
                     return True
-                else:
-                    print(f"⚠️  Database reset complete but failed to update Alembic: {result.stderr}")
-                    return False
                     
         except Exception as e:
-            print(f"❌ Error resetting database: {e}")
+            print(f"Error resetting database: {e}")
             return False
     
     async def show_status(self) -> None:
         """Show current database and migration status"""
-        print("📊 Database Status")
+        print("Database Status")
         print("=" * 50)
         
         # Connection test
         if await self.check_connection():
-            print("✅ Database connection: OK")
+            print("Database connection: OK")
         else:
-            print("❌ Database connection: FAILED")
+            print("Database connection: FAILED")
             return
         
         # Environment info
-        print(f"🌍 Environment: {settings.ENVIRONMENT}")
-        print(f"🔗 Database: {settings.DB_POSTGRES_NAME} @ {settings.DB_POSTGRES_HOST}:{settings.DB_POSTGRES_PORT}")
+        print(f"Environment: {settings.ENVIRONMENT}")
+        print(f"Database: {settings.DB_POSTGRES_NAME} @ {settings.DB_POSTGRES_HOST}:{settings.DB_POSTGRES_PORT}")
         
         # Alembic status
         if await self.check_alembic_setup():
-            print("✅ Alembic migrations: ENABLED")
+            print("Alembic migrations: ENABLED")
             status = await self.get_migration_status()
             if "error" in status:
-                print(f"❌ Migration status error: {status['error']}")
+                print(f"Migration status error: {status['error']}")
             else:
-                print(f"📝 Current revision: {status.get('current', 'Unknown')}")
-                print(f"🎯 Latest revision: {status.get('heads', 'Unknown')}")
+                print(f"Current revision: {status.get('current', 'Unknown')}")
+                print(f"Latest revision: {status.get('heads', 'Unknown')}")
                 if status.get('up_to_date'):
-                    print("✅ Migrations: UP TO DATE")
+                    print("Migrations: UP TO DATE")
                 else:
-                    print("⚠️  Migrations: PENDING UPDATES AVAILABLE")
+                    print("Migrations: PENDING UPDATES AVAILABLE")
         else:
-            print("⚠️  Alembic migrations: NOT INITIALIZED")
+            print("Alembic migrations: NOT INITIALIZED")
             print("   Run 'python scripts/db_manager.py init' to set up migrations")
 
 
@@ -246,15 +274,15 @@ async def main():
             await manager.show_status()
             
         else:
-            print(f"❌ Unknown command: {command}")
+            print(f"Unknown command: {command}")
             print(__doc__)
             sys.exit(1)
             
     except KeyboardInterrupt:
-        print("\n⚠️  Operation cancelled by user")
+        print("\nOperation cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(f"Unexpected error: {e}")
         sys.exit(1)
 
 
