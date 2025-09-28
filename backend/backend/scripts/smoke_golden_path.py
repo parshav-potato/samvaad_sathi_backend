@@ -166,9 +166,22 @@ def main() -> None:
             r, err = safe_call(client, "POST", f"{API}/summary-report", headers=headers, json={"interviewId": interview_id})
             print_result("POST /api/summary-report", r, err)
             if r and r.status_code == 200:
+                # Verify track information is included in the response
+                body = safe_json(r)
+                if isinstance(body, dict):
+                    track = body.get('track', 'N/A')
+                    print(f"   Summary report generated for track: {track}")
+                
                 # Immediately fetch the persisted report
                 rg, erg = safe_call(client, "GET", f"{API}/summary-report/{interview_id}", headers=headers)
                 print_result("GET /api/summary-report/{id}", rg, erg)
+                
+                # Verify track information is also in the fetched report
+                if rg and rg.status_code == 200:
+                    body_fetch = safe_json(rg)
+                    if isinstance(body_fetch, dict):
+                        track_fetch = body_fetch.get('track', 'N/A')
+                        print(f"   Fetched report track: {track_fetch}")
                 
                 # Test the new summary reports list endpoint
                 rl, errl = safe_call(client, "GET", f"{API}/summary-reports?limit=5", headers=headers)
@@ -183,7 +196,28 @@ def main() -> None:
                                 print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('difficulty', 'N/A')})")
                                 report = item.get('report', {})
                                 if isinstance(report, dict) and 'overallScoreSummary' in report:
-                                    print(f"     Full report data included with {len(report)} top-level fields")
+                                    report_track = report.get('track', 'N/A')
+                                    print(f"     Full report data included with {len(report)} top-level fields, track: {report_track}")
+
+        # Test resume interview endpoint
+        if interview_id:
+            r_resume, err_resume = safe_call(client, "GET", f"{API}/interviews/{interview_id}/resume", headers=headers)
+            print_result("GET /api/interviews/{id}/resume", r_resume, err_resume)
+            if r_resume and r_resume.status_code == 200:
+                body_resume = safe_json(r_resume)
+                if isinstance(body_resume, dict):
+                    track_resume = body_resume.get('track', 'N/A')
+                    total_questions = body_resume.get('total_questions', 0)
+                    attempted_questions = body_resume.get('attempted_questions', 0)
+                    remaining_questions = body_resume.get('remaining_questions', 0)
+                    questions = body_resume.get('questions', [])
+                    print(f"   Resume interview for track: {track_resume}")
+                    print(f"   Total questions: {total_questions}, Attempted: {attempted_questions}, Remaining: {remaining_questions}")
+                    print(f"   Questions without attempts: {len(questions)}")
+                    if questions:
+                        first_question = questions[0]
+                        if isinstance(first_question, dict):
+                            print(f"   First remaining question: {first_question.get('text', 'N/A')[:50]}...")
 
 
 if __name__ == "__main__":

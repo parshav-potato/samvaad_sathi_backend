@@ -140,3 +140,13 @@ class CompleteInterviewRequest(BaseSchemaModel):
     interview_id: int
 
 
+class ResumeInterviewResponse(BaseSchemaModel):
+    interview_id: int = pydantic.Field(description="ID of the interview")
+    track: str = pydantic.Field(description="Interview track")
+    difficulty: str = pydantic.Field(description="Interview difficulty")
+    questions: list[InterviewQuestionOut] = pydantic.Field(description="Questions without attempts")
+    total_questions: int = pydantic.Field(description="Total number of questions in the interview")
+    attempted_questions: int = pydantic.Field(description="Number of questions with attempts")
+    remaining_questions: int = pydantic.Field(description="Number of questions without attempts")
+
+
