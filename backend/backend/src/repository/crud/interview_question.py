@@ -6,8 +6,8 @@ from src.repository.crud.base import BaseCRUDRepository
 
 
 class InterviewQuestionCRUDRepository(BaseCRUDRepository):
-    async def create_batch(self, *, interview_id: int, questions_data: list[dict[str, Any]]) -> list[InterviewQuestion]:
-        """Create multiple interview questions with order, topic, and text"""
+    async def create_batch(self, *, interview_id: int, questions_data: list[dict[str, Any]], resume_used: bool = False) -> list[InterviewQuestion]:
+        """Create multiple interview questions with order, topic, text, and resume_used flag"""
         created: list[InterviewQuestion] = []
         for i, q_data in enumerate(questions_data):
             question = InterviewQuestion(
@@ -15,7 +15,8 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
                 text=str(q_data.get("text", "")),
                 topic=q_data.get("topic"),
                 order=i + 1,  # 1-indexed ordering
-                status="pending"
+                status="pending",
+                resume_used=resume_used
             )
             self.async_session.add(question)
             created.append(question)

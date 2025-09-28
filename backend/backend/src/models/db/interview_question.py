@@ -20,6 +20,9 @@ class InterviewQuestion(Base):  # type: ignore
     interview_id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(
         sqlalchemy.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    resume_used: SQLAlchemyMapped[bool] = sqlalchemy_mapped_column(
+        sqlalchemy.Boolean, nullable=False, default=False, index=True
+    )
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )

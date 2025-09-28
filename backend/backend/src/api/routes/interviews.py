@@ -208,7 +208,8 @@ async def generate_questions(
         
         persisted = await question_repo.create_batch(
             interview_id=interview.id,
-            questions_data=questions_data
+            questions_data=questions_data,
+            resume_used=payload.use_resume
         )
         
         # Prepare response data for newly generated questions
@@ -367,7 +368,8 @@ async def list_interview_questions(
                 interview_question_id=q.id,
                 text=q.text,
                 topic=q.topic,
-                status=q.status
+                status=q.status,
+                resume_used=q.resume_used
             ) for q in items
         ],
         next_cursor=next_cursor,
@@ -592,6 +594,7 @@ async def resume_interview(
             text=q.text,
             topic=q.topic,
             status=q.status,
+            resume_used=q.resume_used,
         )
         for q in questions_without_attempts
     ]
