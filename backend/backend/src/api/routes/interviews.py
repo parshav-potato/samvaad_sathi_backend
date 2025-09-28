@@ -343,7 +343,7 @@ async def list_my_interviews(
             if latest_report.report_json:
                 overall_score = latest_report.report_json.get("overallScoreSummary", {})
                 knowledge_competence = overall_score.get("knowledgeCompetence", {})
-                speech_structure_fluency = overall_score.get("speechStructureFluency", {})
+                speech_structure_fluency = overall_score.get("speechStructure", {})
                 
                 knowledge_percentage = knowledge_competence.get("averagePct")
                 speech_fluency_percentage = speech_structure_fluency.get("averagePct")
