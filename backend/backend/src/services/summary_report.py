@@ -111,6 +111,16 @@ class SummaryReportService:
                     score = max(0.0, min(100.0, score))
                     target.append(score)
                     local_kc.append(score)
+                else:
+                    # If no score available at all, use a default based on per-question scores
+                    # This handles cases where the analysis structure is incomplete
+                    # Look for per-question scores in the LLM data if available
+                    if hasattr(qa, 'id') and qa.id in per_q_scores:
+                        per_q_kc = per_q_scores[qa.id].get("kc_pct")
+                        if per_q_kc is not None:
+                            default_score = max(0.0, min(100.0, per_q_kc))
+                            target.append(default_score)
+                            local_kc.append(default_score)
             strengths_kc.extend(_as_list_str(d.get("strengths")))
             improvements_kc.extend(_as_list_str(d.get("improvements")))
 
