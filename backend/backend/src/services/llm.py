@@ -431,8 +431,8 @@ async def generate_interview_questions_with_llm(
     structured_items: list[dict[str, Any]] | None = None
 
     sys_prompt = (
-        "You are an expert interviewer. Generate concise, specific interview questions for a software candidate. "
-        "Avoid open-ended prompts; ask targeted questions that require concrete answers. "
+        "You are an expert interviewer. Generate concise, specific interview questions for a candidate. "
+        "Avoid open-ended prompts; ask targeted questions that require concrete answers, but keep in mind to ask deep questions that will take time to answer NOT one sentence or one word answers"
         "Return ONLY valid JSON with key: 'items' (array of objects with fields: text, topic, difficulty, category)."
         "Understand that this is a verbal interview setting, so questions should STRICTLY be suitable for strictly spoken responses."
     )
