@@ -83,7 +83,7 @@ The updated configuration supports multiple application instances:
 1. **Connection Pooling**: Each instance maintains its own connection pool
 2. **Session Isolation**: Each request gets its own database session
 3. **Transaction Safety**: Proper rollback handling for failed operations
-4. **Aurora Optimizations**: Connection recycling and SSL requirements
+4. **Supabase Optimizations**: Connection recycling and SSL requirements
 
 ## Best Practices
 
@@ -109,11 +109,11 @@ Ensure these are properly configured in your `.env` file:
 
 ```env
 # Database Connection
-POSTGRES_HOST=your-aurora-cluster.cluster-xxx.rds.amazonaws.com
+POSTGRES_HOST=your-project-ref.supabase.co
 POSTGRES_PORT=5432
-POSTGRES_DB=app
+POSTGRES_DB=postgres
 POSTGRES_USERNAME=postgres
-POSTGRES_PASSWORD=your-secure-password
+POSTGRES_PASSWORD=your-supabase-password
 
 # Connection Pool Settings
 DB_POOL_SIZE=5                    # Base pool size
@@ -150,8 +150,8 @@ alembic history             # Full migration history
 ## Troubleshooting
 
 ### Database Connection Issues
-1. Check Aurora cluster status in AWS console
-2. Verify network connectivity and security groups
+1. Check Supabase project status in Supabase dashboard
+2. Verify network connectivity and firewall settings
 3. Confirm credentials and SSL configuration
 
 ### Migration Issues
@@ -166,7 +166,7 @@ alembic history             # Full migration history
 
 ## Security Considerations
 
-1. **SSL Required**: All connections use SSL for Aurora
+1. **SSL Required**: All connections use SSL for Supabase
 2. **Connection Validation**: `pool_pre_ping=True` validates connections
 3. **Session Isolation**: Each request gets isolated session
 4. **Credential Management**: Use environment variables, not hardcoded values
