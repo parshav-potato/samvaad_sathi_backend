@@ -1,26 +1,26 @@
 # Samvaad Sathi Backend
 
-FastAPI backend with AWS Aurora PostgreSQL (async SQLAlchemy), JWT auth, OpenAI Whisper audio transcription, and containerized local dev.
+FastAPI backend with Supabase PostgreSQL (async SQLAlchemy), JWT auth, OpenAI Whisper audio transcription, and containerized local dev.
 
 ## Quick Start
 
 1) Environment
 - Create `.env` at `backend/.env` (see Environment below).
 
-2) Database (AWS Aurora)
-Configure your Aurora cluster details in `backend/.env`:
+2) Database (Supabase)
+Configure your Supabase database details in `backend/.env`:
 ```env
-POSTGRES_HOST=your-aurora-cluster.cluster-xxxxxxxxx.us-west-2.rds.amazonaws.com
+POSTGRES_HOST=your-project-ref.supabase.co
 POSTGRES_PORT=5432
-POSTGRES_DB=app
+POSTGRES_DB=postgres
 POSTGRES_USERNAME=postgres
-POSTGRES_PASSWORD=your-secure-password
+POSTGRES_PASSWORD=your-supabase-password
 ```
 
 3) Run with Docker (recommended)
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
-# Ensure env is set at backend/.env (OPENAI_API_KEY, POSTGRES_* for Aurora)
+# Ensure env is set at backend/.env (OPENAI_API_KEY, POSTGRES_* for Supabase)
 docker compose up -d
 
 # View logs (service name is 'api')
@@ -84,11 +84,11 @@ BACKEND_SERVER_PORT=8000
 BACKEND_SERVER_WORKERS=1
 
 POSTGRES_SCHEMA=postgresql
-POSTGRES_HOST=your-aurora-cluster.cluster-xxxxxxxxx.us-west-2.rds.amazonaws.com
+POSTGRES_HOST=your-project-ref.supabase.co
 POSTGRES_PORT=5432
-POSTGRES_DB=app
+POSTGRES_DB=postgres
 POSTGRES_USERNAME=postgres
-POSTGRES_PASSWORD=your-secure-password
+POSTGRES_PASSWORD=your-supabase-password
 DB_TIMEOUT=30
 DB_POOL_SIZE=5
 DB_MAX_POOL_CON=5
@@ -285,8 +285,8 @@ Note: A migration adds a UNIQUE constraint on `report.interview_id` to support a
 ## Troubleshooting
 - ModuleNotFoundError: run with module path: `python -m uvicorn src.main:backend_app --reload`
 - Env errors (decouple): ensure `.env` exists at `backend/.env`.
-- Aurora connect errors: confirm Aurora cluster is running and `POSTGRES_*` credentials are correct.
-- SSL errors: Aurora requires SSL by default; connection automatically includes `sslmode=require`.
+- Supabase connect errors: confirm Supabase project is running and `POSTGRES_*` credentials are correct.
+- SSL errors: Supabase requires SSL by default; connection automatically includes `sslmode=require`.
 - Port conflicts: change the port mapping (`8000:8000`) in `backend/backend/docker-compose.yml`.
 
 ## Developer Notes

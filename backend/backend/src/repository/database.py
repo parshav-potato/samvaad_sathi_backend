@@ -18,11 +18,11 @@ class AsyncDatabase:
             echo=settings.IS_DB_ECHO_LOG,
             pool_size=settings.DB_POOL_SIZE,
             max_overflow=settings.DB_POOL_OVERFLOW,
-            # Aurora-specific optimizations
+            # Supabase optimizations
             pool_timeout=settings.DB_TIMEOUT,
             pool_pre_ping=True,  # Validate connections before use
-            pool_recycle=3600,   # Recycle connections every hour for Aurora
-            # SSL connection for Aurora
+            pool_recycle=3600,   # Recycle connections every hour
+            # SSL connection for Supabase
             connect_args={"ssl": "require"}
         )
         # Use session factory instead of single session for better concurrency
