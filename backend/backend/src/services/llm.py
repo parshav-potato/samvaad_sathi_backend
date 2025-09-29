@@ -620,6 +620,7 @@ async def analyze_communication_with_llm(
         "Return ONLY valid JSON with keys: overall_score (0-100), criteria (object with clarity/structure/coherence/"
         "conciseness each having score (0-100) and reasons (string[]), jargon_use (score:number, notes:string[]), "
         "tone_empathy (score:number, notes:string[])), summary (string), suggestions (string[]), confidence (0-1)."
+        "Heavily penalize short answers that dont have enough nuance and detail"
     )
     payload = {
         "user_profile": {k: v for k, v in user_profile.items() if v is not None},
