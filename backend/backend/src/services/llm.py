@@ -218,6 +218,8 @@ async def synthesize_summary_sections(
             "Base averages on provided metrics; do not invent numbers",
             "Summaries must reflect specific issues observed in analyses",
             "Actionable steps should be concrete and phrased as imperatives",
+            "Avoid highly technical jargon like WPM or words per minute, Keep everything simple and easy to understand",
+            "When suggesting improvements, connect them to specific weaknesses observed"
         ],
     }
 
