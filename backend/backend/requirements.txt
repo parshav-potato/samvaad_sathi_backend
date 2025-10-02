@@ -55,3 +55,4 @@ pytest-xdist
 python-slugify
 trio
 httpx
+boto3
