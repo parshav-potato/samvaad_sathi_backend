@@ -559,13 +559,14 @@ def main() -> None:
                     if r3 and 200 <= r3.status_code < 300:
                         body3 = safe_json(r3)
                         if isinstance(body3, dict):
-                            for k in ("interviewId", "overallScoreSummary", "finalSummary", "actionableSteps"):
+                            for k in ("interviewId", "metrics", "strengths", "areasOfImprovement", "actionableInsights"):
                                 if k not in body3:
                                     print(f"   WARN: summary-report missing key: {k}")
                             # Light sanity: show averages if present
                             try:
-                                kc = (body3.get("overallScoreSummary", {}) or {}).get("knowledgeCompetence", {}) or {}
-                                ssf = (body3.get("overallScoreSummary", {}) or {}).get("speechStructure", {}) or {}
+                                metrics = (body3.get("metrics", {}) or {})
+                                kc = metrics.get("knowledgeCompetence", {}) or {}
+                                ssf = metrics.get("speechStructure", {}) or {}
                                 print(f"   KC avg (5pt): {kc.get('average5pt', 'N/A')}, %: {kc.get('averagePct', 'N/A')}")
                                 print(f"   SSF avg (5pt): {ssf.get('average5pt', 'N/A')}, %: {ssf.get('averagePct', 'N/A')}")
                             except Exception:
@@ -588,10 +589,10 @@ def main() -> None:
                                     # Show report details if available
                                     report = item.get('report', {})
                                     if isinstance(report, dict):
-                                        overall_score = report.get('overallScoreSummary', {})
-                                        if overall_score:
-                                            kc = overall_score.get('knowledgeCompetence', {})
-                                            ss = overall_score.get('speechStructure', {})
+                                        metrics = report.get('metrics', {})
+                                        if metrics:
+                                            kc = metrics.get('knowledgeCompetence', {})
+                                            ss = metrics.get('speechStructure', {})
                                             print(f"     KC: {kc.get('averagePct', 'N/A')}%, SS: {ss.get('averagePct', 'N/A')}%")
                 except Exception as _e4:
                     print_result("GET /api/summary-reports", None, str(_e4))

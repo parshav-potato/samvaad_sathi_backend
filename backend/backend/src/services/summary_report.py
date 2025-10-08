@@ -8,22 +8,20 @@ collects strengths and improvement areas, and proposes actionable steps.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
 
 from src.models.db.question_attempt import QuestionAttempt
 from src.models.schemas.summary_report import (
-    ActionableSteps,
-    FinalSummary,
-    FinalSummarySection,
+    SummaryMetrics,
+    SummarySection,
+    SummarySectionGroup,
     KnowledgeCompetenceBreakdown,
-    KnowledgeDevelopmentSteps,
     OverallScoreKnowledgeCompetence,
     OverallScoreSpeechStructure,
-    OverallScoreSummary,
     SpeechStructureBreakdown,
-    SpeechStructureFluencySteps,
     SummaryReportResponse,
 )
 from src.services.llm import synthesize_summary_sections
@@ -214,10 +212,11 @@ class SummaryReportService:
             breakdown=ssf_breakdown,
         )
 
-        overall_score_summary = OverallScoreSummary(
+        metrics = SummaryMetrics(
             knowledgeCompetence=kc_summary,
             speechStructure=ssf_summary,
         )
+        metrics_fallback_dict = metrics.model_dump()
 
         # Final summary strengths/improvements (dedup, preserve order)
         def _unique(items: List[str]) -> List[str]:
@@ -229,34 +228,54 @@ class SummaryReportService:
                     out.append(s)
             return out
 
-        strengths = FinalSummarySection(
-            knowledgeRelated=_unique(strengths_kc),
-            speechFluencyRelated=_unique(strengths_ssf),
-        )
-        improvements = FinalSummarySection(
-            knowledgeRelated=_unique(improvements_kc),
-            speechFluencyRelated=_unique(improvements_ssf),
-        )
-        final_summary = FinalSummary(strengths=strengths, areasOfImprovement=improvements)
+        def _section_from_groups(heading: str, subtitle: str | None, groups_data: List[tuple[str, List[str]]]) -> SummarySection:
+            groups = [
+                SummarySectionGroup(label=label, items=_unique(items))
+                for label, items in groups_data
+                if items
+            ]
+            return SummarySection(heading=heading, subtitle=subtitle, groups=groups)
 
-        # Actionable steps (baseline mapping from improvements)
-        kd = KnowledgeDevelopmentSteps(
-            targetedConceptReinforcement=_unique(improvements_kc[:4]),
-            examplePractice=["Prepare 2-3 specific practice scenarios with detailed code walkthroughs"],
-            conceptualDepth=["Practice answering 'why' and 'how' questions beyond surface-level recall"],
-        )
-        ssf_steps = SpeechStructureFluencySteps(
-            fluencyDrills=[
-                "Record 3-5 responses weekly and identify filler word patterns",
-            ],
-            grammarPractice=[
-                "Focus on consistent verb tenses and article usage in technical explanations",
-            ],
-            structureFramework=[
-                "Use the STAR method: Situation, Task, Action, Result for experience-based questions",
+        strengths_section = _section_from_groups(
+            heading="Strengths",
+            subtitle="What you did well",
+            groups_data=[
+                ("Knowledge-Related", strengths_kc),
+                ("Speech & Delivery", strengths_ssf),
             ],
         )
-        actionable = ActionableSteps(knowledgeDevelopment=kd, speechStructureFluency=ssf_steps)
+        strengths_fallback_dict = strengths_section.model_dump()
+
+        improvements_section = _section_from_groups(
+            heading="Areas Of Improvement",
+            subtitle="Where to focus next",
+            groups_data=[
+                ("Knowledge-Related", improvements_kc),
+                ("Speech & Delivery", improvements_ssf),
+            ],
+        )
+        improvements_fallback_dict = improvements_section.model_dump()
+
+        actionable_section = _section_from_groups(
+            heading="Actionable Insights",
+            subtitle="Next steps for growth",
+            groups_data=[
+                ("Targeted Concept Reinforcement", improvements_kc[:4]),
+                (
+                    "Example Practice",
+                    [
+                        "Prepare 2-3 specific project scenarios with detailed code walkthroughs",
+                    ],
+                ),
+                (
+                    "Conceptual Depth",
+                    [
+                        "Practice answering 'why' and 'how' questions beyond surface-level recall",
+                    ],
+                ),
+            ],
+        )
+        actionable_fallback_dict = actionable_section.model_dump()
 
         # Build LLM input from per-question items (cap to 5 for cost/latency)
         per_question_inputs: List[dict] = []
@@ -295,8 +314,8 @@ class SummaryReportService:
             max_questions=5,
         )
         # If LLM returned something, normalize scales and enrich with metadata/perQuestion; otherwise raise
-        if not llm_data or not llm_data.get("overallScoreSummary"):
-            raise RuntimeError("LLM summary synthesis failed: empty output")
+        if not llm_data:
+            llm_data = {}
 
         # Normalization helpers
         def _norm_0_5(x: Any) -> Optional[float]:
@@ -311,9 +330,9 @@ class SummaryReportService:
                 return None
             return max(0.0, min(100.0, v))
 
-        oss = llm_data.get("overallScoreSummary", {}) or {}
-        kc = oss.get("knowledgeCompetence", {}) or {}
-        ss = oss.get("speechStructure", {}) or {}
+        metrics_json = deepcopy(llm_data.get("metrics", {})) if llm_data.get("metrics") else deepcopy(metrics_fallback_dict)
+        kc = metrics_json.get("knowledgeCompetence", {}) or {}
+        ss = metrics_json.get("speechStructure", {}) or {}
         # Normalize percentages and 5-pt
         kc["average5pt"] = _norm_0_5(kc.get("average5pt"))
         kc["averagePct"] = _norm_0_100(kc.get("averagePct"))
@@ -332,8 +351,8 @@ class SummaryReportService:
         sb["pauses"] = _norm_0_5(sb.get("pauses"))
         sb["grammar"] = _norm_0_5(sb.get("grammar"))
         ss["breakdown"] = sb
-        oss["knowledgeCompetence"] = kc
-        oss["speechStructure"] = ss
+        metrics_json["knowledgeCompetence"] = kc
+        metrics_json["speechStructure"] = ss
 
         # Per-question list (optional)
         pq = llm_data.get("perQuestion") or []
@@ -373,12 +392,29 @@ class SummaryReportService:
             if kb.get(k) is None and k in kbd and kbd[k] is not None:
                 kb[k] = _norm_0_5(_to5(kbd[k]))
 
+        def _build_section(data: Any, fallback_dict: Dict[str, Any]) -> Dict[str, Any]:
+            if isinstance(data, SummarySection):
+                candidate_dict = data.model_dump()
+            elif isinstance(data, dict):
+                candidate_dict = data
+            else:
+                candidate_dict = None
+
+            if not candidate_dict:
+                candidate_dict = fallback_dict
+
+            try:
+                return SummarySection(**candidate_dict).model_dump()
+            except Exception:
+                return SummarySection(**fallback_dict).model_dump()
+
         candidate = {
             "interview_id": interview_id,
             "track": track,
-            "overallScoreSummary": oss,
-            "finalSummary": llm_data.get("finalSummary", {}),
-            "actionableSteps": llm_data.get("actionableSteps", {}),
+            "metrics": metrics_json,
+            "strengths": _build_section(llm_data.get("strengths"), strengths_fallback_dict),
+            "areasOfImprovement": _build_section(llm_data.get("areasOfImprovement"), improvements_fallback_dict),
+            "actionableInsights": _build_section(llm_data.get("actionableInsights"), actionable_fallback_dict),
             "metadata": md or None,
             "perQuestion": pq or [],
             "topicHighlights": llm_data.get("topicHighlights") or None,

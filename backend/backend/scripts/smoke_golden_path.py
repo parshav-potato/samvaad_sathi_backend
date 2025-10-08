@@ -195,7 +195,7 @@ def main() -> None:
                             if isinstance(item, dict):
                                 print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('difficulty', 'N/A')})")
                                 report = item.get('report', {})
-                                if isinstance(report, dict) and 'overallScoreSummary' in report:
+                                if isinstance(report, dict) and 'metrics' in report:
                                     report_track = report.get('track', 'N/A')
                                     print(f"     Full report data included with {len(report)} top-level fields, track: {report_track}")
 

@@ -6,18 +6,7 @@ from typing import Any, Type, List, Dict
 import pydantic
 from openai import AsyncOpenAI
 from src.config.manager import settings
-from src.models.schemas.summary_report import (
-    KnowledgeCompetenceBreakdown,
-    SpeechStructureBreakdown,
-    OverallScoreKnowledgeCompetence,
-    OverallScoreSpeechStructure,
-    OverallScoreSummary,
-    FinalSummarySection,
-    FinalSummary,
-    KnowledgeDevelopmentSteps,
-    SpeechStructureFluencySteps,
-    ActionableSteps,
-)
+from src.models.schemas.summary_report import SummarySection, SummarySectionGroup, SummaryMetrics
 
 # Lazy client holder; create only when needed and when API key is present
 _client: AsyncOpenAI | None = None
@@ -123,31 +112,15 @@ class LLMOverallScoreSummaryStrict(pydantic.BaseModel):
     speechStructure: LLMSpeechStructureStrict
 
 
-class LLMFinalSummarySectionStrict(pydantic.BaseModel):
-    knowledgeRelated: list[str] = pydantic.Field(default_factory=list)
-    speechFluencyRelated: list[str] = pydantic.Field(default_factory=list)
+class LLMSectionGroupStrict(pydantic.BaseModel):
+    label: str
+    items: list[str] = pydantic.Field(default_factory=list)
 
 
-class LLMFinalSummaryStrict(pydantic.BaseModel):
-    strengths: LLMFinalSummarySectionStrict
-    areasOfImprovement: LLMFinalSummarySectionStrict
-
-
-class LLMKnowledgeDevelopmentStepsStrict(pydantic.BaseModel):
-    targetedConceptReinforcement: list[str] = pydantic.Field(default_factory=list)
-    examplePractice: list[str] = pydantic.Field(default_factory=list)
-    conceptualDepth: list[str] = pydantic.Field(default_factory=list)
-
-
-class LLMSpeechStructureFluencyStepsStrict(pydantic.BaseModel):
-    fluencyDrills: list[str] = pydantic.Field(default_factory=list)
-    grammarPractice: list[str] = pydantic.Field(default_factory=list)
-    structureFramework: list[str] = pydantic.Field(default_factory=list)
-
-
-class LLMActionableStepsStrict(pydantic.BaseModel):
-    knowledgeDevelopment: LLMKnowledgeDevelopmentStepsStrict
-    speechStructureFluency: LLMSpeechStructureFluencyStepsStrict
+class LLMSectionStrict(pydantic.BaseModel):
+    heading: str
+    subtitle: str | None = None
+    groups: list[LLMSectionGroupStrict] = pydantic.Field(default_factory=list)
 
 
 class LLMPerQuestionItemStrict(pydantic.BaseModel):
@@ -165,9 +138,10 @@ class LLMTopicHighlightsStrict(pydantic.BaseModel):
 
 class StrictSummarySynthesisLLM(pydantic.BaseModel):
     """Strict, non-optional output for UI-style summary synthesis (no metadata)."""
-    overallScoreSummary: LLMOverallScoreSummaryStrict
-    finalSummary: LLMFinalSummaryStrict
-    actionableSteps: LLMActionableStepsStrict
+    metrics: LLMOverallScoreSummaryStrict
+    strengths: LLMSectionStrict
+    areasOfImprovement: LLMSectionStrict
+    actionableInsights: LLMSectionStrict
     perQuestion: list[LLMPerQuestionItemStrict] | None = None
     topicHighlights: LLMTopicHighlightsStrict | None = None
 
@@ -186,7 +160,7 @@ async def synthesize_summary_sections(
     api_key = settings.OPENAI_API_KEY
     if not api_key:
         # No key: return empty structures; caller can fallback to heuristic
-        return {"overallScoreSummary": {}, "finalSummary": {}, "actionableSteps": {}}, None, None, model
+        return {"metrics": {}, "strengths": {}, "areasOfImprovement": {}, "actionableInsights": {}}, None, None, model
 
     if max_questions is not None:
         per_question_inputs = per_question_inputs[:max_questions]
@@ -197,12 +171,13 @@ async def synthesize_summary_sections(
         "shape below. Use measured data to compute averages and select concrete strengths and prioritized "
         "improvements. Keep tone constructive and actionable. Return ONLY valid JSON (no markdown). Do NOT output nulls anywhere.\n\n"
         "Strict JSON schema and constraints (no nulls): {\n"
-        "  overallScoreSummary: {\n"
+        "  metrics: {\n"
         "    knowledgeCompetence: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{accuracy:number(0..5), depth:number(0..5), coverage:number(0..5), relevance:number(0..5)} },\n"
         "    speechStructure: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{pacing:number(0..5), structure:number(0..5), pauses:number(0..5), grammar:number(0..5)} }\n"
         "  },\n"
-        "  finalSummary: { strengths:{ knowledgeRelated:string[], speechFluencyRelated:string[] }, areasOfImprovement:{ knowledgeRelated:string[], speechFluencyRelated:string[] } },\n"
-        "  actionableSteps: { knowledgeDevelopment:{ targetedConceptReinforcement:string[], examplePractice:string[], conceptualDepth:string[] }, speechStructureFluency:{ fluencyDrills:string[], grammarPractice:string[], structureFramework:string[] } },\n"
+        "  strengths: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
+        "  areasOfImprovement: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
+        "  actionableInsights: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
         "  perQuestion?: [{ questionAttemptId:number, questionText?:string, keyTakeaways:string[], knowledgeScorePct:number(0..100), speechScorePct:number(0..100) }],\n"
         "  topicHighlights?: { strengthsTopics:string[], improvementTopics:string[] }\n"
         "}\n\n"

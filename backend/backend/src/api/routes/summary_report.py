@@ -121,10 +121,10 @@ async def get_summary_reports(
     for summary_report, interview in reports_data:
         # Extract overall score from the report JSON if available
         overall_score = None
-        if summary_report.report_json and "overallScoreSummary" in summary_report.report_json:
-            overall_score_summary = summary_report.report_json["overallScoreSummary"]
-            if "knowledgeCompetence" in overall_score_summary and "averagePct" in overall_score_summary["knowledgeCompetence"]:
-                overall_score = overall_score_summary["knowledgeCompetence"]["averagePct"]
+        if summary_report.report_json and "metrics" in summary_report.report_json:
+            metrics_json = summary_report.report_json["metrics"]
+            if "knowledgeCompetence" in metrics_json and "averagePct" in metrics_json["knowledgeCompetence"]:
+                overall_score = metrics_json["knowledgeCompetence"]["averagePct"]
         
         # Create the complete summary report response
         report_data = SummaryReportResponse(**summary_report.report_json) if summary_report.report_json else None

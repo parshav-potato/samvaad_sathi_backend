@@ -343,9 +343,9 @@ async def list_my_interviews(
         if summary_reports:
             latest_report = summary_reports[0]
             if latest_report.report_json:
-                overall_score = latest_report.report_json.get("overallScoreSummary", {})
-                knowledge_competence = overall_score.get("knowledgeCompetence", {})
-                speech_structure_fluency = overall_score.get("speechStructure", {})
+                metrics = latest_report.report_json.get("metrics", {})
+                knowledge_competence = metrics.get("knowledgeCompetence", {})
+                speech_structure_fluency = metrics.get("speechStructure", {})
                 
                 knowledge_percentage = knowledge_competence.get("averagePct")
                 speech_fluency_percentage = speech_structure_fluency.get("averagePct")
@@ -531,43 +531,21 @@ async def list_my_interviews_with_summary(
         
         if summary_reports and summary_reports[0].report_json:
             latest_report = summary_reports[0].report_json
-            if "overallScoreSummary" in latest_report:
-                overall_score = latest_report["overallScoreSummary"]
-                
-                # Extract knowledge competence percentage
-                if "knowledgeCompetence" in overall_score and "averagePct" in overall_score["knowledgeCompetence"]:
-                    knowledge_percentage = overall_score["knowledgeCompetence"]["averagePct"]
-                
-                # Extract speech structure percentage
-                if "speechStructure" in overall_score and "averagePct" in overall_score["speechStructure"]:
-                    speech_fluency_percentage = overall_score["speechStructure"]["averagePct"]
-            
-            # Extract top 3 action items from actionableSteps
-            if "actionableSteps" in latest_report:
-                actionable_steps = latest_report["actionableSteps"]
-                action_items = []
-                
-                # Collect action items from knowledge development
-                if "knowledgeDevelopment" in actionable_steps:
-                    kd = actionable_steps["knowledgeDevelopment"]
-                    if "targetedConceptReinforcement" in kd:
-                        action_items.extend(kd["targetedConceptReinforcement"])
-                    if "examplePractice" in kd:
-                        action_items.extend(kd["examplePractice"])
-                    if "conceptualDepth" in kd:
-                        action_items.extend(kd["conceptualDepth"])
-                
-                # Collect action items from speech structure fluency
-                if "speechStructureFluency" in actionable_steps:
-                    ssf = actionable_steps["speechStructureFluency"]
-                    if "fluencyDrills" in ssf:
-                        action_items.extend(ssf["fluencyDrills"])
-                    if "grammarPractice" in ssf:
-                        action_items.extend(ssf["grammarPractice"])
-                    if "structureFramework" in ssf:
-                        action_items.extend(ssf["structureFramework"])
-                
-                # Take top 3 action items
+            metrics = latest_report.get("metrics", {}) if isinstance(latest_report, dict) else {}
+            if metrics:
+                kc = metrics.get("knowledgeCompetence", {}) or {}
+                ss = metrics.get("speechStructure", {}) or {}
+                knowledge_percentage = kc.get("averagePct")
+                speech_fluency_percentage = ss.get("averagePct")
+
+            actionable_section = latest_report.get("actionableInsights") if isinstance(latest_report, dict) else None
+            if isinstance(actionable_section, dict):
+                groups = actionable_section.get("groups", [])
+                action_items: list[str] = []
+                for group in groups:
+                    items = group.get("items") if isinstance(group, dict) else None
+                    if isinstance(items, list):
+                        action_items.extend(str(item) for item in items if item)
                 top_action_items = action_items[:3]
         
         item = InterviewItemWithSummary(

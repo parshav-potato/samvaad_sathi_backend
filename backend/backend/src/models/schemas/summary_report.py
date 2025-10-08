@@ -52,9 +52,20 @@ class OverallScoreSpeechStructure(BaseSchemaModel):
     breakdown: SpeechStructureBreakdown | None = None
 
 
-class OverallScoreSummary(BaseSchemaModel):
+class SummaryMetrics(BaseSchemaModel):
     knowledgeCompetence: OverallScoreKnowledgeCompetence
     speechStructure: OverallScoreSpeechStructure
+
+
+class SummarySectionGroup(BaseSchemaModel):
+    label: str = pydantic.Field(description="Section label, e.g., 'Knowledge-Related'")
+    items: List[str] = pydantic.Field(default_factory=list, description="Bullet points for this label")
+
+
+class SummarySection(BaseSchemaModel):
+    heading: str = pydantic.Field(description="Primary heading, e.g., 'Strengths'")
+    subtitle: str | None = pydantic.Field(default=None, description="Optional subtitle such as 'For Knowledge Development'")
+    groups: List[SummarySectionGroup] = pydantic.Field(default_factory=list, description="Labeled bullet point groups")
 
 
 class FinalSummarySection(BaseSchemaModel):
@@ -109,9 +120,10 @@ class TopicHighlights(BaseSchemaModel):
 class SummaryReportResponse(BaseSchemaModel):
     interview_id: int
     track: str = pydantic.Field(description="Interview track/role (e.g., 'javascript developer')")
-    overallScoreSummary: OverallScoreSummary
-    finalSummary: FinalSummary
-    actionableSteps: ActionableSteps
+    metrics: SummaryMetrics
+    strengths: SummarySection
+    areasOfImprovement: SummarySection
+    actionableInsights: SummarySection
     # Optional additional details
     metadata: ReportMetadata | None = None
     perQuestion: List[PerQuestionItem] = pydantic.Field(default_factory=list)
@@ -124,7 +136,7 @@ class SummaryReportListItem(BaseSchemaModel):
     track: str = pydantic.Field(description="Interview track (e.g., 'javascript developer')")
     difficulty: str = pydantic.Field(description="Interview difficulty level")
     created_at: str = pydantic.Field(description="When the summary report was created")
-    overall_score: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Overall score percentage")
+    overall_score: float | None = pydantic.Field(default=None, ge=0.0, le=100.0, description="Knowledge competence percentage")
     report: SummaryReportResponse = pydantic.Field(description="Complete summary report data")
 
 
