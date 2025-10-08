@@ -82,6 +82,7 @@ async def test_per_question_analysis_deduplicated(monkeypatch):
         resume_used=True,
     )
 
+    assert "perQuestion" not in result
     per_question_analysis = result["perQuestionAnalysis"]
     assert len(per_question_analysis) == 1
     analysis_entry = per_question_analysis[0]

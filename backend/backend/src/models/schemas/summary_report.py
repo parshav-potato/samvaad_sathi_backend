@@ -132,7 +132,7 @@ class SummaryReportResponse(BaseSchemaModel):
     actionableInsights: SummarySection
     # Optional additional details
     metadata: ReportMetadata | None = None
-    perQuestion: List[PerQuestionItem] = pydantic.Field(default_factory=list)
+    perQuestion: List[PerQuestionItem] | None = None
     perQuestionAnalysis: List[PerQuestionAnalysis] = pydantic.Field(default_factory=list)
     topicHighlights: TopicHighlights | None = None
 

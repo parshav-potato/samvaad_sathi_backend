@@ -547,7 +547,6 @@ class SummaryReportService:
                     continue
                 base = per_question_default_map.get(qa_id)
                 if base is None:
-                    # If the LLM returned a question we don't have locally, skip
                     continue
                 final_per_question.append(_merge_per_question_item(base, item))
         else:
@@ -604,11 +603,11 @@ class SummaryReportService:
             "areasOfImprovement": _build_section(llm_data.get("areasOfImprovement"), improvements_fallback_dict),
             "actionableInsights": _build_section(llm_data.get("actionableInsights"), actionable_fallback_dict),
             "metadata": md or None,
-            "perQuestion": final_per_question,
+            "perQuestion": None,
             "perQuestionAnalysis": final_per_question_analysis,
             "topicHighlights": llm_data.get("topicHighlights") or None,
         }
 
         # Validate against schema; let exceptions bubble to FastAPI error handler if invalid
         parsed = SummaryReportResponse(**candidate)
-        return parsed.model_dump()
+        return parsed.model_dump(exclude_none=True)
