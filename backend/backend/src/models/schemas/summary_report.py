@@ -112,6 +112,12 @@ class PerQuestionItem(BaseSchemaModel):
     speechScorePct: float | None = pydantic.Field(default=None, ge=0.0, le=100.0)
 
 
+class PerQuestionAnalysis(PerQuestionItem):
+    strengths: SummarySection
+    areasOfImprovement: SummarySection
+    actionableInsights: SummarySection
+
+
 class TopicHighlights(BaseSchemaModel):
     strengthsTopics: List[str] = pydantic.Field(default_factory=list)
     improvementTopics: List[str] = pydantic.Field(default_factory=list)
@@ -127,6 +133,7 @@ class SummaryReportResponse(BaseSchemaModel):
     # Optional additional details
     metadata: ReportMetadata | None = None
     perQuestion: List[PerQuestionItem] = pydantic.Field(default_factory=list)
+    perQuestionAnalysis: List[PerQuestionAnalysis] = pydantic.Field(default_factory=list)
     topicHighlights: TopicHighlights | None = None
 
 

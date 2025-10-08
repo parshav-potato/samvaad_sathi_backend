@@ -23,6 +23,8 @@ from src.models.schemas.summary_report import (
     OverallScoreSpeechStructure,
     SpeechStructureBreakdown,
     SummaryReportResponse,
+    PerQuestionAnalysis,
+    PerQuestionItem,
 )
 from src.services.llm import synthesize_summary_sections
 
@@ -55,6 +57,25 @@ def _to5(score100: Optional[float]) -> Optional[float]:
     return round(score100 / 20.0, 2)
 
 
+def _unique(items: List[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for s in items:
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _section_from_groups(heading: str, subtitle: str | None, groups_data: List[tuple[str, List[str]]]) -> SummarySection:
+    groups = [
+        SummarySectionGroup(label=label, items=_unique(items))
+        for label, items in groups_data
+        if items
+    ]
+    return SummarySection(heading=heading, subtitle=subtitle, groups=groups)
+
+
 class SummaryReportService:
     def __init__(self, db: SQLAlchemyAsyncSession) -> None:
         self._db = db
@@ -84,6 +105,8 @@ class SummaryReportService:
 
         # Map to store per-question computed percents
         per_q_scores: Dict[int, Dict[str, Optional[float]]] = {}
+        per_question_defaults: List[Dict[str, Any]] = []
+        per_question_analysis_defaults: List[Dict[str, Any]] = []
 
         # Gather from per-question analyses
         for qa in question_attempts:
@@ -93,6 +116,8 @@ class SummaryReportService:
             d = analysis.get("domain") or {}
             criteria = d.get("criteria") or {}
             local_kc: List[float] = []
+            q_strengths_kc = _as_list_str(d.get("strengths"))
+            q_improvements_kc = _as_list_str(d.get("improvements"))
             # criteria may be in { correctness: {score}, depth: {score}, coverage: {score}, relevance: {score} }
             for key, target in (
                 ("correctness", kc_accuracy),
@@ -119,13 +144,15 @@ class SummaryReportService:
                             default_score = max(0.0, min(100.0, per_q_kc))
                             target.append(default_score)
                             local_kc.append(default_score)
-            strengths_kc.extend(_as_list_str(d.get("strengths")))
-            improvements_kc.extend(_as_list_str(d.get("improvements")))
+            strengths_kc.extend(q_strengths_kc)
+            improvements_kc.extend(q_improvements_kc)
 
             # Communication/speech metrics
             c = analysis.get("communication") or {}
             ccrit = c.get("criteria") or {}
             local_ssf: List[float] = []
+            q_strengths_ssf = _as_list_str(c.get("strengths"))
+            q_improvements_ssf = _as_list_str(c.get("recommendations"))
             # Map to pacing/structure/grammar; pauses handled separately
             pacing_val = _as_float(c.get("pace_score") or (ccrit.get("pacing", {}) or {}).get("score"))
             if pacing_val is None:
@@ -151,9 +178,8 @@ class SummaryReportService:
                 ssf_grammar.append(gv)
                 local_ssf.append(gv)
 
-            strengths_ssf.extend(_as_list_str(c.get("strengths")))
+            strengths_ssf.extend(q_strengths_ssf)
             # Many times only recommendations exist; treat non-empty positive phrases as strengths if provided
-            improvements_ssf.extend(_as_list_str(c.get("recommendations")))
 
             # Pace/Pause analyses
             p = analysis.get("pace") or {}
@@ -168,14 +194,82 @@ class SummaryReportService:
                 zz = max(0.0, min(100.0, pause_score))
                 ssf_pauses.append(zz)
                 local_ssf.append(zz)
-            improvements_ssf.extend(_as_list_str(p.get("recommendations")))
-            improvements_ssf.extend(_as_list_str(z.get("recommendations")))
+            q_improvements_ssf.extend(_as_list_str(p.get("recommendations")))
+            q_improvements_ssf.extend(_as_list_str(z.get("recommendations")))
+            q_improvements_ssf.extend(_as_list_str(p.get("pace_recommendations")))
+            q_improvements_ssf.extend(_as_list_str(z.get("pause_recommendations")))
+            improvements_ssf.extend(q_improvements_ssf)
+
+            # Save per-question computed percents and detailed sections
+            knowledge_topics = _as_list_str(d.get("knowledge_areas") or [])
 
             # Save per-question computed percents
             per_q_scores[qa.id] = {
                 "kc_pct": _avg(local_kc),
                 "ssf_pct": _avg(local_ssf),
             }
+
+            key_takeaways = _unique(
+                q_strengths_kc + q_strengths_ssf + q_improvements_kc + q_improvements_ssf
+            )[:4]
+
+            per_question_defaults.append(
+                {
+                    "questionAttemptId": qa.id,
+                    "questionText": getattr(qa, "question_text", None),
+                    "keyTakeaways": key_takeaways,
+                    "knowledgeScorePct": per_q_scores[qa.id]["kc_pct"],
+                    "speechScorePct": per_q_scores[qa.id]["ssf_pct"],
+                }
+            )
+
+            targeted_concept = _unique(q_improvements_kc)[:3]
+            speech_practice = _unique(q_improvements_ssf)[:3]
+            conceptual_depth = _unique([
+                f"Prepare a real-world example covering {topic}"
+                for topic in knowledge_topics[:2]
+            ])
+            if not conceptual_depth:
+                conceptual_depth = ["Rehearse the reasoning behind your answer to build deeper intuition."]
+
+            strengths_section_q = _section_from_groups(
+                heading="Strengths",
+                subtitle="Question-specific positives",
+                groups_data=[
+                    ("Knowledge-Related", q_strengths_kc),
+                    ("Speech & Delivery", q_strengths_ssf),
+                ],
+            )
+            improvements_section_q = _section_from_groups(
+                heading="Areas Of Improvement",
+                subtitle="Next focus areas",
+                groups_data=[
+                    ("Knowledge-Related", q_improvements_kc),
+                    ("Speech & Delivery", q_improvements_ssf),
+                ],
+            )
+            actionable_section_q = _section_from_groups(
+                heading="Actionable Insights",
+                subtitle="How to practice",
+                groups_data=[
+                    ("Targeted Concept Reinforcement", targeted_concept),
+                    ("Example Practice", speech_practice),
+                    ("Conceptual Depth", conceptual_depth),
+                ],
+            )
+
+            per_question_analysis_defaults.append(
+                {
+                    "questionAttemptId": qa.id,
+                    "questionText": getattr(qa, "question_text", None),
+                    "keyTakeaways": key_takeaways,
+                    "knowledgeScorePct": per_q_scores[qa.id]["kc_pct"],
+                    "speechScorePct": per_q_scores[qa.id]["ssf_pct"],
+                    "strengths": strengths_section_q.model_dump(),
+                    "areasOfImprovement": improvements_section_q.model_dump(),
+                    "actionableInsights": actionable_section_q.model_dump(),
+                }
+            )
 
     # Averages and breakdowns
         kc_breakdown = KnowledgeCompetenceBreakdown(
@@ -217,24 +311,6 @@ class SummaryReportService:
             speechStructure=ssf_summary,
         )
         metrics_fallback_dict = metrics.model_dump()
-
-        # Final summary strengths/improvements (dedup, preserve order)
-        def _unique(items: List[str]) -> List[str]:
-            seen: set[str] = set()
-            out: List[str] = []
-            for s in items:
-                if s and s not in seen:
-                    seen.add(s)
-                    out.append(s)
-            return out
-
-        def _section_from_groups(heading: str, subtitle: str | None, groups_data: List[tuple[str, List[str]]]) -> SummarySection:
-            groups = [
-                SummarySectionGroup(label=label, items=_unique(items))
-                for label, items in groups_data
-                if items
-            ]
-            return SummarySection(heading=heading, subtitle=subtitle, groups=groups)
 
         strengths_section = _section_from_groups(
             heading="Strengths",
@@ -356,6 +432,7 @@ class SummaryReportService:
 
         # Per-question list (optional)
         pq = llm_data.get("perQuestion") or []
+        per_question_analysis_llm = llm_data.get("perQuestionAnalysis") or []
         if isinstance(pq, list):
             for item in pq:
                 if isinstance(item, dict):
@@ -408,6 +485,94 @@ class SummaryReportService:
             except Exception:
                 return SummarySection(**fallback_dict).model_dump()
 
+        per_question_default_map = {
+            item["questionAttemptId"]: item for item in per_question_defaults if item.get("questionAttemptId") is not None
+        }
+        per_question_analysis_default_map = {
+            item["questionAttemptId"]: item for item in per_question_analysis_defaults if item.get("questionAttemptId") is not None
+        }
+
+        def _merge_per_question_item(base: Dict[str, Any], overrides: Dict[str, Any] | None) -> Dict[str, Any]:
+            merged = dict(base)
+            if overrides:
+                for key, value in overrides.items():
+                    if value is not None:
+                        merged[key] = value
+            merged["knowledgeScorePct"] = _norm_0_100(merged.get("knowledgeScorePct"))
+            merged["speechScorePct"] = _norm_0_100(merged.get("speechScorePct"))
+            merged["keyTakeaways"] = _unique(_as_list_str(merged.get("keyTakeaways")))[:4]
+            return PerQuestionItem(**merged).model_dump()
+
+        def _merge_per_question_analysis(base: Dict[str, Any], overrides: Dict[str, Any] | None) -> Dict[str, Any]:
+            merged = dict(base)
+            if overrides:
+                for key in ("questionAttemptId", "questionText", "keyTakeaways", "knowledgeScorePct", "speechScorePct"):
+                    if overrides.get(key) is not None:
+                        merged[key] = overrides[key]
+                for section_key in ("strengths", "areasOfImprovement", "actionableInsights"):
+                    merged[section_key] = _build_section(overrides.get(section_key), merged.get(section_key))
+            merged["knowledgeScorePct"] = _norm_0_100(merged.get("knowledgeScorePct"))
+            merged["speechScorePct"] = _norm_0_100(merged.get("speechScorePct"))
+            merged["keyTakeaways"] = _unique(_as_list_str(merged.get("keyTakeaways")))[:4]
+            return PerQuestionAnalysis(**merged).model_dump()
+
+        final_per_question: List[Dict[str, Any]] = []
+        if isinstance(pq, list) and pq:
+            for item in pq:
+                if not isinstance(item, dict):
+                    continue
+                qa_id = item.get("questionAttemptId")
+                if qa_id is None:
+                    continue
+                base = per_question_default_map.get(qa_id)
+                if base is None:
+                    # If the LLM returned a question we don't have locally, skip
+                    continue
+                final_per_question.append(_merge_per_question_item(base, item))
+        else:
+            final_per_question = [
+                PerQuestionItem(**{
+                    **entry,
+                    "knowledgeScorePct": _norm_0_100(entry.get("knowledgeScorePct")),
+                    "speechScorePct": _norm_0_100(entry.get("speechScorePct")),
+                    "keyTakeaways": _unique(_as_list_str(entry.get("keyTakeaways")))[:4],
+                }).model_dump()
+                for entry in per_question_defaults
+            ]
+
+        final_per_question_map: Dict[int, Dict[str, Any]] = {
+            item["questionAttemptId"]: item for item in final_per_question if item.get("questionAttemptId") is not None
+        }
+
+        final_per_question_analysis: List[Dict[str, Any]] = []
+        if isinstance(per_question_analysis_llm, list) and per_question_analysis_llm:
+            for item in per_question_analysis_llm:
+                if not isinstance(item, dict):
+                    continue
+                qa_id = item.get("questionAttemptId")
+                if qa_id is None:
+                    continue
+                base = per_question_analysis_default_map.get(qa_id)
+                if base is None:
+                    continue
+                merged = _merge_per_question_analysis(base, item)
+                final_per_question_analysis.append(merged)
+                final_per_question_map.pop(qa_id, None)
+        else:
+            final_per_question_analysis = [
+                _merge_per_question_analysis(entry, None)
+                for entry in per_question_analysis_defaults
+            ]
+
+        # Ensure every perQuestion item has a matching analysis entry; use fallback only when missing
+        for qa_id, base_item in final_per_question_map.items():
+            fallback_analysis = per_question_analysis_default_map.get(qa_id)
+            if fallback_analysis is None:
+                continue
+            final_per_question_analysis.append(
+                _merge_per_question_analysis(fallback_analysis, None)
+            )
+
         candidate = {
             "interview_id": interview_id,
             "track": track,
@@ -416,7 +581,8 @@ class SummaryReportService:
             "areasOfImprovement": _build_section(llm_data.get("areasOfImprovement"), improvements_fallback_dict),
             "actionableInsights": _build_section(llm_data.get("actionableInsights"), actionable_fallback_dict),
             "metadata": md or None,
-            "perQuestion": pq or [],
+            "perQuestion": final_per_question,
+            "perQuestionAnalysis": final_per_question_analysis,
             "topicHighlights": llm_data.get("topicHighlights") or None,
         }
 
