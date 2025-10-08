@@ -1,11 +1,14 @@
 import fastapi
-from dotenv import load_dotenv
 import uvicorn
+from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from src.api.endpoints import router as api_endpoint_router
-from src.config.events import execute_backend_server_event_handler, terminate_backend_server_event_handler
+from src.config.events import (
+    execute_backend_server_event_handler,
+    terminate_backend_server_event_handler,
+)
 from src.config.manager import settings
 
 
@@ -16,12 +19,27 @@ def initialize_backend_application() -> fastapi.FastAPI:
 
     # Tags metadata for Swagger grouping
     tags_metadata = [
-        {"name": "users", "description": "User registration, login, and authentication."},
-        {"name": "resume", "description": "Resume upload, parsing, and profile enrichment."},
-        {"name": "interviews", "description": "Interview creation, management, and question flow."},
+        {
+            "name": "users",
+            "description": "User registration, login, and authentication.",
+        },
+        {
+            "name": "resume",
+            "description": "Resume upload, parsing, and profile enrichment.",
+        },
+        {
+            "name": "interviews",
+            "description": "Interview creation, management, and question flow.",
+        },
         {"name": "audio", "description": "Audio upload and Whisper transcription."},
-        {"name": "analysis", "description": "Domain/communication analysis and pacing/pauses metrics."},
-        {"name": "report", "description": "Session-level final report generation and retrieval."},
+        {
+            "name": "analysis",
+            "description": "Domain/communication analysis and pacing/pauses metrics.",
+        },
+        {
+            "name": "report",
+            "description": "Session-level final report generation and retrieval.",
+        },
     ]
     # Attach tag descriptions to OpenAPI
     app.openapi_tags = tags_metadata  # type: ignore[attr-defined]
@@ -65,7 +83,7 @@ def initialize_backend_application() -> fastapi.FastAPI:
             "message": "Welcome to Samvaad Sathi Backend API",
             "version": settings.VERSION,
             "docs": "/docs",
-            "health": "/api/health"
+            "health": "/api/health",
         }
 
     return app

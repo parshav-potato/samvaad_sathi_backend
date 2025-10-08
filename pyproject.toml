@@ -1,0 +1,131 @@
+[project]
+name = "samvaad-sathi-backend"
+version = "0.1.0"
+description = "Samvaad Sathi Backend - AI-powered speech analysis and feedback system"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # Core FastAPI and async dependencies
+    "alembic",
+    "asgi_lifespan",
+    "asyncpg",
+    "psycopg2-binary",
+    "fastapi>=0.100.0",
+    "uvicorn",
+    "python-multipart>=0.0.20",
+    
+    # Pydantic V2
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.10.0",
+    
+    # Database and ORM
+    "SQLAlchemy>=2.0.22,<2.1",
+    "greenlet",
+    
+    # Authentication and security
+    "bcrypt==3.2.2",
+    "passlib==1.7.4",
+    "python-jose",
+    "argon2_cffi",
+    
+    # OpenAI integration for audio transcription
+    "openai>=1.100.0",
+    
+    # Environment and configuration
+    "python-dotenv",
+    "python-decouple",
+    "email-validator",
+    
+    # File processing
+    "PyPDF2",
+    "pdfplumber",
+    
+    # OAuth/OIDC with Cognito
+    "authlib",
+    "requests",
+    "itsdangerous",
+    "loguru",
+    "python-slugify",
+    "trio",
+    "httpx",
+    "boto3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "colorama",
+    "isort",
+    "mypy",
+    "pre-commit",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-xdist",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/backend/src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["src", "backend"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncpg.*",
+    "psycopg2.*",
+    "boto3.*",
+    "botocore.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["backend/backend/tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"

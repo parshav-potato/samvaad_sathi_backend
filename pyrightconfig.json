@@ -1,0 +1,28 @@
+{
+  "include": [
+    "backend/backend/src"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "**/venv",
+    "**/.mypy_cache",
+    "**/.pytest_cache"
+  ],
+  "venvPath": "/home/parshav-potato/.venv",
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "pythonPlatform": "Linux",
+  "executionEnvironments": [
+    {
+      "root": "backend/backend/src"
+    }
+  ],
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "autoSearchPaths": true,
+  "extraPaths": [
+    "backend/backend/src"
+  ]
+}
