@@ -184,12 +184,20 @@ class SummaryReportService:
             # Pace/Pause analyses
             p = analysis.get("pace") or {}
             z = analysis.get("pause") or {}
-            pace_score = _as_float(p.get("pace_score") or (p.get("score") * 20 if isinstance(p.get("score"), (int, float)) and p.get("score") <= 5 else None))
+            pace_raw = p.get("score")
+            pace_scaled = None
+            if isinstance(pace_raw, (int, float)):
+                pace_scaled = pace_raw * 20 if pace_raw <= 5 else pace_raw
+            pace_score = _as_float(p.get("pace_score") or pace_scaled)
             if pace_score is not None:
                 pp = max(0.0, min(100.0, pace_score))
                 ssf_pacing.append(pp)
                 local_ssf.append(pp)
-            pause_score = _as_float(z.get("pause_score") or (z.get("score") * 20 if isinstance(z.get("score"), (int, float)) and z.get("score") <= 5 else None))
+            pause_raw = z.get("score")
+            pause_scaled = None
+            if isinstance(pause_raw, (int, float)):
+                pause_scaled = pause_raw * 20 if pause_raw <= 5 else pause_raw
+            pause_score = _as_float(z.get("pause_score") or pause_scaled)
             if pause_score is not None:
                 zz = max(0.0, min(100.0, pause_score))
                 ssf_pauses.append(zz)
@@ -506,11 +514,24 @@ class SummaryReportService:
         def _merge_per_question_analysis(base: Dict[str, Any], overrides: Dict[str, Any] | None) -> Dict[str, Any]:
             merged = dict(base)
             if overrides:
-                for key in ("questionAttemptId", "questionText", "keyTakeaways", "knowledgeScorePct", "speechScorePct"):
+                if overrides.get("questionAttemptId") is not None:
+                    merged["questionAttemptId"] = overrides["questionAttemptId"]
+                for key in ("keyTakeaways", "knowledgeScorePct", "speechScorePct"):
                     if overrides.get(key) is not None:
                         merged[key] = overrides[key]
                 for section_key in ("strengths", "areasOfImprovement", "actionableInsights"):
-                    merged[section_key] = _build_section(overrides.get(section_key), merged.get(section_key))
+                    fallback_section = merged.get(section_key)
+                    if not isinstance(fallback_section, dict):
+                        fallback_section = base.get(section_key)
+                    if not isinstance(fallback_section, dict):
+                        fallback_section = SummarySection(
+                            heading="",
+                            subtitle=None,
+                            groups=[],
+                        ).model_dump()
+                    merged[section_key] = _build_section(overrides.get(section_key), fallback_section)
+            # Always prefer the canonical question text from the base attempt data
+            merged["questionText"] = base.get("questionText")
             merged["knowledgeScorePct"] = _norm_0_100(merged.get("knowledgeScorePct"))
             merged["speechScorePct"] = _norm_0_100(merged.get("speechScorePct"))
             merged["keyTakeaways"] = _unique(_as_list_str(merged.get("keyTakeaways")))[:4]
@@ -544,7 +565,7 @@ class SummaryReportService:
             item["questionAttemptId"]: item for item in final_per_question if item.get("questionAttemptId") is not None
         }
 
-        final_per_question_analysis: List[Dict[str, Any]] = []
+        per_question_analysis_map: Dict[int, Dict[str, Any]] = {}
         if isinstance(per_question_analysis_llm, list) and per_question_analysis_llm:
             for item in per_question_analysis_llm:
                 if not isinstance(item, dict):
@@ -552,26 +573,28 @@ class SummaryReportService:
                 qa_id = item.get("questionAttemptId")
                 if qa_id is None:
                     continue
-                base = per_question_analysis_default_map.get(qa_id)
+                base = per_question_analysis_map.get(qa_id) or per_question_analysis_default_map.get(qa_id)
                 if base is None:
                     continue
-                merged = _merge_per_question_analysis(base, item)
-                final_per_question_analysis.append(merged)
+                per_question_analysis_map[qa_id] = _merge_per_question_analysis(base, item)
                 final_per_question_map.pop(qa_id, None)
-        else:
-            final_per_question_analysis = [
-                _merge_per_question_analysis(entry, None)
-                for entry in per_question_analysis_defaults
-            ]
 
-        # Ensure every perQuestion item has a matching analysis entry; use fallback only when missing
-        for qa_id, base_item in final_per_question_map.items():
-            fallback_analysis = per_question_analysis_default_map.get(qa_id)
-            if fallback_analysis is None:
+        # Backfill any questions the LLM missed or removed after deduplication
+        for qa_id, base in per_question_analysis_default_map.items():
+            if qa_id not in per_question_analysis_map:
+                per_question_analysis_map[qa_id] = _merge_per_question_analysis(base, None)
+
+        final_per_question_analysis: List[Dict[str, Any]] = []
+        for item in final_per_question:
+            qa_id = item.get("questionAttemptId")
+            if qa_id is None:
                 continue
-            final_per_question_analysis.append(
-                _merge_per_question_analysis(fallback_analysis, None)
-            )
+            if qa_id not in per_question_analysis_map:
+                continue
+            final_per_question_analysis.append(per_question_analysis_map.pop(qa_id))
+
+        if per_question_analysis_map:
+            final_per_question_analysis.extend(per_question_analysis_map.values())
 
         candidate = {
             "interview_id": interview_id,
