@@ -105,8 +105,10 @@ class ReportMetadata(BaseSchemaModel):
 
 
 class PerQuestionItem(BaseSchemaModel):
-    questionAttemptId: int
+    questionId: int  # Always present - from InterviewQuestion.id
+    questionAttemptId: int | None = None  # None for unattempted questions
     questionText: str | None = None
+    questionCategory: str | None = None  # tech | tech_allied | behavioral
     keyTakeaways: List[str] = pydantic.Field(default_factory=list)
     knowledgeScorePct: float | None = pydantic.Field(default=None, ge=0.0, le=100.0)
     speechScorePct: float | None = pydantic.Field(default=None, ge=0.0, le=100.0)

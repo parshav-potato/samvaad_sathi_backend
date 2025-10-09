@@ -162,7 +162,9 @@ class CommunicationAnalysisResponse(BaseSchemaModel):
     grammar_score: float = pydantic.Field(ge=0.0, le=100.0)
     structure_score: float = pydantic.Field(ge=0.0, le=100.0)
     communication_feedback: str
-    recommendations: List[str]
+    strengths: List[str] = pydantic.Field(default_factory=list)
+    improvements: List[str] = pydantic.Field(default_factory=list)
+    recommendations: List[str] = pydantic.Field(default_factory=list)  # For backward compatibility
 
 
 class PaceAnalysisResponse(BaseSchemaModel):

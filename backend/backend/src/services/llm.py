@@ -216,7 +216,9 @@ class BaseAnalysisLLM(pydantic.BaseModel):
     overall_score: float | None = None
     criteria: dict[str, Any] | None = None
     summary: str | None = None
-    suggestions: list[str] | None = None
+    strengths: list[str] | None = None
+    improvements: list[str] | None = None
+    suggestions: list[str] | None = None  # Deprecated, use improvements
     confidence: float | None = None
 
 
@@ -525,7 +527,11 @@ async def analyze_domain_with_llm(
         "You are a strict technical interviewer. Assess the candidate's domain knowledge based on the transcript. "
         "Return ONLY valid JSON with keys: overall_score (0-100), criteria (object with correctness/depth/coverage/"
         "relevance each having score (0-100) and reasons (string[]), misconceptions (present: bool, notes: string[]), "
-        "examples (present: bool, notes: string[])), summary (string), suggestions (string[]), confidence (0-1)."
+        "examples (present: bool, notes: string[])), summary (string), strengths (string[] of positive aspects), "
+        "improvements (string[] of areas to improve), confidence (0-1). "
+        "IMPORTANT: Always include both strengths and improvements arrays, even if scores are low. "
+        "Strengths should highlight what the candidate did well, even if partial. "
+        "Improvements should provide actionable feedback for growth."
     )
     user_content = {
         "user_profile": {k: v for k, v in user_profile.items() if v is not None},
@@ -596,7 +602,10 @@ async def analyze_communication_with_llm(
         "You are a communication coach. Assess clarity, structure, coherence, conciseness, jargon use, and tone/empathy. "
         "Return ONLY valid JSON with keys: overall_score (0-100), criteria (object with clarity/structure/coherence/"
         "conciseness each having score (0-100) and reasons (string[]), jargon_use (score:number, notes:string[]), "
-        "tone_empathy (score:number, notes:string[])), summary (string), suggestions (string[]), confidence (0-1)."
+        "tone_empathy (score:number, notes:string[])), summary (string), strengths (string[] of positive aspects), "
+        "improvements (string[] of areas to improve), suggestions (string[] for backward compatibility), confidence (0-1). "
+        "Always include both strengths and improvements arrays, even if scores are low. "
+        "Strengths should highlight what the candidate did well. Improvements should identify specific areas to work on. "
         "Heavily penalize short answers that dont have enough nuance and detail"
     )
     payload = {

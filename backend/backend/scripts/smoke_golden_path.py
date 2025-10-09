@@ -103,56 +103,64 @@ def main() -> None:
                                 print(f"     Top Actions: {', '.join(action_items[:2])}")  # Show first 2 action items
 
         # List questions for interview
-        first_qid = None
+        question_ids = []
         if interview_id:
-            r, err = safe_call(client, "GET", f"{API}/interviews/{interview_id}/questions?limit=3", headers=headers)
+            r, err = safe_call(client, "GET", f"{API}/interviews/{interview_id}/questions?limit=5", headers=headers)  # Increased limit to ensure at least 3 questions
             print_result("GET /api/interviews/{id}/questions", r, err)
             qb = safe_json(r) if r else {}
             if isinstance(qb, dict) and qb.get("items"):
-                item0 = qb["items"][0]
-                if isinstance(item0, dict):
-                    first_qid = item0.get("interviewQuestionId") or item0.get("interview_question_id")
+                items = qb["items"]
+                if len(items) >= 3:
+                    for i in [0, 2]:  # 1st and 3rd (0-indexed)
+                        item = items[i]
+                        if isinstance(item, dict):
+                            qid = item.get("interviewQuestionId") or item.get("interview_question_id")
+                            if qid:
+                                question_ids.append(qid)
 
-        # Create attempt for first question
-        qa_id = None
-        if interview_id and first_qid:
-            attempt_payload = {"interviewId": interview_id, "questionId": first_qid}
-            r, err = safe_call(client, "POST", f"{API}/interviews/question-attempts", headers=headers, json=attempt_payload)
-            print_result("POST /api/interviews/question-attempts", r, err)
-            ab = safe_json(r) if r else {}
-            if isinstance(ab, dict):
-                qa_id = ab.get("questionAttemptId") or ab.get("question_attempt_id")
+        # Create attempts for 1st and 3rd questions
+        qa_ids = []
+        if interview_id and question_ids:
+            for qid in question_ids:
+                attempt_payload = {"interviewId": interview_id, "questionId": qid}
+                r, err = safe_call(client, "POST", f"{API}/interviews/question-attempts", headers=headers, json=attempt_payload)
+                print_result(f"POST /api/interviews/question-attempts for question {qid}", r, err)
+                ab = safe_json(r) if r else {}
+                if isinstance(ab, dict):
+                    qa_id = ab.get("questionAttemptId") or ab.get("question_attempt_id")
+                    if qa_id:
+                        qa_ids.append(qa_id)
 
         # List question attempts
         if interview_id:
             r, err = safe_call(client, "GET", f"{API}/interviews/{interview_id}/question-attempts", headers=headers)
             print_result("GET /api/interviews/{id}/question-attempts", r, err)
 
-        # Transcribe audio for that attempt if assets/Speech.mp3 exists
-        if qa_id:
-            speech_file_path = os.path.join("assets", "Speech.mp3")
-            if os.path.exists(speech_file_path):
+        # Transcribe audio for each attempt if assets/Speech.mp3 exists
+        speech_file_path = os.path.join("assets", "Speech.mp3")
+        if os.path.exists(speech_file_path):
+            for qa_id in qa_ids:
                 with open(speech_file_path, "rb") as audio_file:
                     files_audio = {"file": ("Speech.mp3", audio_file, "audio/mpeg")}
                     data = {"question_attempt_id": str(qa_id), "language": "en"}
                     r, err = safe_call(client, "POST", f"{API}/transcribe-whisper", headers=headers, files=files_audio, data=data)
-                    print_result("POST /api/transcribe-whisper", r, err)
+                    print_result(f"POST /api/transcribe-whisper for attempt {qa_id}", r, err)
 
-        # Complete analysis (domain + communication + pace + pause)
-        if qa_id:
+        # Complete analysis for each attempt (domain + communication + pace + pause)
+        for qa_id in qa_ids:
             payload = {"question_attempt_id": qa_id, "analysis_types": ["domain", "communication", "pace", "pause"]}
             r, err = safe_call(client, "POST", f"{API}/complete-analysis", headers=headers, json=payload)
-            print_result("POST /api/complete-analysis", r, err)
+            print_result(f"POST /api/complete-analysis for attempt {qa_id}", r, err)
 
             # Individual analysis endpoints
             r, err = safe_call(client, "POST", f"{API}/domain-base-analysis", headers=headers, json={"question_attempt_id": qa_id})
-            print_result("POST /api/domain-base-analysis", r, err)
+            print_result(f"POST /api/domain-base-analysis for attempt {qa_id}", r, err)
             r, err = safe_call(client, "POST", f"{API}/communication-based-analysis", headers=headers, json={"question_attempt_id": qa_id})
-            print_result("POST /api/communication-based-analysis", r, err)
+            print_result(f"POST /api/communication-based-analysis for attempt {qa_id}", r, err)
             r, err = safe_call(client, "POST", f"{API}/analyze-pace", headers=headers, json={"question_attempt_id": qa_id})
-            print_result("POST /api/analyze-pace", r, err)
+            print_result(f"POST /api/analyze-pace for attempt {qa_id}", r, err)
             r, err = safe_call(client, "POST", f"{API}/analyze-pause", headers=headers, json={"question_attempt_id": qa_id})
-            print_result("POST /api/analyze-pause", r, err)
+            print_result(f"POST /api/analyze-pause for attempt {qa_id}", r, err)
 
         # Final report
         if interview_id:
@@ -223,5 +231,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

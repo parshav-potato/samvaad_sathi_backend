@@ -10,8 +10,8 @@
     "**/.mypy_cache",
     "**/.pytest_cache"
   ],
-  "venvPath": "/home/parshav-potato/.venv",
-  "venv": ".venv",
+  "venvPath": ".",
+  "venv": "venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
   "executionEnvironments": [
@@ -23,6 +23,6 @@
   "useLibraryCodeForTypes": true,
   "autoSearchPaths": true,
   "extraPaths": [
-    "backend/backend/src"
+    "backend/backend"
   ]
 }

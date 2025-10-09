@@ -116,3 +116,4 @@ backend/.env.example
 backend/backend/scripts/explore_aurora_data.py
 .gitignore
 backend/backend/scripts/explore_user_data.py
+pyrightconfig.json

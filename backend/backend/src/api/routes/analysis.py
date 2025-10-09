@@ -309,6 +309,19 @@ async def communication_based_analysis(
             grammar = _num(crit.get("grammar", {}).get("score") if isinstance(crit.get("grammar"), dict) else None, base)
 
         feedback = analysis.get("summary") or analysis.get("communication_feedback") or ""
+        
+        # Extract strengths and improvements from LLM response
+        strengths_raw = analysis.get("strengths") or []
+        if not isinstance(strengths_raw, list):
+            strengths_raw = [str(strengths_raw)]
+        strengths = [str(x) for x in strengths_raw][:10]
+        
+        improvements_raw = analysis.get("improvements") or []
+        if not isinstance(improvements_raw, list):
+            improvements_raw = [str(improvements_raw)]
+        improvements = [str(x) for x in improvements_raw][:10]
+        
+        # Keep recommendations for backward compatibility
         recs_raw = analysis.get("suggestions") or analysis.get("recommendations") or []
         if not isinstance(recs_raw, list):
             recs_raw = [str(recs_raw)]
@@ -322,6 +335,8 @@ async def communication_based_analysis(
             "grammar_score": grammar,
             "structure_score": structure,
             "communication_feedback": str(feedback),
+            "strengths": strengths,
+            "improvements": improvements,
             "recommendations": recommendations,
             "llm_model": llm_model,
             "llm_latency_ms": latency_ms,
@@ -340,6 +355,8 @@ async def communication_based_analysis(
             grammar_score=normalized_comm["grammar_score"],
             structure_score=normalized_comm["structure_score"],
             communication_feedback=normalized_comm["communication_feedback"],
+            strengths=normalized_comm["strengths"],
+            improvements=normalized_comm["improvements"],
             recommendations=normalized_comm["recommendations"],
         )
     except fastapi.HTTPException:

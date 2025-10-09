@@ -85,6 +85,26 @@ class SummaryReportService:
     ) -> Dict[str, Any]:
         # Materialize attempts to allow multiple passes (metrics + LLM input build)
         question_attempts = list(question_attempts)
+        
+        # Get ALL questions for the interview (both attempted and unattempted)
+        from src.models.db.interview_question import InterviewQuestion
+        import sqlalchemy
+        
+        # Fetch all InterviewQuestions for this interview
+        stmt = sqlalchemy.select(InterviewQuestion).where(
+            InterviewQuestion.interview_id == interview_id
+        ).order_by(InterviewQuestion.order.asc())
+        result = await self._db.execute(stmt)
+        all_interview_questions = list(result.scalars().all())
+        
+        # Build a map of question_id -> QuestionAttempt for quick lookup
+        attempts_by_question_id: Dict[int, QuestionAttempt] = {}
+        for qa in question_attempts:
+            if qa.question_id is not None:
+                attempts_by_question_id[qa.question_id] = qa
+        
+        total_expected_questions = len(all_interview_questions) if all_interview_questions else len(question_attempts)
+        
         # Buckets for KC (knowledge competence)
         kc_accuracy: List[float] = []
         kc_depth: List[float] = []
@@ -103,13 +123,57 @@ class SummaryReportService:
         improvements_kc: List[str] = []
         improvements_ssf: List[str] = []
 
-        # Map to store per-question computed percents
+        # Map to store per-question computed percents (keyed by question_id if available, else attempt_id)
         per_q_scores: Dict[int, Dict[str, Optional[float]]] = {}
         per_question_defaults: List[Dict[str, Any]] = []
         per_question_analysis_defaults: List[Dict[str, Any]] = []
 
-        # Gather from per-question analyses
-        for qa in question_attempts:
+        # Process ALL questions (both attempted and unattempted)
+        for interview_question in all_interview_questions:
+            # Check if this question has been attempted
+            qa = attempts_by_question_id.get(interview_question.id)
+            
+            if qa is None:
+                # Question not attempted yet - add placeholder with null scores
+                per_q_scores[interview_question.id] = {
+                    "kc_pct": None,
+                    "ssf_pct": None,
+                }
+                
+                # Create empty sections for unattempted questions
+                empty_section = _section_from_groups(
+                    heading="",
+                    subtitle=None,
+                    groups_data=[]
+                )
+                
+                per_question_defaults.append({
+                    "questionId": interview_question.id,  # Always present for tracking
+                    "questionAttemptId": None,  # No attempt yet
+                    "questionText": interview_question.text,
+                    "questionCategory": interview_question.category,  # tech | tech_allied | behavioral
+                    "keyTakeaways": [],
+                    "knowledgeScorePct": None,
+                    "speechScorePct": None,
+                })
+                
+                per_question_analysis_defaults.append({
+                    "questionId": interview_question.id,  # Always present for tracking
+                    "questionAttemptId": None,
+                    "questionText": interview_question.text,
+                    "questionCategory": interview_question.category,  # tech | tech_allied | behavioral
+                    "keyTakeaways": [],
+                    "knowledgeScorePct": None,
+                    "speechScorePct": None,
+                    "strengths": empty_section.model_dump(),
+                    "areasOfImprovement": empty_section.model_dump(),
+                    "actionableInsights": empty_section.model_dump(),
+                })
+                
+                # Skip further processing for unattempted questions
+                continue
+            
+            # Question was attempted - process its analysis
             analysis: Dict[str, Any] = getattr(qa, "analysis_json", None) or {}
 
             # Domain/knowledge metrics
@@ -127,8 +191,8 @@ class SummaryReportService:
             ):
                 score = _as_float(((criteria.get(key) or {}).get("score")))
                 if score is None:
-                    # fallback to domain.overall_score if specific missing
-                    score = _as_float(d.get("overall_score"))
+                    # fallback to domain.overall_score or domain.domain_score if specific missing
+                    score = _as_float(d.get("overall_score") or d.get("domain_score"))
                 if score is not None:
                     # Assume 0-100 scale coming from LLM; clamp to 0..100
                     score = max(0.0, min(100.0, score))
@@ -138,8 +202,8 @@ class SummaryReportService:
                     # If no score available at all, use a default based on per-question scores
                     # This handles cases where the analysis structure is incomplete
                     # Look for per-question scores in the LLM data if available
-                    if hasattr(qa, 'id') and qa.id in per_q_scores:
-                        per_q_kc = per_q_scores[qa.id].get("kc_pct")
+                    if interview_question.id in per_q_scores:
+                        per_q_kc = per_q_scores[interview_question.id].get("kc_pct")
                         if per_q_kc is not None:
                             default_score = max(0.0, min(100.0, per_q_kc))
                             target.append(default_score)
@@ -211,8 +275,8 @@ class SummaryReportService:
             # Save per-question computed percents and detailed sections
             knowledge_topics = _as_list_str(d.get("knowledge_areas") or [])
 
-            # Save per-question computed percents
-            per_q_scores[qa.id] = {
+            # Save per-question computed percents (keyed by interview_question.id)
+            per_q_scores[interview_question.id] = {
                 "kc_pct": _avg(local_kc),
                 "ssf_pct": _avg(local_ssf),
             }
@@ -223,11 +287,13 @@ class SummaryReportService:
 
             per_question_defaults.append(
                 {
+                    "questionId": interview_question.id,  # Always present for tracking
                     "questionAttemptId": qa.id,
-                    "questionText": getattr(qa, "question_text", None),
+                    "questionText": interview_question.text,  # Use InterviewQuestion text for consistency
+                    "questionCategory": interview_question.category,  # tech | tech_allied | behavioral
                     "keyTakeaways": key_takeaways,
-                    "knowledgeScorePct": per_q_scores[qa.id]["kc_pct"],
-                    "speechScorePct": per_q_scores[qa.id]["ssf_pct"],
+                    "knowledgeScorePct": per_q_scores[interview_question.id]["kc_pct"],
+                    "speechScorePct": per_q_scores[interview_question.id]["ssf_pct"],
                 }
             )
 
@@ -268,11 +334,13 @@ class SummaryReportService:
 
             per_question_analysis_defaults.append(
                 {
+                    "questionId": interview_question.id,  # Always present for tracking
                     "questionAttemptId": qa.id,
-                    "questionText": getattr(qa, "question_text", None),
+                    "questionText": interview_question.text,  # Use InterviewQuestion text for consistency
+                    "questionCategory": interview_question.category,  # tech | tech_allied | behavioral
                     "keyTakeaways": key_takeaways,
-                    "knowledgeScorePct": per_q_scores[qa.id]["kc_pct"],
-                    "speechScorePct": per_q_scores[qa.id]["ssf_pct"],
+                    "knowledgeScorePct": per_q_scores[interview_question.id]["kc_pct"],
+                    "speechScorePct": per_q_scores[interview_question.id]["ssf_pct"],
                     "strengths": strengths_section_q.model_dump(),
                     "areasOfImprovement": improvements_section_q.model_dump(),
                     "actionableInsights": actionable_section_q.model_dump(),
@@ -291,6 +359,16 @@ class SummaryReportService:
                 _avg(kc_accuracy), _avg(kc_depth), _avg(kc_coverage), _avg(kc_relevance)
             ) if x is not None
         ])
+        
+        # Apply completion penalty: scale by (attempted / total_expected)
+        # If only 2 out of 5 questions attempted, multiply score by 2/5 = 0.4
+        num_attempted_questions = len(question_attempts)
+        completion_ratio = num_attempted_questions / total_expected_questions if total_expected_questions > 0 else 1.0
+        
+        # Apply penalty to knowledge competence average
+        if kc_avg_pct is not None:
+            kc_avg_pct = kc_avg_pct * completion_ratio
+            
         kc_summary = OverallScoreKnowledgeCompetence(
             average5pt=_to5(kc_avg_pct),
             averagePct=kc_avg_pct,
@@ -308,6 +386,11 @@ class SummaryReportService:
                 _avg(ssf_pacing), _avg(ssf_structure), _avg(ssf_pauses), _avg(ssf_grammar)
             ) if x is not None
         ])
+        
+        # Apply penalty to speech structure average
+        if ssf_avg_pct is not None:
+            ssf_avg_pct = ssf_avg_pct * completion_ratio
+            
         ssf_summary = OverallScoreSpeechStructure(
             average5pt=_to5(ssf_avg_pct),
             averagePct=ssf_avg_pct,
@@ -493,12 +576,20 @@ class SummaryReportService:
             except Exception:
                 return SummarySection(**fallback_dict).model_dump()
 
+        # Use questionId as key (always present) instead of questionAttemptId (None for unattempted)
         per_question_default_map = {
-            item["questionAttemptId"]: item for item in per_question_defaults if item.get("questionAttemptId") is not None
+            item["questionId"]: item for item in per_question_defaults if item.get("questionId") is not None
         }
         per_question_analysis_default_map = {
-            item["questionAttemptId"]: item for item in per_question_analysis_defaults if item.get("questionAttemptId") is not None
+            item["questionId"]: item for item in per_question_analysis_defaults if item.get("questionId") is not None
         }
+        
+        # Create reverse mapping: attemptId -> questionId (for matching LLM responses)
+        attempt_to_question_map: Dict[int, int] = {}
+        for item in per_question_defaults:
+            if item.get("questionAttemptId") is not None and item.get("questionId") is not None:
+                attempt_to_question_map[item["questionAttemptId"]] = item["questionId"]
+
 
         def _merge_per_question_item(base: Dict[str, Any], overrides: Dict[str, Any] | None) -> Dict[str, Any]:
             merged = dict(base)
@@ -545,7 +636,11 @@ class SummaryReportService:
                 qa_id = item.get("questionAttemptId")
                 if qa_id is None:
                     continue
-                base = per_question_default_map.get(qa_id)
+                # Map attempt ID to question ID
+                q_id = attempt_to_question_map.get(qa_id)
+                if q_id is None:
+                    continue
+                base = per_question_default_map.get(q_id)
                 if base is None:
                     continue
                 final_per_question.append(_merge_per_question_item(base, item))
@@ -560,8 +655,9 @@ class SummaryReportService:
                 for entry in per_question_defaults
             ]
 
+        # Use questionId as key so we can track both attempted and unattempted questions
         final_per_question_map: Dict[int, Dict[str, Any]] = {
-            item["questionAttemptId"]: item for item in final_per_question if item.get("questionAttemptId") is not None
+            item["questionId"]: item for item in final_per_question if item.get("questionId") is not None
         }
 
         per_question_analysis_map: Dict[int, Dict[str, Any]] = {}
@@ -572,26 +668,32 @@ class SummaryReportService:
                 qa_id = item.get("questionAttemptId")
                 if qa_id is None:
                     continue
-                base = per_question_analysis_map.get(qa_id) or per_question_analysis_default_map.get(qa_id)
+                # Map attempt ID to question ID
+                q_id = attempt_to_question_map.get(qa_id)
+                if q_id is None:
+                    continue
+                base = per_question_analysis_map.get(q_id) or per_question_analysis_default_map.get(q_id)
                 if base is None:
                     continue
-                per_question_analysis_map[qa_id] = _merge_per_question_analysis(base, item)
-                final_per_question_map.pop(qa_id, None)
+                per_question_analysis_map[q_id] = _merge_per_question_analysis(base, item)
+                final_per_question_map.pop(q_id, None)
 
         # Backfill any questions the LLM missed or removed after deduplication
-        for qa_id, base in per_question_analysis_default_map.items():
-            if qa_id not in per_question_analysis_map:
-                per_question_analysis_map[qa_id] = _merge_per_question_analysis(base, None)
+        for q_id, base in per_question_analysis_default_map.items():
+            if q_id not in per_question_analysis_map:
+                per_question_analysis_map[q_id] = _merge_per_question_analysis(base, None)
 
         final_per_question_analysis: List[Dict[str, Any]] = []
+        
+        # First, add all analyzed questions (with attempt IDs)
         for item in final_per_question:
-            qa_id = item.get("questionAttemptId")
-            if qa_id is None:
+            q_id = item.get("questionId")
+            if q_id is None:
                 continue
-            if qa_id not in per_question_analysis_map:
-                continue
-            final_per_question_analysis.append(per_question_analysis_map.pop(qa_id))
-
+            if q_id in per_question_analysis_map:
+                final_per_question_analysis.append(per_question_analysis_map.pop(q_id))
+        
+        # Then backfill any remaining questions from the map (LLM-generated or missed)
         if per_question_analysis_map:
             final_per_question_analysis.extend(per_question_analysis_map.values())
 
