@@ -14,6 +14,7 @@ class BackendBaseSettings(BaseSettings):
     TIMEZONE: str = "UTC"
     DESCRIPTION: str | None = None
     DEBUG: bool = False
+    ENVIRONMENT: str = "DEV"  # Default environment, overridden by subclasses
 
     SERVER_HOST: str = decouple.config("BACKEND_SERVER_HOST", cast=str)  # type: ignore
     SERVER_PORT: int = decouple.config("BACKEND_SERVER_PORT", cast=int)  # type: ignore

@@ -81,6 +81,106 @@ class ResumeEntitiesV2LLM(pydantic.BaseModel):
     llm_schema: str | None = None
 
 
+# New structured output models for restructured summary report
+class LLMCandidateInfo(pydantic.BaseModel):
+    """Candidate and interview information."""
+    name: str | None = None
+    interviewDate: str
+    roleTopic: str
+
+
+class LLMScoreCriteria(pydantic.BaseModel):
+    """Knowledge competence criteria scores (0-5 scale)."""
+    accuracy: int = pydantic.Field(..., ge=0, le=5)
+    depth: int = pydantic.Field(..., ge=0, le=5)
+    relevance: int = pydantic.Field(..., ge=0, le=5)
+    examples: int = pydantic.Field(..., ge=0, le=5)
+    terminology: int = pydantic.Field(..., ge=0, le=5)
+
+
+class LLMSpeechCriteria(pydantic.BaseModel):
+    """Speech and structure criteria scores (0-5 scale)."""
+    fluency: int = pydantic.Field(..., ge=0, le=5)
+    structure: int = pydantic.Field(..., ge=0, le=5)
+    pacing: int = pydantic.Field(..., ge=0, le=5)
+    grammar: int = pydantic.Field(..., ge=0, le=5)
+
+
+class LLMKnowledgeCompetenceScore(pydantic.BaseModel):
+    """Knowledge competence with numeric scores."""
+    score: int = pydantic.Field(..., ge=0, le=25)
+    maxScore: int = pydantic.Field(default=25, ge=0)
+    average: float = pydantic.Field(..., ge=0.0, le=5.0)
+    maxAverage: float = pydantic.Field(default=5.0, ge=0.0)
+    percentage: int = pydantic.Field(..., ge=0, le=100)
+    criteria: LLMScoreCriteria
+
+
+class LLMSpeechAndStructureScore(pydantic.BaseModel):
+    """Speech and structure with numeric scores."""
+    score: int = pydantic.Field(..., ge=0, le=20)
+    maxScore: int = pydantic.Field(default=20, ge=0)
+    average: float = pydantic.Field(..., ge=0.0, le=5.0)
+    maxAverage: float = pydantic.Field(default=5.0, ge=0.0)
+    percentage: int = pydantic.Field(..., ge=0, le=100)
+    criteria: LLMSpeechCriteria
+
+
+class LLMScoreSummary(pydantic.BaseModel):
+    """Overall score summary."""
+    knowledgeCompetence: LLMKnowledgeCompetenceScore
+    speechAndStructure: LLMSpeechAndStructureScore
+
+
+class LLMActionableStep(pydantic.BaseModel):
+    """Individual actionable step with title and description."""
+    title: str
+    description: str
+
+
+class LLMSpeechFluencyFeedback(pydantic.BaseModel):
+    """Speech fluency feedback section."""
+    strengths: list[str] = pydantic.Field(default_factory=list)
+    areasOfImprovement: list[str] = pydantic.Field(default_factory=list)
+    actionableSteps: list[LLMActionableStep] = pydantic.Field(default_factory=list)
+
+
+class LLMOverallFeedback(pydantic.BaseModel):
+    """Overall feedback containing speech fluency."""
+    speechFluency: LLMSpeechFluencyFeedback
+
+
+class LLMQuestionFeedbackSubsection(pydantic.BaseModel):
+    """Knowledge-related feedback subsection."""
+    strengths: list[str] = pydantic.Field(default_factory=list)
+    areasOfImprovement: list[str] = pydantic.Field(default_factory=list)
+    actionableInsights: list[LLMActionableStep] = pydantic.Field(default_factory=list)
+
+
+class LLMQuestionFeedback(pydantic.BaseModel):
+    """Complete feedback for a single question."""
+    knowledgeRelated: LLMQuestionFeedbackSubsection
+
+
+class LLMQuestionAnalysisItem(pydantic.BaseModel):
+    """Individual question analysis."""
+    id: int
+    totalQuestions: int
+    type: str
+    question: str
+    feedback: LLMQuestionFeedback | None = None
+
+
+class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
+    """Restructured summary report output matching new format."""
+    reportId: str
+    candidateInfo: LLMCandidateInfo
+    scoreSummary: LLMScoreSummary
+    overallFeedback: LLMOverallFeedback
+    questionAnalysis: list[LLMQuestionAnalysisItem]
+
+
+# Legacy models (deprecated - kept for backward compatibility)
 class LLMKnowledgeBreakdownStrict(pydantic.BaseModel):
     accuracy: float = pydantic.Field(..., ge=0.0, le=5.0)
     depth: float = pydantic.Field(..., ge=0.0, le=5.0)
@@ -151,55 +251,75 @@ async def synthesize_summary_sections(
     per_question_inputs: List[dict],
     computed_metrics: Dict[str, Any],
     max_questions: int | None = None,
+    interview_track: str | None = None,
+    interview_date: str | None = None,
+    candidate_name: str | None = None,
+    total_questions: int = 0,
 ) -> tuple[dict, str | None, int | None, str]:
     """
-    Drive the LLM to create the three sections from complete per-question analyses.
+    Drive the LLM to create the restructured summary report from per-question analyses.
     Returns: (summary_json, error, latency_ms, model)
     """
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
     if not api_key:
         # No key: return empty structures; caller can fallback to heuristic
-        return {"metrics": {}, "strengths": {}, "areasOfImprovement": {}, "actionableInsights": {}}, None, None, model
+        return {}, None, None, model
 
     if max_questions is not None:
         per_question_inputs = per_question_inputs[:max_questions]
 
     sys_prompt = (
         "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
-        "pause) for up to 5 questions with scores and suggestions, synthesize a concise report with the exact JSON "
-        "shape below. Use measured data to compute averages and select concrete strengths and prioritized "
-        "improvements. Keep tone constructive and actionable. Return ONLY valid JSON (no markdown). Do NOT output nulls anywhere.\n\n"
-        "Strict JSON schema and constraints (no nulls): {\n"
-        "  metrics: {\n"
-        "    knowledgeCompetence: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{accuracy:number(0..5), depth:number(0..5), coverage:number(0..5), relevance:number(0..5)} },\n"
-        "    speechStructure: { average5pt:number(0..5), averagePct:number(0..100), breakdown:{pacing:number(0..5), structure:number(0..5), pauses:number(0..5), grammar:number(0..5)} }\n"
+        "pause) for interview questions with scores and suggestions, synthesize a comprehensive report with the exact JSON "
+        "shape below. Use measured data to compute scores and select concrete strengths and prioritized "
+        "improvements. Keep tone constructive and actionable. Return ONLY valid JSON (no markdown). Do NOT output nulls for attempted questions.\n\n"
+        "Strict JSON schema (no nulls for attempted questions): {\n"
+        "  reportId: string (UUID),\n"
+        "  candidateInfo: { name?: string, interviewDate: string (ISO date), roleTopic: string },\n"
+        "  scoreSummary: {\n"
+        "    knowledgeCompetence: { score: int(0..25), maxScore: 25, average: float(0..5), maxAverage: 5.0, percentage: int(0..100), criteria: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) } },\n"
+        "    speechAndStructure: { score: int(0..20), maxScore: 20, average: float(0..5), maxAverage: 5.0, percentage: int(0..100), criteria: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }\n"
         "  },\n"
-        "  strengths: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
-        "  areasOfImprovement: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
-        "  actionableInsights: { heading:string, subtitle?:string, groups:[{ label:string, items:string[] }] },\n"
-        "  perQuestion?: [{ questionAttemptId:number, questionText?:string, keyTakeaways:string[], knowledgeScorePct:number(0..100), speechScorePct:number(0..100) }],\n"
-        "  topicHighlights?: { strengthsTopics:string[], improvementTopics:string[] }\n"
+        "  overallFeedback: {\n"
+        "    speechFluency: { strengths: string[], areasOfImprovement: string[], actionableSteps: [{ title: string, description: string }] }\n"
+        "  },\n"
+        "  questionAnalysis: [{ id: int, totalQuestions: int, type: string ('Technical question'|'Technical Allied question'|'Behavioral question'), question: string, feedback: { knowledgeRelated: { strengths: string[], areasOfImprovement: string[], actionableInsights: [{ title: string, description: string }] } } | null }]\n"
         "}\n\n"
-        "Use the provided computed_metrics directly for knowledgeCompetence: averagePct equals computed kc_avg_pct, "
-        "average5pt equals kc_avg_pct/20, and breakdown items equal kc_breakdown_pct items/20 rounded to two decimals. "
-        "Do not invent numbers for knowledgeCompetence; derive exactly from computed_metrics."
+        "IMPORTANT GUIDELINES:\n"
+        "1. For scoreSummary: Derive scores from computed_metrics. Calculate score as (average * 5) for knowledge (max 25) and (average * 4) for speech (max 20)\n"
+        "2. For knowledgeCompetence criteria: Round each individual breakdown value from computed_metrics to nearest integer (0-5)\n"
+        "3. For speechAndStructure criteria: Round each individual breakdown value from computed_metrics to nearest integer (0-5)\n"
+        "4. Percentage should be (score / maxScore * 100) rounded to integer\n"
+        "5. For overallFeedback: Focus ONLY on speech fluency aspects (fluency, grammar, structure, pacing). Do NOT include knowledge/domain feedback here\n"
+        "6. For overallFeedback.actionableSteps: Provide 3-4 concrete steps with clear titles ('Fluency Drills', 'Grammar Practice', etc.) and detailed descriptions\n"
+        "7. For questionAnalysis: Include ALL questions. Set feedback to null for unattempted questions. For attempted questions, provide detailed knowledge-related feedback only\n"
+        "8. Question type mapping: 'tech' -> 'Technical question', 'tech_allied' -> 'Technical Allied question', 'behavioral' -> 'Behavioral question'\n"
+        "9. For each attempted question's feedback.knowledgeRelated.actionableInsights: Provide 3-4 specific steps with titles and descriptions\n"
+        "10. Avoid technical jargon like WPM. Keep language simple, clear, and actionable\n"
+        "11. For unattempted questions: DO NOT generate fake feedback - set feedback to null"
     )
 
     user_content = {
         "per_question": per_question_inputs,
         "computed_metrics": computed_metrics,
+        "interview_track": interview_track or "General",
+        "interview_date": interview_date,
+        "candidate_name": candidate_name,
+        "total_questions": total_questions,
         "guidelines": [
-            "Base averages on provided metrics; do not invent numbers",
-            "Summaries must reflect specific issues observed in analyses",
-            "Actionable steps should be concrete and phrased as imperatives",
-            "Avoid highly technical jargon like WPM or words per minute, Keep everything simple and easy to understand",
-            "When suggesting improvements, connect them to specific weaknesses observed"
+            "Base all numeric scores on provided computed_metrics",
+            "Focus overallFeedback.speechFluency ONLY on speech aspects, not knowledge",
+            "Provide specific, actionable feedback grounded in observed patterns",
+            "Use simple language; avoid jargon like 'WPM' or overly technical terms",
+            "For unattempted questions, set feedback to null - do not generate fake data",
+            "Connect improvement suggestions to specific weaknesses observed in analyses",
+            "Ensure actionableSteps have clear titles and detailed descriptions"
         ],
     }
 
     result, error, latency_ms, model = await structured_output(
-        StrictSummarySynthesisLLM,
+        NewStrictSummarySynthesisLLM,
         system_prompt=sys_prompt,
         user_content=user_content,
         temperature=0,

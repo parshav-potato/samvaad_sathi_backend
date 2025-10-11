@@ -191,7 +191,18 @@ Base prefix: `/api`
 - `POST /api/communication-based-analysis`: Individual communication quality analysis  
 - `POST /api/analyze-pace`: Individual speaking pace analysis
 - `POST /api/analyze-pause`: Individual pause pattern analysis
-- `POST /api/final-report`: Generate and persist session-level report for an interview
+- `POST /api/summary-report`: Generate comprehensive interview summary report
+  - **Request**: `{ interview_id: int }`
+  - **Response**: Restructured report with:
+    - `reportId`: UUID identifier
+    - `candidateInfo`: Interview metadata (date, role)
+    - `scoreSummary`: Numeric scores (0-25 for knowledge, 0-20 for speech) with percentages
+    - `overallFeedback`: Speech fluency feedback with actionable steps
+    - `questionAnalysis`: Per-question feedback (null for unattempted questions)
+  - **Features**: LLM-powered synthesis, fallback to heuristic scoring, database persistence
+- `GET /api/summary-report/{interview_id}`: Retrieve persisted summary report
+- `GET /api/summary-reports?limit=10`: List recent summary reports with scores
+- `POST /api/final-report`: Generate and persist session-level report (legacy format)
 
 ## Smoke Tests
 Run comprehensive end-to-end checks:
@@ -310,6 +321,93 @@ Transcription + Timestamps → Database Storage → Cleanup
 Question Attempt → Transcription Validation → Concurrent Analysis Processing →
 Domain + Communication + Pace + Pause → Result Aggregation → Database Persistence
 ```
+
+### Summary Report Structure (New Format)
+```json
+{
+  "reportId": "uuid-string",
+  "candidateInfo": {
+    "name": "Candidate Name (optional)",
+    "interviewDate": "2024-12-15T10:30:00Z",
+    "roleTopic": "Frontend Development"
+  },
+  "scoreSummary": {
+    "knowledgeCompetence": {
+      "score": 18,
+      "maxScore": 25,
+      "average": 3.6,
+      "maxAverage": 5.0,
+      "percentage": 72,
+      "criteria": {
+        "accuracy": 4,
+        "depth": 3,
+        "relevance": 4,
+        "examples": 3,
+        "terminology": 4
+      }
+    },
+    "speechAndStructure": {
+      "score": 16,
+      "maxScore": 20,
+      "average": 4.0,
+      "maxAverage": 5.0,
+      "percentage": 80,
+      "criteria": {
+        "fluency": 4,
+        "structure": 4,
+        "pacing": 4,
+        "grammar": 4
+      }
+    }
+  },
+  "overallFeedback": {
+    "speechFluency": {
+      "strengths": ["Clear articulation", "Good pacing"],
+      "areasOfImprovement": ["Reduce filler words", "Maintain consistent structure"],
+      "actionableSteps": [
+        {
+          "title": "Fluency Drills",
+          "description": "Record responses and identify filler word patterns"
+        }
+      ]
+    }
+  },
+  "questionAnalysis": [
+    {
+      "id": 1,
+      "totalQuestions": 5,
+      "type": "Technical question",
+      "question": "Explain event delegation in JavaScript",
+      "feedback": {
+        "knowledgeRelated": {
+          "strengths": ["Correct concept explanation"],
+          "areasOfImprovement": ["Provide more specific examples"],
+          "actionableInsights": [
+            {
+              "title": "Practice Examples",
+              "description": "Prepare 2-3 specific code examples for similar questions"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "totalQuestions": 5,
+      "type": "Technical question",
+      "question": "What is the event loop?",
+      "feedback": null
+    }
+  ]
+}
+```
+
+**Key Features:**
+- **Numeric Scoring**: Knowledge (0-25) and Speech (0-20) with clear max values
+- **Actionable Steps**: Structured with title + description for clarity
+- **Per-Question Feedback**: Includes all questions (null feedback if not attempted)
+- **Speech Focus**: Overall feedback focuses only on speech/communication aspects
+- **LLM-Powered**: GPT-based synthesis with fallback to heuristic scoring
 
 ### Key Components
 - **Audio Processor**: `src/services/audio_processor.py` - Handles validation, temporary files, MIME detection

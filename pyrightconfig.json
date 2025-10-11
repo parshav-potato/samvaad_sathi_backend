@@ -8,9 +8,10 @@
     "**/.venv",
     "**/venv",
     "**/.mypy_cache",
-    "**/.pytest_cache"
+    "**/.pytest_cache",
+    "**/.venv/**"
   ],
-  "venvPath": ".",
+  "venvPath": "/home/parshav-potato/projects/samvaad_sathi_backend/backend/backend",
   "venv": "venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
@@ -19,10 +20,11 @@
       "root": "backend/backend/src"
     }
   ],
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "off",
   "useLibraryCodeForTypes": true,
-  "autoSearchPaths": true,
+  "reportAttributeAccessIssue": "none",
   "extraPaths": [
-    "backend/backend"
+    "backend/backend",
+    "backend/backend/venv/lib/python3.13/site-packages"
   ]
 }

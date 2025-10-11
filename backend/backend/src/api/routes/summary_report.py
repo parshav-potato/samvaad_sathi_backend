@@ -13,7 +13,7 @@ from src.models.schemas.summary_report import SummaryReportRequest, SummaryRepor
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.repository.crud.summary_report import SummaryReportCRUDRepository
-from src.services.summary_report import SummaryReportService
+from src.services.summary_report_v2 import SummaryReportServiceV2
 
 
 router = fastapi.APIRouter(tags=["report"])
@@ -55,8 +55,13 @@ async def generate_summary_report(
     questions = await question_repo.list_by_interview(interview_id=interview.id)
     resume_used = any(q.resume_used for q in questions) if questions else None
 
-    service = SummaryReportService(session)
-    result = await service.generate_for_interview(interview.id, attempts, interview.track, resume_used)
+    # Get candidate name from user if available
+    candidate_name = getattr(current_user, "name", None)
+
+    service = SummaryReportServiceV2(session)
+    result = await service.generate_for_interview(
+        interview.id, attempts, interview.track, resume_used, candidate_name
+    )
 
     # Persist summary report (idempotent per interview)
     try:
@@ -120,36 +125,44 @@ async def get_summary_reports(
     items = []
     for summary_report, interview in reports_data:
         # Extract overall score from the report JSON if available
-        # Overall score is the average of knowledge competence and speech structure
         overall_score = None
-        if summary_report.report_json and "metrics" in summary_report.report_json:
-            metrics_json = summary_report.report_json["metrics"]
-            kc_pct = None
-            ss_pct = None
-            
-            # For knowledge competence, check if we have valid data
-            # A score of 0 with all breakdown values also 0 likely means no domain analysis was run
-            if "knowledgeCompetence" in metrics_json:
-                kc = metrics_json["knowledgeCompetence"]
-                kc_val = kc.get("averagePct")
-                # Check if this is real data or missing analysis
-                # If all breakdown values are 0 or None, treat it as missing data
-                breakdown = kc.get("breakdown", {}) or {}
-                has_breakdown_data = any(
-                    val is not None and val > 0
-                    for key in ["accuracy", "depth", "coverage", "relevance"]
-                    if (val := breakdown.get(key)) is not None
-                )
-                if kc_val is not None and (kc_val > 0 or has_breakdown_data):
-                    kc_pct = kc_val
-                    
-            if "speechStructure" in metrics_json and "averagePct" in metrics_json["speechStructure"]:
-                ss_pct = metrics_json["speechStructure"]["averagePct"]
-            
-            # Compute overall score as average of available scores
-            scores = [s for s in [kc_pct, ss_pct] if s is not None]
-            if scores:
-                overall_score = sum(scores) / len(scores)
+        if summary_report.report_json:
+            # Try new format first
+            if "scoreSummary" in summary_report.report_json:
+                score_summary = summary_report.report_json["scoreSummary"]
+                kc_pct = score_summary.get("knowledgeCompetence", {}).get("percentage")
+                ss_pct = score_summary.get("speechAndStructure", {}).get("percentage")
+                
+                # Compute overall score as average of available scores
+                scores = [s for s in [kc_pct, ss_pct] if s is not None]
+                if scores:
+                    overall_score = sum(scores) / len(scores)
+            # Fall back to old format
+            elif "metrics" in summary_report.report_json:
+                metrics_json = summary_report.report_json["metrics"]
+                kc_pct = None
+                ss_pct = None
+                
+                # For knowledge competence, check if we have valid data
+                if "knowledgeCompetence" in metrics_json:
+                    kc = metrics_json["knowledgeCompetence"]
+                    kc_val = kc.get("averagePct")
+                    breakdown = kc.get("breakdown", {}) or {}
+                    has_breakdown_data = any(
+                        val is not None and val > 0
+                        for key in ["accuracy", "depth", "coverage", "relevance"]
+                        if (val := breakdown.get(key)) is not None
+                    )
+                    if kc_val is not None and (kc_val > 0 or has_breakdown_data):
+                        kc_pct = kc_val
+                        
+                if "speechStructure" in metrics_json and "averagePct" in metrics_json["speechStructure"]:
+                    ss_pct = metrics_json["speechStructure"]["averagePct"]
+                
+                # Compute overall score as average of available scores
+                scores = [s for s in [kc_pct, ss_pct] if s is not None]
+                if scores:
+                    overall_score = sum(scores) / len(scores)
         
         # Create the complete summary report response
         report_data = SummaryReportResponse(**summary_report.report_json) if summary_report.report_json else None
