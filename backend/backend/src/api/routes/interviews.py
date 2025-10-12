@@ -343,12 +343,19 @@ async def list_my_interviews(
         if summary_reports:
             latest_report = summary_reports[0]
             if latest_report.report_json:
-                metrics = latest_report.report_json.get("metrics", {})
-                knowledge_competence = metrics.get("knowledgeCompetence", {})
-                speech_structure_fluency = metrics.get("speechStructure", {})
-                
-                knowledge_percentage = knowledge_competence.get("averagePct")
-                speech_fluency_percentage = speech_structure_fluency.get("averagePct")
+                # Try new format first (scoreSummary)
+                if "scoreSummary" in latest_report.report_json:
+                    score_summary = latest_report.report_json["scoreSummary"]
+                    knowledge_percentage = score_summary.get("knowledgeCompetence", {}).get("percentage")
+                    speech_fluency_percentage = score_summary.get("speechAndStructure", {}).get("percentage")
+                # Fall back to old format (metrics)
+                elif "metrics" in latest_report.report_json:
+                    metrics = latest_report.report_json.get("metrics", {})
+                    knowledge_competence = metrics.get("knowledgeCompetence", {})
+                    speech_structure_fluency = metrics.get("speechStructure", {})
+                    
+                    knowledge_percentage = knowledge_competence.get("averagePct")
+                    speech_fluency_percentage = speech_structure_fluency.get("averagePct")
         
         item = InterviewItem(
             interview_id=interview.id,
@@ -531,22 +538,42 @@ async def list_my_interviews_with_summary(
         
         if summary_reports and summary_reports[0].report_json:
             latest_report = summary_reports[0].report_json
-            metrics = latest_report.get("metrics", {}) if isinstance(latest_report, dict) else {}
-            if metrics:
-                kc = metrics.get("knowledgeCompetence", {}) or {}
-                ss = metrics.get("speechStructure", {}) or {}
-                knowledge_percentage = kc.get("averagePct")
-                speech_fluency_percentage = ss.get("averagePct")
+            
+            # Try new format first (scoreSummary)
+            if "scoreSummary" in latest_report:
+                score_summary = latest_report.get("scoreSummary", {})
+                knowledge_percentage = score_summary.get("knowledgeCompetence", {}).get("percentage")
+                speech_fluency_percentage = score_summary.get("speechAndStructure", {}).get("percentage")
+            # Fall back to old format (metrics)
+            elif "metrics" in latest_report:
+                metrics = latest_report.get("metrics", {}) if isinstance(latest_report, dict) else {}
+                if metrics:
+                    kc = metrics.get("knowledgeCompetence", {}) or {}
+                    ss = metrics.get("speechStructure", {}) or {}
+                    knowledge_percentage = kc.get("averagePct")
+                    speech_fluency_percentage = ss.get("averagePct")
 
-            actionable_section = latest_report.get("actionableInsights") if isinstance(latest_report, dict) else None
-            if isinstance(actionable_section, dict):
-                groups = actionable_section.get("groups", [])
-                action_items: list[str] = []
-                for group in groups:
-                    items = group.get("items") if isinstance(group, dict) else None
-                    if isinstance(items, list):
-                        action_items.extend(str(item) for item in items if item)
-                top_action_items = action_items[:3]
+            # Extract action items - try new format first
+            if "overallFeedback" in latest_report:
+                overall_feedback = latest_report.get("overallFeedback", {})
+                speech_fluency = overall_feedback.get("speechFluency", {})
+                actionable_steps = speech_fluency.get("actionableSteps", [])
+                if isinstance(actionable_steps, list):
+                    # New format has {title, description} objects
+                    for step in actionable_steps[:3]:
+                        if isinstance(step, dict) and "title" in step:
+                            top_action_items.append(step["title"])
+            # Fall back to old format
+            elif "actionableInsights" in latest_report:
+                actionable_section = latest_report.get("actionableInsights") if isinstance(latest_report, dict) else None
+                if isinstance(actionable_section, dict):
+                    groups = actionable_section.get("groups", [])
+                    action_items: list[str] = []
+                    for group in groups:
+                        items = group.get("items") if isinstance(group, dict) else None
+                        if isinstance(items, list):
+                            action_items.extend(str(item) for item in items if item)
+                    top_action_items = action_items[:3]
         
         item = InterviewItemWithSummary(
             interview_id=interview.id,

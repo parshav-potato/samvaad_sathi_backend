@@ -169,7 +169,13 @@ Base prefix: `/api`
 - `POST /api/interviews/create`: Create or resume an active interview session by `track` for the current user.
 - `POST /api/interviews/generate-questions`: Generate questions for the active interview (LLM-backed with fallback); persists them as QuestionAttempts.
 - `POST /api/interviews/complete`: Complete a specific interview by ID. Request: `{ "interviewId": number }`.
-- `GET /api/interviews?limit=20&cursor=<lastId>`: Cursor-based listing (newest first). Response: `{ items: [...], next_cursor, limit }`.
+- `GET /api/interviews?limit=20&cursor=<lastId>`: Cursor-based listing (newest first). 
+  - **Response**: `{ items: [{ interviewId, track, difficulty, status, createdAt, knowledgePercentage, speechFluencyPercentage, attemptsCount, resumeUsed }], next_cursor, limit }`
+  - **New**: Automatically includes `knowledgePercentage` and `speechFluencyPercentage` from latest summary report (if available)
+- `GET /api/interviews-with-summary?limit=20&cursor=<lastId>`: Enhanced interview listing with summary data (newest first).
+  - **Response**: `{ items: [{ interviewId, track, difficulty, status, createdAt, knowledgePercentage, speechFluencyPercentage, summaryReportAvailable, attemptsCount, topActionItems }], next_cursor, limit }`
+  - **Features**: Includes top 3 action items from latest summary report, summary availability flag
+  - **Performance**: Optimized single query with join to summary_reports table
 - `GET /api/interviews/{id}/questions?limit=20&cursor=<lastQuestionId>`: Cursor-based listing (oldest first). Response: `{ interviewId, items, next_cursor, limit }`.
 - `GET /api/interviews/{id}/question-attempts`: Get QuestionAttempt objects with IDs for audio transcription support.
 

@@ -84,21 +84,27 @@ def main() -> None:
         if not interview_id and isinstance(lb, dict) and lb.get("items"):
             interview_id = lb["items"][0].get("interviewId")
 
-        # Test the new enhanced interviews endpoint
+        # Test the new enhanced interviews endpoint (BEFORE summary report)
         r_enhanced, err_enhanced = safe_call(client, "GET", f"{API}/interviews-with-summary?limit=5", headers=headers)
-        print_result("GET /api/interviews-with-summary", r_enhanced, err_enhanced)
+        print_result("GET /api/interviews-with-summary (BEFORE summary)", r_enhanced, err_enhanced)
         if r_enhanced and r_enhanced.status_code == 200:
             enhanced_body = safe_json(r_enhanced)
             if isinstance(enhanced_body, dict):
                 items = enhanced_body.get("items", [])
-                print(f"   Found {len(items)} interviews with summary data")
+                print(f"   Found {len(items)} interviews (before summary generation)")
                 for item in items[:2]:  # Show first 2 items
                     if isinstance(item, dict):
-                        print(f"   - Interview {item.get('interview_id', 'N/A')}: {item.get('track', 'N/A')} ({item.get('status', 'N/A')})")
-                        if item.get('summary_report_available'):
-                            print(f"     Knowledge: {item.get('knowledge_percentage', 'N/A')}%, Speech: {item.get('speech_fluency_percentage', 'N/A')}%")
-                            print(f"     Attempts: {item.get('attempts_count', 0)}")
-                            action_items = item.get('top_action_items', [])
+                        iid = item.get('interviewId', 'N/A')
+                        track = item.get('track', 'N/A')
+                        status = item.get('status', 'N/A')
+                        kp = item.get('knowledgePercentage')
+                        sp = item.get('speechFluencyPercentage')
+                        available = item.get('summaryReportAvailable', False)
+                        print(f"   - Interview {iid}: {track} ({status})")
+                        print(f"     Knowledge: {kp}%, Speech: {sp}%, Available: {available}")
+                        if available:
+                            print(f"     Attempts: {item.get('attemptsCount', 0)}")
+                            action_items = item.get('topActionItems', [])
                             if action_items:
                                 print(f"     Top Actions: {', '.join(action_items[:2])}")  # Show first 2 action items
 
@@ -206,6 +212,95 @@ def main() -> None:
                                 if isinstance(report, dict) and 'metrics' in report:
                                     report_track = report.get('track', 'N/A')
                                     print(f"     Full report data included with {len(report)} top-level fields, track: {report_track}")
+                
+                # AFTER summary report: Check interviews-with-summary again
+                r_enhanced_after, err_enhanced_after = safe_call(client, "GET", f"{API}/interviews-with-summary?limit=5", headers=headers)
+                print_result("GET /api/interviews-with-summary (AFTER summary)", r_enhanced_after, err_enhanced_after)
+                if r_enhanced_after and r_enhanced_after.status_code == 200:
+                    enhanced_body_after = safe_json(r_enhanced_after)
+                    if isinstance(enhanced_body_after, dict):
+                        items_after = enhanced_body_after.get("items", [])
+                        print(f"   Found {len(items_after)} interviews (after summary generation)")
+                        for item in items_after[:2]:  # Show first 2 items
+                            if isinstance(item, dict):
+                                iid = item.get('interviewId', 'N/A')
+                                track = item.get('track', 'N/A')
+                                status = item.get('status', 'N/A')
+                                kp = item.get('knowledgePercentage')
+                                sp = item.get('speechFluencyPercentage')
+                                available = item.get('summaryReportAvailable', False)
+                                attempts = item.get('attemptsCount', 0)
+                                print(f"   - Interview {iid}: {track} ({status})")
+                                print(f"     Knowledge: {kp}%, Speech: {sp}%")
+                                print(f"     Summary Available: {available}, Attempts: {attempts}")
+                                
+                                # Verify data is now populated
+                                if available and (kp is None or sp is None):
+                                    print(f"   ⚠️  WARNING: Summary available but percentages are null!")
+                                elif available and kp is not None and sp is not None:
+                                    print(f"   ✅ Percentages successfully populated after summary generation!")
+                                    
+                                action_items = item.get('topActionItems', [])
+                                if action_items:
+                                    print(f"     Top {len(action_items)} action items: {', '.join(action_items[:2])}")
+                                    print(f"   ✅ Action items successfully extracted!")
+                                elif available:
+                                    print(f"   ⚠️  WARNING: Summary available but no action items found!")
+                
+                # Verify interviews list now shows percentages after summary report generation
+                r_check, err_check = safe_call(client, "GET", f"{API}/interviews?limit=1", headers=headers)
+                print_result("GET /api/interviews (after summary)", r_check, err_check)
+                if r_check and r_check.status_code == 200:
+                    check_body = safe_json(r_check)
+                    if isinstance(check_body, dict):
+                        check_items = check_body.get("items", [])
+                        if check_items:
+                            first_item = check_items[0]
+                            if isinstance(first_item, dict):
+                                kp = first_item.get('knowledgePercentage')
+                                sp = first_item.get('speechFluencyPercentage')
+                                attempts = first_item.get('attemptsCount', 0)
+                                print(f"   Interview {first_item.get('interviewId')} now shows:")
+                                print(f"     Knowledge: {kp}%, Speech: {sp}%, Attempts: {attempts}")
+                                if kp is None or sp is None:
+                                    print(f"   ⚠️  WARNING: Percentages are null despite having {attempts} summary report(s)")
+                                else:
+                                    print(f"   ✅ Percentages successfully populated!")
+                
+                # Also check the enhanced endpoint (AFTER summary report)
+                r_enh_check, err_enh_check = safe_call(client, "GET", f"{API}/interviews-with-summary?limit=1", headers=headers)
+                print_result("GET /api/interviews-with-summary (AFTER summary)", r_enh_check, err_enh_check)
+                if r_enh_check and r_enh_check.status_code == 200:
+                    enh_check_body = safe_json(r_enh_check)
+                    if isinstance(enh_check_body, dict):
+                        enh_items = enh_check_body.get("items", [])
+                        if enh_items:
+                            enh_first = enh_items[0]
+                            if isinstance(enh_first, dict):
+                                kp_enh = enh_first.get('knowledgePercentage')
+                                sp_enh = enh_first.get('speechFluencyPercentage')
+                                available_enh = enh_first.get('summaryReportAvailable', False)
+                                attempts_enh = enh_first.get('attemptsCount', 0)
+                                actions = enh_first.get('topActionItems', [])
+                                
+                                print(f"   📊 Enhanced endpoint now shows:")
+                                print(f"     - Summary Available: {available_enh}")
+                                print(f"     - Knowledge: {kp_enh}%")
+                                print(f"     - Speech: {sp_enh}%")
+                                print(f"     - Attempts: {attempts_enh}")
+                                print(f"     - Top {len(actions)} Action Items:")
+                                for i, action in enumerate(actions[:3], 1):
+                                    print(f"       {i}. {action}")
+                                
+                                # Validation
+                                if not available_enh and attempts_enh > 0:
+                                    print(f"   ⚠️  WARNING: summaryReportAvailable is False but attemptsCount is {attempts_enh}")
+                                elif kp_enh is None or sp_enh is None:
+                                    print(f"   ⚠️  WARNING: Enhanced endpoint percentages are null despite {attempts_enh} report(s)")
+                                elif not actions and attempts_enh > 0:
+                                    print(f"   ⚠️  WARNING: No action items despite having {attempts_enh} report(s)")
+                                else:
+                                    print(f"   ✅ Enhanced endpoint fully populated with all summary data!")
 
         # Test resume interview endpoint
         if interview_id:
