@@ -102,11 +102,14 @@ class SummaryReportServiceV2:
         all_interview_questions = list(result.scalars().all())
         
         # Build a map of question_id -> QuestionAttempt
+        # When there are multiple attempts for the same question (re-attempts),
+        # keep only the latest attempt as it represents the user's most recent/best effort
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
         actually_attempted_question_ids: set[int] = set()  # Track questions with actual content
         
         for qa in question_attempts:
             if qa.question_id is not None:
+                # This overwrites previous attempts - intended behavior for re-attempts
                 attempts_by_question_id[qa.question_id] = qa
                 
                 # Check if this attempt has actual content
@@ -309,11 +312,86 @@ class SummaryReportServiceV2:
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
         attempted_questions = len(per_question_scores)
         
+        # If no questions were actually attempted, return all zeros immediately
         if attempted_questions == 0 or total_questions == 0:
-            # No attempts - return zeros
-            attempt_ratio = 0.0
-        else:
-            attempt_ratio = attempted_questions / total_questions
+            score_summary = {
+                "knowledgeCompetence": {
+                    "score": 0,
+                    "maxScore": 25,
+                    "average": 0.0,
+                    "maxAverage": 5.0,
+                    "percentage": 0,
+                    "criteria": {
+                        "accuracy": 0,
+                        "depth": 0,
+                        "relevance": 0,
+                        "examples": 0,
+                        "terminology": 0,
+                    }
+                },
+                "speechAndStructure": {
+                    "score": 0,
+                    "maxScore": 20,
+                    "average": 0.0,
+                    "maxAverage": 5.0,
+                    "percentage": 0,
+                    "criteria": {
+                        "fluency": 0,
+                        "structure": 0,
+                        "pacing": 0,
+                        "grammar": 0,
+                    }
+                }
+            }
+            
+            candidate_info = {
+                "name": candidate_name,
+                "interviewDate": interview_date,
+                "roleTopic": track.title(),
+            }
+            
+            # Build questionAnalysis with no feedback for unattempted questions
+            question_analysis = []
+            for idx, iq in enumerate(all_questions):
+                if iq.id not in actually_attempted_question_ids:
+                    continue
+                    
+                category_map = {
+                    "tech": "Technical question",
+                    "tech_allied": "Technical Allied question", 
+                    "behavioral": "Behavioral question",
+                }
+                question_type = category_map.get(iq.category, "Technical question")
+                
+                question_analysis.append({
+                    "id": idx + 1,
+                    "totalQuestions": total_questions,
+                    "type": question_type,
+                    "question": iq.text,
+                    "feedback": None,
+                })
+            
+            # Return early with all zeros
+            overall_feedback = {
+                "speechFluency": {
+                    "strengths": [],
+                    "areasOfImprovement": [],
+                    "actionableSteps": [
+                        {
+                            "title": "Attempt All Questions",
+                            "description": "Complete the interview by answering all questions to receive personalized feedback on your performance."
+                        }
+                    ],
+                }
+            }
+            
+            return {
+                "reportId": str(uuid.uuid4()),
+                "candidateInfo": candidate_info,
+                "scoreSummary": score_summary,
+                "overallFeedback": overall_feedback,
+                "questionAnalysis": question_analysis,
+            }
         
         # Sum knowledge scores across all attempted questions
         kc_accuracy_sum = 0
@@ -342,14 +420,15 @@ class SummaryReportServiceV2:
             ssf_pacing_sum += s_scores.get("pacing", 0)
             ssf_grammar_sum += s_scores.get("grammar", 0)
         
-        # Calculate total sums from attempted questions
+                # Calculate total sums from attempted questions
         kc_total_from_attempted = (kc_accuracy_sum + kc_depth_sum + kc_relevance_sum + 
                                    kc_examples_sum + kc_terminology_sum)
         ssf_total_from_attempted = (ssf_fluency_sum + ssf_structure_sum + 
                                     ssf_pacing_sum + ssf_grammar_sum)
         
-        # Calculate AVERAGE scores per question (not sum!)
-        # This prevents score inflation when multiple questions are attempted
+        # Calculate average scores per question from attempted questions
+        # IMPORTANT: This uses attempted_questions (not total_questions) as denominator
+        # to get the average performance on attempted questions
         if attempted_questions > 0:
             kc_avg_per_question = kc_total_from_attempted / attempted_questions
             ssf_avg_per_question = ssf_total_from_attempted / attempted_questions
@@ -357,10 +436,16 @@ class SummaryReportServiceV2:
             kc_avg_per_question = 0
             ssf_avg_per_question = 0
         
-        # Apply attempt penalty: scale average by completion ratio
-        # Max possible score is (max_score × completion_ratio)
-        kc_score_total = round(kc_avg_per_question * attempt_ratio)
-        ssf_score_total = round(ssf_avg_per_question * attempt_ratio)
+        # Apply completion penalty: scale by the ratio of attempted to total questions
+        # This penalizes users who skip questions
+        # Example 1 (RE-ATTEMPT): 2 total questions, both attempted initially, then re-attempt Q2
+        #   - attempted=2, total=2, ratio=1.0 → no penalty (all questions attempted)
+        # Example 2 (SKIP): 5 total questions, only 2 attempted, 3 skipped
+        #   - attempted=2, total=5, ratio=0.4 → 40% penalty (60% of questions skipped)
+        completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
+        
+        kc_score_total = round(kc_avg_per_question * completion_ratio)
+        ssf_score_total = round(ssf_avg_per_question * completion_ratio)
         
         # Distribute the final penalized score back to criteria proportionally
         # This ensures criteria sum exactly to the final score
@@ -437,15 +522,23 @@ class SummaryReportServiceV2:
             if idx < len(per_question_feedback):
                 llm_feedback = per_question_feedback[idx]
                 if llm_feedback is not None:
-                    # Only include feedback if it has actual content
+                    # Extract knowledge-related feedback
                     feedback_data = llm_feedback.get("knowledgeRelated", {})
-                    has_content = (
-                        feedback_data.get("strengths") or
-                        feedback_data.get("areasOfImprovement") or
-                        feedback_data.get("actionableInsights")
-                    )
-                    if has_content:
-                        feedback_by_question_id[q_id] = {"knowledgeRelated": feedback_data}
+                    
+                    # Ensure all required fields exist with empty arrays as fallback
+                    strengths = feedback_data.get("strengths") or []
+                    areas_of_improvement = feedback_data.get("areasOfImprovement") or []
+                    actionable_insights = feedback_data.get("actionableInsights") or []
+                    
+                    # Always include feedback structure, even if empty
+                    # This ensures consistent API response structure
+                    feedback_by_question_id[q_id] = {
+                        "knowledgeRelated": {
+                            "strengths": strengths if isinstance(strengths, list) else [],
+                            "areasOfImprovement": areas_of_improvement if isinstance(areas_of_improvement, list) else [],
+                            "actionableInsights": actionable_insights if isinstance(actionable_insights, list) else [],
+                        }
+                    }
         
         question_analysis = []
         for idx, iq in enumerate(all_questions):
@@ -472,12 +565,41 @@ class SummaryReportServiceV2:
                 "feedback": feedback,
             })
         
+        # Ensure overallFeedback has proper structure with all required fields
+        overall_feedback_raw = llm_data.get("overallFeedback", {})
+        speech_fluency_raw = overall_feedback_raw.get("speechFluency", {}) if isinstance(overall_feedback_raw, dict) else {}
+        
+        # If no questions were actually attempted (all skipped), don't show misleading feedback
+        # Clear out any generic LLM feedback and show only actionable step to attempt questions
+        if attempted_questions == 0:
+            overall_feedback = {
+                "speechFluency": {
+                    "strengths": [],
+                    "areasOfImprovement": [],
+                    "actionableSteps": [
+                        {
+                            "title": "Attempt All Questions",
+                            "description": "Complete the interview by answering all questions to receive personalized feedback on your performance."
+                        }
+                    ],
+                }
+            }
+        else:
+            # Questions were attempted - use LLM feedback
+            overall_feedback = {
+                "speechFluency": {
+                    "strengths": speech_fluency_raw.get("strengths") or [] if isinstance(speech_fluency_raw, dict) else [],
+                    "areasOfImprovement": speech_fluency_raw.get("areasOfImprovement") or [] if isinstance(speech_fluency_raw, dict) else [],
+                    "actionableSteps": speech_fluency_raw.get("actionableSteps") or [] if isinstance(speech_fluency_raw, dict) else [],
+                }
+            }
+        
         # Return the complete report with calculated scores and code-generated metadata
         return {
             "reportId": str(uuid.uuid4()),  # Generate in code
             "candidateInfo": candidate_info,  # Generate in code
             "scoreSummary": score_summary,
-            "overallFeedback": llm_data.get("overallFeedback"),
+            "overallFeedback": overall_feedback,
             "questionAnalysis": question_analysis,  # Built from code + LLM feedback
         }
     
@@ -593,22 +715,37 @@ class SummaryReportServiceV2:
         speech_strengths = computed_metrics.get("speech_strengths", [])
         speech_improvements = computed_metrics.get("speech_improvements", [])
         
-        overall_feedback = OverallFeedback(
-            speechFluency=SpeechFluencyFeedback(
-                strengths=speech_strengths[:4],
-                areasOfImprovement=speech_improvements[:4],
-                actionableSteps=[
-                    ActionableStep(
-                        title="Practice Regular Speaking",
-                        description="Record yourself answering technical questions and review for fluency improvements.",
-                    ),
-                    ActionableStep(
-                        title="Structured Response Framework",
-                        description="Use a clear structure: state the problem, explain your approach, provide examples, and summarize.",
-                    ),
-                ],
-            ),
-        )
+        # If no questions were actually attempted, don't show misleading feedback
+        if attempted_questions == 0:
+            overall_feedback = OverallFeedback(
+                speechFluency=SpeechFluencyFeedback(
+                    strengths=[],
+                    areasOfImprovement=[],
+                    actionableSteps=[
+                        ActionableStep(
+                            title="Attempt All Questions",
+                            description="Complete the interview by answering all questions to receive personalized feedback on your performance.",
+                        ),
+                    ],
+                ),
+            )
+        else:
+            overall_feedback = OverallFeedback(
+                speechFluency=SpeechFluencyFeedback(
+                    strengths=speech_strengths[:4],
+                    areasOfImprovement=speech_improvements[:4],
+                    actionableSteps=[
+                        ActionableStep(
+                            title="Practice Regular Speaking",
+                            description="Record yourself answering technical questions and review for fluency improvements.",
+                        ),
+                        ActionableStep(
+                            title="Structured Response Framework",
+                            description="Use a clear structure: state the problem, explain your approach, provide examples, and summarize.",
+                        ),
+                    ],
+                ),
+            )
         
         # Question analysis
         question_analysis: List[QuestionAnalysisItem] = []
