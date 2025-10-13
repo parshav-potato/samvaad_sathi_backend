@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import fastapi
 
 from src.api.dependencies.auth import get_current_user
@@ -9,6 +11,8 @@ from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.syllabus_service import syllabus_service
 from src.services.whisper import strip_word_level_data
+
+logger = logging.getLogger(__name__)
 
 
 router = fastapi.APIRouter(prefix="", tags=["interviews"])
@@ -523,71 +527,129 @@ async def list_my_interviews_with_summary(
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
 ) -> InterviewsListWithSummaryResponse:
     safe_limit = max(1, min(100, int(limit)))
-    rows, next_cursor = await interview_repo.list_by_user_cursor_with_summary(user_id=current_user.id, limit=safe_limit, cursor_id=cursor)
+    
+    # Add timeout to prevent hanging on slow database queries
+    try:
+        rows, next_cursor = await asyncio.wait_for(
+            interview_repo.list_by_user_cursor_with_summary(user_id=current_user.id, limit=safe_limit, cursor_id=cursor),
+            timeout=30.0  # 30 second timeout
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout fetching interviews with summary for user {current_user.id}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Request timeout while fetching interviews. Please try again."
+        )
+    except Exception as e:
+        logger.error(f"Error fetching interviews with summary for user {current_user.id}: {e}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching interviews"
+        )
     
     items = []
     for interview, summary_reports in rows:
-        # Count attempts (summary reports)
-        attempts_count = len(summary_reports)
-        
-        # Extract percentages and action items from the latest report (first in the list since it's ordered by created_at desc)
-        knowledge_percentage = None
-        speech_fluency_percentage = None
-        summary_report_available = attempts_count > 0
-        top_action_items = []
-        
-        if summary_reports and summary_reports[0].report_json:
-            latest_report = summary_reports[0].report_json
+        try:
+            # Count attempts (summary reports)
+            attempts_count = len(summary_reports) if summary_reports else 0
             
-            # Try new format first (scoreSummary)
-            if "scoreSummary" in latest_report:
-                score_summary = latest_report.get("scoreSummary", {})
-                knowledge_percentage = score_summary.get("knowledgeCompetence", {}).get("percentage")
-                speech_fluency_percentage = score_summary.get("speechAndStructure", {}).get("percentage")
-            # Fall back to old format (metrics)
-            elif "metrics" in latest_report:
-                metrics = latest_report.get("metrics", {}) if isinstance(latest_report, dict) else {}
-                if metrics:
-                    kc = metrics.get("knowledgeCompetence", {}) or {}
-                    ss = metrics.get("speechStructure", {}) or {}
-                    knowledge_percentage = kc.get("averagePct")
-                    speech_fluency_percentage = ss.get("averagePct")
+            # Extract percentages and action items from the latest report (first in the list since it's ordered by created_at desc)
+            knowledge_percentage = None
+            speech_fluency_percentage = None
+            summary_report_available = attempts_count > 0
+            top_action_items = []
+            
+            if summary_reports and len(summary_reports) > 0:
+                try:
+                    latest_report = summary_reports[0].report_json
+                    
+                    # Ensure latest_report is a dict
+                    if not isinstance(latest_report, dict):
+                        latest_report = {}
+                    
+                    # Try new format first (scoreSummary)
+                    if "scoreSummary" in latest_report:
+                        try:
+                            score_summary = latest_report.get("scoreSummary", {})
+                            if isinstance(score_summary, dict):
+                                kc = score_summary.get("knowledgeCompetence", {})
+                                ss = score_summary.get("speechAndStructure", {})
+                                if isinstance(kc, dict):
+                                    knowledge_percentage = kc.get("percentage")
+                                if isinstance(ss, dict):
+                                    speech_fluency_percentage = ss.get("percentage")
+                        except (AttributeError, TypeError, KeyError):
+                            pass
+                    # Fall back to old format (metrics)
+                    elif "metrics" in latest_report:
+                        try:
+                            metrics = latest_report.get("metrics", {})
+                            if isinstance(metrics, dict):
+                                kc = metrics.get("knowledgeCompetence", {}) or {}
+                                ss = metrics.get("speechStructure", {}) or {}
+                                if isinstance(kc, dict):
+                                    knowledge_percentage = kc.get("averagePct")
+                                if isinstance(ss, dict):
+                                    speech_fluency_percentage = ss.get("averagePct")
+                        except (AttributeError, TypeError, KeyError):
+                            pass
 
-            # Extract action items - try new format first
-            if "overallFeedback" in latest_report:
-                overall_feedback = latest_report.get("overallFeedback", {})
-                speech_fluency = overall_feedback.get("speechFluency", {})
-                actionable_steps = speech_fluency.get("actionableSteps", [])
-                if isinstance(actionable_steps, list):
-                    # New format has {title, description} objects
-                    for step in actionable_steps[:3]:
-                        if isinstance(step, dict) and "title" in step:
-                            top_action_items.append(step["title"])
-            # Fall back to old format
-            elif "actionableInsights" in latest_report:
-                actionable_section = latest_report.get("actionableInsights") if isinstance(latest_report, dict) else None
-                if isinstance(actionable_section, dict):
-                    groups = actionable_section.get("groups", [])
-                    action_items: list[str] = []
-                    for group in groups:
-                        items = group.get("items") if isinstance(group, dict) else None
-                        if isinstance(items, list):
-                            action_items.extend(str(item) for item in items if item)
-                    top_action_items = action_items[:3]
-        
-        item = InterviewItemWithSummary(
-            interview_id=interview.id,
-            track=interview.track,
-            difficulty=interview.difficulty,
-            status=interview.status,
-            created_at=interview.created_at,
-            knowledge_percentage=knowledge_percentage,
-            speech_fluency_percentage=speech_fluency_percentage,
-            summary_report_available=summary_report_available,
-            attempts_count=attempts_count,
-            top_action_items=top_action_items
-        )
-        items.append(item)
+                    # Extract action items - try new format first
+                    if "overallFeedback" in latest_report:
+                        try:
+                            overall_feedback = latest_report.get("overallFeedback", {})
+                            if isinstance(overall_feedback, dict):
+                                speech_fluency = overall_feedback.get("speechFluency", {})
+                                if isinstance(speech_fluency, dict):
+                                    actionable_steps = speech_fluency.get("actionableSteps", [])
+                                    if isinstance(actionable_steps, list):
+                                        # New format has {title, description} objects
+                                        for step in actionable_steps[:3]:
+                                            if isinstance(step, dict) and "title" in step:
+                                                title = step.get("title")
+                                                if title and isinstance(title, str):
+                                                    top_action_items.append(title)
+                        except (AttributeError, TypeError, KeyError):
+                            pass
+                    # Fall back to old format
+                    elif "actionableInsights" in latest_report:
+                        try:
+                            actionable_section = latest_report.get("actionableInsights")
+                            if isinstance(actionable_section, dict):
+                                groups = actionable_section.get("groups", [])
+                                if isinstance(groups, list):
+                                    action_items: list[str] = []
+                                    for group in groups:
+                                        if isinstance(group, dict):
+                                            group_items = group.get("items")
+                                            if isinstance(group_items, list):
+                                                for item in group_items:
+                                                    if item and isinstance(item, str):
+                                                        action_items.append(str(item))
+                                    top_action_items = action_items[:3]
+                        except (AttributeError, TypeError, KeyError):
+                            pass
+                except (AttributeError, TypeError, IndexError, KeyError) as e:
+                    # If we can't parse the report_json, log and continue with None values
+                    logger.warning(f"Error parsing report_json for interview {interview.id}: {e}")
+            
+            item = InterviewItemWithSummary(
+                interview_id=interview.id,
+                track=interview.track,
+                difficulty=interview.difficulty,
+                status=interview.status,
+                created_at=interview.created_at,
+                knowledge_percentage=knowledge_percentage,
+                speech_fluency_percentage=speech_fluency_percentage,
+                summary_report_available=summary_report_available,
+                attempts_count=attempts_count,
+                top_action_items=top_action_items
+            )
+            items.append(item)
+        except Exception as e:
+            # If there's any error processing this interview, log it and skip it
+            logger.error(f"Error processing interview {interview.id} in list_my_interviews_with_summary: {e}")
+            continue
     
     return InterviewsListWithSummaryResponse(
         items=items,
