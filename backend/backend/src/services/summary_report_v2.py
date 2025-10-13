@@ -103,11 +103,22 @@ class SummaryReportServiceV2:
         
         # Build a map of question_id -> QuestionAttempt
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
+        actually_attempted_question_ids: set[int] = set()  # Track questions with actual content
+        
         for qa in question_attempts:
             if qa.question_id is not None:
                 attempts_by_question_id[qa.question_id] = qa
+                
+                # Check if this attempt has actual content
+                has_transcription = qa.transcription is not None and len(str(qa.transcription).strip()) > 0
+                analysis = getattr(qa, "analysis_json", None) or {}
+                has_analysis = bool(analysis)
+                
+                if has_transcription or has_analysis:
+                    actually_attempted_question_ids.add(qa.question_id)
         
         total_questions = len(all_interview_questions)
+        attempted_questions = len(actually_attempted_question_ids)  # Count only real attempts
         
         # Collect metrics from analyses
         kc_accuracy: List[float] = []
@@ -131,22 +142,11 @@ class SummaryReportServiceV2:
         for interview_question in all_interview_questions:
             qa = attempts_by_question_id.get(interview_question.id)
             
-            if qa is None:
-                # Unattempted question - add to LLM input but with no analysis
-                per_question_inputs.append({
-                    "questionId": interview_question.id,
-                    "questionAttemptId": None,
-                    "questionText": interview_question.text,
-                    "questionCategory": interview_question.category,
-                    "attempted": False,
-                    "domain": {},
-                    "communication": {},
-                    "pace": {},
-                    "pause": {},
-                })
+            # Skip questions that weren't actually attempted with content
+            if interview_question.id not in actually_attempted_question_ids:
                 continue
             
-            # Attempted question - process analysis
+            # Attempted question with actual content - process analysis
             analysis: Dict[str, Any] = getattr(qa, "analysis_json", None) or {}
             
             # Domain/knowledge metrics
@@ -229,7 +229,7 @@ class SummaryReportServiceV2:
             "ssf_pacing_pct": _avg(ssf_pacing),
             "ssf_grammar_pct": _avg(ssf_grammar),
             "total_questions": total_questions,
-            "attempted_questions": len(question_attempts),
+            "attempted_questions": attempted_questions,  # Count only questions with actual content
             "speech_strengths": _unique(speech_strengths)[:6],
             "speech_improvements": _unique(speech_improvements)[:6],
         }
@@ -264,6 +264,8 @@ class SummaryReportServiceV2:
                 llm_data=llm_data,
                 total_questions=total_questions,
                 all_questions=all_interview_questions,
+                attempts_by_question_id=attempts_by_question_id,
+                actually_attempted_question_ids=actually_attempted_question_ids,
                 track=track,
                 interview_date=interview_date,
                 candidate_name=candidate_name,
@@ -288,6 +290,8 @@ class SummaryReportServiceV2:
         llm_data: Dict[str, Any],
         total_questions: int,
         all_questions: List[InterviewQuestion],
+        attempts_by_question_id: Dict[int, QuestionAttempt],
+        actually_attempted_question_ids: set[int],
         track: str,
         interview_date: str,
         candidate_name: str | None,
@@ -445,6 +449,10 @@ class SummaryReportServiceV2:
         
         question_analysis = []
         for idx, iq in enumerate(all_questions):
+            # Only include questions that were actually attempted with content
+            if iq.id not in actually_attempted_question_ids:
+                continue
+                
             # Map question category to type string
             category_map = {
                 "tech": "Technical question",

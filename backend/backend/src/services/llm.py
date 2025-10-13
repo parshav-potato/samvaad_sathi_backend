@@ -155,9 +155,10 @@ class LLMQuestionAnalysisItem(pydantic.BaseModel):
 
 class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
     """Restructured summary report output - LLM provides only scores and feedback, code handles metadata."""
-    perQuestionScores: list[LLMQuestionScores]  # LLM scores each question individually
+    perQuestionScores: list[LLMQuestionScores]  # LLM scores each attempted question individually
     overallFeedback: LLMOverallFeedback
-    perQuestionFeedback: list[LLMQuestionFeedback | None]  # Feedback per question (null if unattempted)
+    perQuestionFeedback: list[LLMQuestionFeedback]  # Feedback per attempted question (same length as perQuestionScores)
+
 
 
 # Legacy models (deprecated - kept for backward compatibility)
@@ -280,8 +281,8 @@ async def synthesize_summary_sections(
         "  - grammar: Correct sentence structure and language use\n"
         "\n"
         "IMPORTANT NOTES:\n"
-        "1. perQuestionScores: Include ONLY attempted questions (match questionId to per_question data with attempted=true)\n"
-        "2. perQuestionFeedback: Array corresponding to perQuestionScores order (NOT total_questions length)\n"
+        "1. perQuestionScores: Include scores for ALL questions provided in per_question data\n"
+        "2. perQuestionFeedback: Array corresponding to perQuestionScores order (same length)\n"
         "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
         "   - Include 2-3 specific strengths (what they did well)\n"
         "   - Include 2-3 specific areas of improvement (what was missing or weak)\n"
@@ -290,7 +291,7 @@ async def synthesize_summary_sections(
         "4. Each criterion is scored independently on 0-5 scale\n"
         "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
         "6. overallFeedback.speechFluency: Focus ONLY on speech aspects across all attempts (3-4 actionable steps)\n"
-        "7. DO NOT return empty arrays - every attempted question MUST have meaningful, specific feedback\n"
+        "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
         "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
@@ -304,7 +305,6 @@ async def synthesize_summary_sections(
             "Focus overallFeedback.speechFluency ONLY on speech aspects, not knowledge",
             "Provide specific, actionable feedback grounded in observed patterns",
             "Use simple language; avoid jargon like 'WPM' or overly technical terms",
-            "For unattempted questions in perQuestionFeedback array, use null",
             "Connect improvement suggestions to specific weaknesses observed in analyses",
             "Ensure actionableSteps have clear titles and detailed descriptions"
         ],
