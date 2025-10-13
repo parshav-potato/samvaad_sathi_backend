@@ -89,8 +89,9 @@ class LLMCandidateInfo(pydantic.BaseModel):
     roleTopic: str
 
 
-class LLMScoreCriteria(pydantic.BaseModel):
-    """Knowledge competence criteria scores (0-5 scale)."""
+# Per-question score models (LLM calculates these independently)
+class LLMQuestionKnowledgeScores(pydantic.BaseModel):
+    """Knowledge scores for a single question (each criterion 0-5)."""
     accuracy: int = pydantic.Field(..., ge=0, le=5)
     depth: int = pydantic.Field(..., ge=0, le=5)
     relevance: int = pydantic.Field(..., ge=0, le=5)
@@ -98,38 +99,19 @@ class LLMScoreCriteria(pydantic.BaseModel):
     terminology: int = pydantic.Field(..., ge=0, le=5)
 
 
-class LLMSpeechCriteria(pydantic.BaseModel):
-    """Speech and structure criteria scores (0-5 scale)."""
+class LLMQuestionSpeechScores(pydantic.BaseModel):
+    """Speech scores for a single question (each criterion 0-5)."""
     fluency: int = pydantic.Field(..., ge=0, le=5)
     structure: int = pydantic.Field(..., ge=0, le=5)
     pacing: int = pydantic.Field(..., ge=0, le=5)
     grammar: int = pydantic.Field(..., ge=0, le=5)
 
 
-class LLMKnowledgeCompetenceScore(pydantic.BaseModel):
-    """Knowledge competence with numeric scores."""
-    score: int = pydantic.Field(..., ge=0, le=25)
-    maxScore: int = pydantic.Field(default=25, ge=0)
-    average: float = pydantic.Field(..., ge=0.0, le=5.0)
-    maxAverage: float = pydantic.Field(default=5.0, ge=0.0)
-    percentage: int = pydantic.Field(..., ge=0, le=100)
-    criteria: LLMScoreCriteria
-
-
-class LLMSpeechAndStructureScore(pydantic.BaseModel):
-    """Speech and structure with numeric scores."""
-    score: int = pydantic.Field(..., ge=0, le=20)
-    maxScore: int = pydantic.Field(default=20, ge=0)
-    average: float = pydantic.Field(..., ge=0.0, le=5.0)
-    maxAverage: float = pydantic.Field(default=5.0, ge=0.0)
-    percentage: int = pydantic.Field(..., ge=0, le=100)
-    criteria: LLMSpeechCriteria
-
-
-class LLMScoreSummary(pydantic.BaseModel):
-    """Overall score summary."""
-    knowledgeCompetence: LLMKnowledgeCompetenceScore
-    speechAndStructure: LLMSpeechAndStructureScore
+class LLMQuestionScores(pydantic.BaseModel):
+    """Combined scores for a single question."""
+    questionId: int
+    knowledgeScores: LLMQuestionKnowledgeScores
+    speechScores: LLMQuestionSpeechScores
 
 
 class LLMActionableStep(pydantic.BaseModel):
@@ -172,12 +154,10 @@ class LLMQuestionAnalysisItem(pydantic.BaseModel):
 
 
 class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
-    """Restructured summary report output matching new format."""
-    reportId: str
-    candidateInfo: LLMCandidateInfo
-    scoreSummary: LLMScoreSummary
+    """Restructured summary report output - LLM provides only scores and feedback, code handles metadata."""
+    perQuestionScores: list[LLMQuestionScores]  # LLM scores each question individually
     overallFeedback: LLMOverallFeedback
-    questionAnalysis: list[LLMQuestionAnalysisItem]
+    perQuestionFeedback: list[LLMQuestionFeedback | None]  # Feedback per question (null if unattempted)
 
 
 # Legacy models (deprecated - kept for backward compatibility)
@@ -271,48 +251,60 @@ async def synthesize_summary_sections(
 
     sys_prompt = (
         "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
-        "pause) for interview questions with scores and suggestions, synthesize a comprehensive report with the exact JSON "
-        "shape below. Use measured data to compute scores and select concrete strengths and prioritized "
-        "improvements. Keep tone constructive and actionable. Return ONLY valid JSON (no markdown). Do NOT output nulls for attempted questions.\n\n"
-        "Strict JSON schema (no nulls for attempted questions): {\n"
-        "  reportId: string (UUID),\n"
-        "  candidateInfo: { name?: string, interviewDate: string (ISO date), roleTopic: string },\n"
-        "  scoreSummary: {\n"
-        "    knowledgeCompetence: { score: int(0..25), maxScore: 25, average: float(0..5), maxAverage: 5.0, percentage: int(0..100), criteria: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) } },\n"
-        "    speechAndStructure: { score: int(0..20), maxScore: 20, average: float(0..5), maxAverage: 5.0, percentage: int(0..100), criteria: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }\n"
-        "  },\n"
-        "  overallFeedback: {\n"
-        "    speechFluency: { strengths: string[], areasOfImprovement: string[], actionableSteps: [{ title: string, description: string }] }\n"
-        "  },\n"
-        "  questionAnalysis: [{ id: int, totalQuestions: int, type: string ('Technical question'|'Technical Allied question'|'Behavioral question'), question: string, feedback: { knowledgeRelated: { strengths: string[], areasOfImprovement: string[], actionableInsights: [{ title: string, description: string }] } } | null }]\n"
+        "pause) for interview questions, analyze each question independently and provide scores and feedback.\n\n"
+        "Your task: \n"
+        "1. Score each attempted question on knowledge and speech criteria (0-5 scale per criterion)\n"
+        "2. Provide overall speech fluency feedback across all attempts\n"
+        "3. Provide per-question knowledge feedback for each attempted question\n\n"
+        "The code will handle: reportId, candidateInfo, question metadata, totals, averages, and percentages.\n\n"
+        "Strict JSON schema: {\n"
+        "  perQuestionScores: [{ questionId: int, knowledgeScores: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) }, speechScores: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }],\n"
+        "  overallFeedback: { speechFluency: { strengths: string[], areasOfImprovement: string[], actionableSteps: [{ title: string, description: string }] } },\n"
+        "  perQuestionFeedback: [{ knowledgeRelated: { strengths: string[], areasOfImprovement: string[], actionableInsights: [{ title: string, description: string }] } } | null]\n"
         "}\n\n"
-        "IMPORTANT GUIDELINES:\n"
-        "1. For scoreSummary: Derive scores from computed_metrics. Calculate score as (average * 5) for knowledge (max 25) and (average * 4) for speech (max 20)\n"
-        "2. For knowledgeCompetence criteria: Round each individual breakdown value from computed_metrics to nearest integer (0-5)\n"
-        "3. For speechAndStructure criteria: Round each individual breakdown value from computed_metrics to nearest integer (0-5)\n"
-        "4. Percentage should be (score / maxScore * 100) rounded to integer\n"
-        "5. For overallFeedback: Focus ONLY on speech fluency aspects (fluency, grammar, structure, pacing). Do NOT include knowledge/domain feedback here\n"
-        "6. For overallFeedback.actionableSteps: Provide 3-4 concrete steps with clear titles ('Fluency Drills', 'Grammar Practice', etc.) and detailed descriptions\n"
-        "7. For questionAnalysis: Include ALL questions. Set feedback to null for unattempted questions. For attempted questions, provide detailed knowledge-related feedback only\n"
-        "8. Question type mapping: 'tech' -> 'Technical question', 'tech_allied' -> 'Technical Allied question', 'behavioral' -> 'Behavioral question'\n"
-        "9. For each attempted question's feedback.knowledgeRelated.actionableInsights: Provide 3-4 specific steps with titles and descriptions\n"
-        "10. Avoid technical jargon like WPM. Keep language simple, clear, and actionable\n"
-        "11. For unattempted questions: DO NOT generate fake feedback - set feedback to null"
+        "SCORING GUIDELINES:\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "PER-QUESTION SCORING (0-5 scale for each criterion):\n"
+        "\n"
+        "Knowledge Criteria:\n"
+        "  - accuracy: How correct and factually accurate was the answer?\n"
+        "  - depth: How detailed and comprehensive was the explanation?\n"
+        "  - relevance: How well did the answer address the question?\n"
+        "  - examples: Quality and appropriateness of examples provided\n"
+        "  - terminology: Proper use of technical terms and concepts\n"
+        "\n"
+        "Speech Criteria:\n"
+        "  - fluency: Smoothness of speech, minimal hesitations/filler words\n"
+        "  - structure: Logical organization and clarity of response\n"
+        "  - pacing: Appropriate speech speed (not too fast/slow)\n"
+        "  - grammar: Correct sentence structure and language use\n"
+        "\n"
+        "IMPORTANT NOTES:\n"
+        "1. perQuestionScores: Include ONLY attempted questions (match questionId to per_question data with attempted=true)\n"
+        "2. perQuestionFeedback: Array corresponding to perQuestionScores order (NOT total_questions length)\n"
+        "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
+        "   - Include 2-3 specific strengths (what they did well)\n"
+        "   - Include 2-3 specific areas of improvement (what was missing or weak)\n"
+        "   - Include 3-4 actionable insights with clear titles and detailed descriptions\n"
+        "3. Base scores on the computed_metrics and analysis data provided for each question\n"
+        "4. Each criterion is scored independently on 0-5 scale\n"
+        "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
+        "6. overallFeedback.speechFluency: Focus ONLY on speech aspects across all attempts (3-4 actionable steps)\n"
+        "7. DO NOT return empty arrays - every attempted question MUST have meaningful, specific feedback\n"
+        "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
     user_content = {
         "per_question": per_question_inputs,
         "computed_metrics": computed_metrics,
-        "interview_track": interview_track or "General",
-        "interview_date": interview_date,
-        "candidate_name": candidate_name,
         "total_questions": total_questions,
         "guidelines": [
-            "Base all numeric scores on provided computed_metrics",
+            "Base all numeric scores on provided computed_metrics and per-question analyses",
             "Focus overallFeedback.speechFluency ONLY on speech aspects, not knowledge",
             "Provide specific, actionable feedback grounded in observed patterns",
             "Use simple language; avoid jargon like 'WPM' or overly technical terms",
-            "For unattempted questions, set feedback to null - do not generate fake data",
+            "For unattempted questions in perQuestionFeedback array, use null",
             "Connect improvement suggestions to specific weaknesses observed in analyses",
             "Ensure actionableSteps have clear titles and detailed descriptions"
         ],
