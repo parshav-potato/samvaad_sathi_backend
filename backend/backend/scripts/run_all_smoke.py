@@ -10,6 +10,9 @@ def main() -> None:
     # Run golden path
     import scripts.smoke_golden_path as golden
     golden.main()
+    # Run re-attempt scenarios
+    import scripts.smoke_reattempt as reattempt
+    reattempt.main()
     # Run security
     import scripts.smoke_security as sec
     sec.main()

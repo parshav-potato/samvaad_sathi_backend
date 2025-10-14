@@ -149,6 +149,20 @@ class SummaryReportServiceV2:
             if interview_question.id not in actually_attempted_question_ids:
                 continue
             
+            # Double-check that the latest attempt has actual content
+            # This handles re-attempt scenarios where an earlier session had content
+            # but the latest attempt is empty
+            if qa is None:
+                continue
+                
+            has_transcription = bool(
+                qa.transcription and isinstance(qa.transcription, dict) and qa.transcription.get("text")
+            )
+            has_analysis = bool(qa.analysis_json and isinstance(qa.analysis_json, dict))
+            
+            if not (has_transcription or has_analysis):
+                continue
+            
             # Attempted question with actual content - process analysis
             analysis: Dict[str, Any] = getattr(qa, "analysis_json", None) or {}
             
@@ -542,10 +556,6 @@ class SummaryReportServiceV2:
         
         question_analysis = []
         for idx, iq in enumerate(all_questions):
-            # Only include questions that were actually attempted with content
-            if iq.id not in actually_attempted_question_ids:
-                continue
-                
             # Map question category to type string
             category_map = {
                 "tech": "Technical question",
@@ -554,8 +564,19 @@ class SummaryReportServiceV2:
             }
             question_type = category_map.get(iq.category, "Technical question")
             
-            # Get feedback from LLM if available for this question
-            feedback = feedback_by_question_id.get(iq.id)
+            # Check if this question was attempted with valid content
+            attempt = attempts_by_question_id.get(iq.id)
+            has_valid_attempt = False
+            
+            if attempt is not None:
+                has_transcription = bool(
+                    attempt.transcription and isinstance(attempt.transcription, dict) and attempt.transcription.get("text")
+                )
+                has_analysis = bool(attempt.analysis_json and isinstance(attempt.analysis_json, dict))
+                has_valid_attempt = has_transcription or has_analysis
+            
+            # Get feedback from LLM if available for this question (only exists for valid attempts)
+            feedback = feedback_by_question_id.get(iq.id) if has_valid_attempt else None
             
             question_analysis.append({
                 "id": idx + 1,  # 1-indexed for display
