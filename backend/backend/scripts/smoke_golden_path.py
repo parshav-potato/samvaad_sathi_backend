@@ -59,7 +59,7 @@ def main() -> None:
         print_result("GET /api/me/resume", r, err)
 
         # Create interview (track + difficulty)
-        r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "javascript developer", "difficulty": "medium"})
+        r, err = safe_call(client, "POST", f"{API}/interviews/create", headers=headers, json={"track": "javascript developer", "difficulty": "easy"})
         print_result("POST /api/interviews/create", r, err)
         interview_id = None
         b = safe_json(r) if r else {}

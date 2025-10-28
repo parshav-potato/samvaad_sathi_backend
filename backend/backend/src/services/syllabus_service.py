@@ -115,7 +115,7 @@ class RoleManager:
 class DifficultyManager:
     """Manages difficulty levels and validation."""
     
-    VALID_DIFFICULTIES = {"easy", "medium", "hard"}
+    VALID_DIFFICULTIES = {"easy", "medium", "hard", "expert"}
     
     @classmethod
     def normalize_difficulty(cls, difficulty: Optional[str]) -> str:
@@ -126,7 +126,7 @@ class DifficultyManager:
             difficulty: Input difficulty string
             
         Returns:
-            Normalized difficulty ("easy", "medium", or "hard")
+            Normalized difficulty ("easy", "medium", "hard", or "expert")
         """
         if not difficulty or not isinstance(difficulty, str):
             return "medium"

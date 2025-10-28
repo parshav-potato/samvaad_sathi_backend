@@ -11,6 +11,7 @@ from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.syllabus_service import syllabus_service
 from src.services.whisper import strip_word_level_data
+from src.services.static_questions import get_static_questions
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ router = fastapi.APIRouter(prefix="", tags=["interviews"])
     summary="Create or resume an interview session",
     description=(
         "Starts a new interview session for the current user with the specified track, or resumes the active session "
-        "if one already exists for that track. Accepts optional 'difficulty' (easy|medium|hard), default 'medium'."
+        "if one already exists for that track. Accepts optional 'difficulty' (easy|medium|hard|expert), default 'medium'."
     ),
 )
 async def create_or_resume_interview(
@@ -47,7 +48,7 @@ async def create_or_resume_interview(
         )
 
     difficulty = (payload.difficulty or "medium").lower()
-    if difficulty not in ("easy", "medium", "hard"):
+    if difficulty not in ("easy", "medium", "hard", "expert"):
         difficulty = "medium"
     interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty)
     return InterviewInResponse(
@@ -177,15 +178,26 @@ async def generate_questions(
             "headline": getattr(current_user, "target_position", None),  # Tech-allied influence
         }
 
-        questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
-            track=interview.track,
-            context_text=resume_context,
-            count=5,
-            difficulty=interview.difficulty,
-            syllabus_topics=topics,
-            ratio=ratio,
-            influence=influence,
-        )
+        # For easy difficulty, use static pre-defined questions instead of LLM generation
+        if interview.difficulty == "easy":
+            static_items = get_static_questions(role=role, count=5, ratio=ratio)
+            questions = [item["text"] for item in static_items]
+            llm_error = None
+            latency_ms = 0
+            llm_model = "static"
+            items = static_items
+        else:
+            # For medium, hard, expert: use LLM generation
+            questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
+                track=interview.track,
+                context_text=resume_context,
+                count=5,
+                difficulty=interview.difficulty,
+                syllabus_topics=topics,
+                ratio=ratio,
+                influence=influence,
+            )
+        
         if not questions:
             questions = [
                 f"Describe your recent project in {interview.track}.",

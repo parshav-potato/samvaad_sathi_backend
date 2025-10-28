@@ -77,9 +77,10 @@ ARCHETYPES: Dict[str, List[str]] = {
 
 # Depth guidelines for different difficulty levels
 DEPTH_GUIDELINES: Dict[str, str] = {
-    "easy": "Test fundamentals and terminology; include a small applied example but keep scope narrow.",
-    "medium": "Cover implementation details and trade-offs; include constraints, alternatives, and simple edge cases.",
-    "hard": "Address scaling, performance, failure modes, and security; require nuanced trade-offs and multiple constraints.",
+    "easy": "Test basic understanding, definitions, and simple syntax. Focus on fundamental concepts without complex implementations or edge cases.",
+    "medium": "Test fundamentals with practical application; include small working examples and common use cases with moderate scope.",
+    "hard": "Cover implementation details and trade-offs; include constraints, alternatives, edge cases, and deeper architectural considerations.",
+    "expert": "Address scaling, performance optimization, failure modes, security vulnerabilities, and advanced patterns; require nuanced trade-offs with multiple constraints.",
 }
 
 # Tech keywords for resume parsing
