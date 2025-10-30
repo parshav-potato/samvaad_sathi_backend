@@ -293,6 +293,7 @@ async def synthesize_summary_sections(
         "6. overallFeedback.speechFluency: Focus ONLY on speech aspects across all attempts (3-4 actionable steps)\n"
         "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
         "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
+        "9. These were all oral interviews so your recommendations should not be about things like writing code"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
