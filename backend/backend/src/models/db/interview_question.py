@@ -24,11 +24,27 @@ class InterviewQuestion(Base):  # type: ignore
     resume_used: SQLAlchemyMapped[bool] = sqlalchemy_mapped_column(
         sqlalchemy.Boolean, nullable=False, default=False, index=True
     )
+    is_follow_up: SQLAlchemyMapped[bool] = sqlalchemy_mapped_column(
+        sqlalchemy.Boolean, nullable=False, default=False, index=True
+    )
+    parent_question_id: SQLAlchemyMapped[int | None] = sqlalchemy_mapped_column(
+        sqlalchemy.ForeignKey("interview_question.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    follow_up_strategy: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=64), nullable=True
+    )
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )
 
     interview = relationship("Interview", back_populates="questions")
+    parent_question = relationship("InterviewQuestion", remote_side="InterviewQuestion.id", back_populates="follow_up_questions")
+    follow_up_questions = relationship(
+        "InterviewQuestion",
+        back_populates="parent_question",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     question_attempts = relationship(
         "QuestionAttempt", back_populates="question", cascade="all, delete-orphan", passive_deletes=True
     )

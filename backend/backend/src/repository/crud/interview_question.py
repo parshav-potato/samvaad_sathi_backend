@@ -17,7 +17,10 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
                 category=q_data.get("category"),
                 order=i + 1,  # 1-indexed ordering
                 status="pending",
-                resume_used=resume_used
+                resume_used=resume_used,
+                is_follow_up=bool(q_data.get("is_follow_up", False)),
+                parent_question_id=q_data.get("parent_question_id"),
+                follow_up_strategy=q_data.get("follow_up_strategy"),
             )
             self.async_session.add(question)
             created.append(question)
@@ -126,3 +129,50 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
         
         query = await self.async_session.execute(statement=stmt)
         return query.scalar() or 0
+
+    async def get_follow_up_for_parent(self, *, parent_question_id: int) -> InterviewQuestion | None:
+        """Return the follow-up question for a given parent question if it exists."""
+        stmt = (
+            sqlalchemy.select(InterviewQuestion)
+            .where(
+                InterviewQuestion.parent_question_id == parent_question_id,
+                InterviewQuestion.is_follow_up.is_(True),
+            )
+            .limit(1)
+        )
+        query = await self.async_session.execute(statement=stmt)
+        return query.scalar_one_or_none()
+
+    async def create_follow_up_question(
+        self,
+        *,
+        interview_id: int,
+        parent_question_id: int,
+        text: str,
+        topic: str | None = None,
+        category: str | None = None,
+        strategy: str | None = None,
+    ) -> InterviewQuestion:
+        """Persist a follow-up question linked to a parent question."""
+        order_stmt = sqlalchemy.select(sqlalchemy.func.max(InterviewQuestion.order)).where(
+            InterviewQuestion.interview_id == interview_id
+        )
+        current_order = await self.async_session.execute(order_stmt)
+        next_order = int(current_order.scalar() or 0) + 1
+
+        follow_up = InterviewQuestion(
+            interview_id=interview_id,
+            text=text,
+            topic=topic,
+            category=category,
+            status="pending",
+            order=next_order,
+            resume_used=False,
+            is_follow_up=True,
+            parent_question_id=parent_question_id,
+            follow_up_strategy=strategy,
+        )
+        self.async_session.add(follow_up)
+        await self.async_session.commit()
+        await self.async_session.refresh(follow_up)
+        return follow_up

@@ -19,6 +19,8 @@ class AudioTranscriptionResponse(BaseSchemaModel):
     message: str = pydantic.Field(description="Human-friendly status message")
     saved: bool = pydantic.Field(description="Whether the audio and transcription were successfully saved")
     save_error: str | None = pydantic.Field(default=None, description="Error message if save operation failed")
+    follow_up_generated: bool = pydantic.Field(default=False, description="Whether a follow-up question was generated")
+    follow_up_metadata: dict | None = pydantic.Field(default=None, description="Metadata about the generated follow-up question, if any")
 
 
 class AudioValidationError(BaseSchemaModel):

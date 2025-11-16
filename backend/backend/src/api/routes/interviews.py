@@ -231,29 +231,19 @@ async def generate_questions(
         )
         
         # Prepare response data for newly generated questions
-        # Ensure items include interviewQuestionId mapped to persisted IDs
         response_items = []
-        if items and len(items) == len(persisted):
-            for p, it in zip(persisted, items):
-                merged = dict(it)
-                merged["interviewQuestionId"] = p.id
-                response_items.append(merged)
-        elif items:
-            # Length mismatch; still attach ids by order best-effort
-            for idx, it in enumerate(items):
-                merged = dict(it)
-                merged["interviewQuestionId"] = persisted[idx].id if idx < len(persisted) else None
-                response_items.append(merged)
-        else:
-            # No structured items; synthesize from persisted
-            for p in persisted:
-                response_items.append(                {
-                    "interviewQuestionId": p.id,
-                    "text": p.text,
-                    "topic": p.topic,
-                    "difficulty": None,
-                    "category": p.category,
-                })
+        for idx, question_obj in enumerate(persisted):
+            structured = items[idx] if items and idx < len(items) else None
+            response_items.append({
+                "interviewQuestionId": question_obj.id,
+                "text": (structured or {}).get("text") or question_obj.text,
+                "topic": (structured or {}).get("topic") or question_obj.topic,
+                "difficulty": (structured or {}).get("difficulty"),
+                "category": (structured or {}).get("category") or question_obj.category,
+                "isFollowUp": getattr(question_obj, "is_follow_up", False),
+                "parentQuestionId": getattr(question_obj, "parent_question_id", None),
+                "followUpStrategy": getattr(question_obj, "follow_up_strategy", None),
+            })
 
         qs = {
             "questions": questions,
@@ -271,6 +261,9 @@ async def generate_questions(
                 "topic": q.topic,
                 "difficulty": None,
                 "category": q.category,
+                "isFollowUp": getattr(q, "is_follow_up", False),
+                "parentQuestionId": getattr(q, "parent_question_id", None),
+                "followUpStrategy": getattr(q, "follow_up_strategy", None),
             }
             for q in existing
         ]
@@ -428,7 +421,10 @@ async def list_interview_questions(
                 topic=q.topic,
                 category=q.category,
                 status=q.status,
-                resume_used=q.resume_used
+                resume_used=q.resume_used,
+                is_follow_up=q.is_follow_up,
+                parent_question_id=q.parent_question_id,
+                follow_up_strategy=q.follow_up_strategy,
             ) for q in items
         ],
         next_cursor=next_cursor,
@@ -711,6 +707,9 @@ async def resume_interview(
             category=q.category,
             status=q.status,
             resume_used=q.resume_used,
+            is_follow_up=q.is_follow_up,
+            parent_question_id=q.parent_question_id,
+            follow_up_strategy=q.follow_up_strategy,
         )
         for q in questions_without_attempts
     ]
@@ -724,5 +723,3 @@ async def resume_interview(
         attempted_questions=attempted_count,
         remaining_questions=len(questions_without_attempts),
     )
-
-

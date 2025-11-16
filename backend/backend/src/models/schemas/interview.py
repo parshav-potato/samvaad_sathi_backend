@@ -12,6 +12,9 @@ class InterviewQuestionOut(BaseSchemaModel):
     category: str | None = None
     status: str
     resume_used: bool
+    is_follow_up: bool = pydantic.Field(default=False, description="Whether this question is a follow-up prompt")
+    parent_question_id: int | None = pydantic.Field(default=None, description="Parent question ID if this is a follow-up")
+    follow_up_strategy: str | None = pydantic.Field(default=None, description="Strategy used for follow-up generation")
 
 
 class CreateAttemptResponse(BaseSchemaModel):
@@ -37,6 +40,9 @@ class QuestionItem(BaseSchemaModel):
     topic: str | None = None
     difficulty: str | None = None
     category: str | None = None
+    is_follow_up: bool = False
+    parent_question_id: int | None = None
+    follow_up_strategy: str | None = None
 
 
 class InterviewCreate(BaseSchemaModel):
@@ -158,5 +164,4 @@ class ResumeInterviewResponse(BaseSchemaModel):
     total_questions: int = pydantic.Field(description="Total number of questions in the interview")
     attempted_questions: int = pydantic.Field(description="Number of questions with attempts")
     remaining_questions: int = pydantic.Field(description="Number of questions without attempts")
-
 

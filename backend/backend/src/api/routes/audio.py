@@ -1,4 +1,5 @@
 import fastapi
+import logging
 from fastapi import Form, UploadFile, File
 
 from src.api.dependencies.auth import get_current_user
@@ -7,9 +8,11 @@ from src.models.schemas.audio import AudioTranscriptionResponse
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.audio_processor import validate_audio_file, save_audio_file, get_audio_duration_estimate, cleanup_temp_audio_file
 from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language, extract_word_count, strip_word_level_data
+from src.services.follow_up import FollowUpService
 
 
 router = fastapi.APIRouter(prefix="", tags=["audio"])
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -83,6 +86,8 @@ async def transcribe_audio_answer(
         language=validated_language
     )
 
+    follow_up_service = FollowUpService(async_session=question_repo.async_session)
+
     # Step 6: Create temporary file for processing
     temp_file_path = ""
     audio_url = ""
@@ -125,6 +130,13 @@ async def transcribe_audio_answer(
     final_save_error = save_error or db_save_error
     final_saved = saved and not final_save_error
     
+    follow_up_metadata = None
+    if final_saved:
+        try:
+            follow_up_metadata = await follow_up_service.handle_transcription_saved(question_attempt_id_int)
+        except Exception as follow_up_error:  # noqa: BLE001
+            logger.warning("Failed to generate follow-up question for attempt %s: %s", question_attempt_id_int, follow_up_error)
+
     # Generate status message
     if final_saved:
         message = "Audio uploaded and transcribed successfully"
@@ -150,4 +162,6 @@ async def transcribe_audio_answer(
         message=message,
         saved=final_saved,
         save_error=final_save_error,
+        follow_up_generated=follow_up_metadata is not None,
+        follow_up_metadata=follow_up_metadata,
     )

@@ -153,6 +153,11 @@ class LLMQuestionAnalysisItem(pydantic.BaseModel):
     feedback: LLMQuestionFeedback | None = None
 
 
+class FollowUpQuestionLLM(pydantic.BaseModel):
+    """Structured output for adaptive follow-up question generation."""
+    question: str = pydantic.Field(..., min_length=4)
+
+
 class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
     """Restructured summary report output - LLM provides only scores and feedback, code handles metadata."""
     perQuestionScores: list[LLMQuestionScores]  # LLM scores each attempted question individually
@@ -617,6 +622,50 @@ async def generate_interview_questions_with_llm(
     return questions, error, latency_ms, model, structured_items
 
 
+async def generate_follow_up_question(
+    *,
+    track: str,
+    difficulty: str,
+    base_question: str,
+    answer_excerpt: str,
+    topic: str | None = None,
+) -> tuple[str | None, str | None, int | None, str]:
+    """
+    Generate a concise follow-up question using the candidate's recent answer excerpt.
+    """
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
+    if not api_key or not answer_excerpt:
+        return None, "Follow-up generation skipped (missing API key or answer excerpt)", None, model
+
+    system_prompt = (
+        "You are an attentive interviewer. Craft ONE short follow-up question based on the candidate's prior answer. "
+        "Keep it conversational, focus on clarifying depth, and avoid yes/no prompts. "
+        "Return ONLY valid JSON with key 'question'."
+    )
+    payload = {
+        "track": track,
+        "difficulty": difficulty,
+        "topic": topic,
+        "base_question": base_question,
+        "answer_excerpt": answer_excerpt[:4000],
+        "rules": [
+            "Follow-up must relate directly to the candidate's answer.",
+            "Avoid repeating the original question text.",
+            "Keep it under 35 words.",
+            "Encourage the candidate to elaborate or clarify specifics.",
+        ],
+    }
+    result, error, latency_ms, model = await structured_output(
+        FollowUpQuestionLLM,
+        system_prompt=system_prompt,
+        user_content=payload,
+        temperature=0.35,
+    )
+    question = result.question.strip() if result else None
+    return question, error, latency_ms, model
+
+
 async def analyze_domain_with_llm(
     *,
     user_profile: dict[str, Any],
@@ -762,4 +811,3 @@ async def analyze_communication_with_llm(
     if result:
         analysis = result.model_dump()
     return analysis, error, latency_ms, model
-
