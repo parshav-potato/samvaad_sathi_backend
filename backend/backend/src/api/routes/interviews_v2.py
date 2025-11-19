@@ -63,7 +63,7 @@ async def create_or_resume_interview_v2(
     name="interviews-v2:generate-questions",
     response_model=GeneratedQuestionsInResponse,
     status_code=fastapi.status.HTTP_201_CREATED,
-    summary="Generate 7-question adaptive interview set",
+    summary="Generate 5-question adaptive interview set",
 )
 async def generate_questions_v2(
     payload: GenerateQuestionsRequest,
@@ -127,8 +127,10 @@ async def generate_questions_v2(
             "headline": getattr(current_user, "target_position", None),
         }
 
+        question_count = 5
+
         if interview.difficulty == "easy":
-            static_items = get_static_questions(role=role, count=7, ratio=ratio)
+            static_items = get_static_questions(role=role, count=question_count, ratio=ratio)
             questions = [item["text"] for item in static_items]
             llm_error = None
             latency_ms = 0
@@ -138,7 +140,7 @@ async def generate_questions_v2(
             questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
                 track=interview.track,
                 context_text=resume_context,
-                count=7,
+                count=question_count,
                 difficulty=interview.difficulty,
                 syllabus_topics=topics,
                 ratio=ratio,
@@ -151,8 +153,6 @@ async def generate_questions_v2(
                 f"How do you evaluate success in {interview.track} projects?",
                 f"Describe a time you debugged a difficult issue in {interview.track}.",
                 f"Explain an architecture decision you made recently.",
-                f"What metrics do you track to validate your solutions?",
-                "How do you mentor others on your team?",
                 "Tell me about a situation where you had to defend a technical decision.",
             ]
 
@@ -170,9 +170,13 @@ async def generate_questions_v2(
             for question in questions:
                 questions_data.append({"text": question, "topic": None, "category": None})
 
-        follow_up_slots = min(2, len(questions_data))
-        for idx in range(1, follow_up_slots + 1):
-            questions_data[-idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
+        eligible_indices: list[int] = []
+        for idx, data in enumerate(questions_data):
+            category = str(data.get("category") or "tech").lower()
+            if category != "behavioral":
+                eligible_indices.append(idx)
+        for idx in eligible_indices[:2]:
+            questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
 
         persisted = await question_repo.create_batch(
             interview_id=interview.id,
@@ -245,4 +249,3 @@ async def generate_questions_v2(
         llm_latency_ms=qs.get("latency_ms"),
         llm_error=qs.get("llm_error"),
     )
-
