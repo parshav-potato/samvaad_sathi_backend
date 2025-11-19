@@ -1,0 +1,28 @@
+import datetime
+
+import sqlalchemy
+from sqlalchemy.orm import Mapped as SQLAlchemyMapped, mapped_column as sqlalchemy_mapped_column, relationship
+from sqlalchemy.sql import functions as sqlalchemy_functions
+
+from src.repository.table import Base
+
+
+class QuestionSupplement(Base):  # type: ignore
+    __tablename__ = "question_supplement"
+
+    id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(primary_key=True, autoincrement="auto")
+    interview_question_id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(
+        sqlalchemy.ForeignKey("interview_question.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    supplement_type: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=32), nullable=False)
+    format: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=32), nullable=True)
+    content: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=False)
+    rationale: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=True)
+    created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
+        sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
+    )
+
+    question = relationship("InterviewQuestion", back_populates="supplement")
+
+    __mapper_args__ = {"eager_defaults": True}
+

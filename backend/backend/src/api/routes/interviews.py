@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import fastapi
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
@@ -12,6 +13,10 @@ from src.services.llm import generate_interview_questions_with_llm
 from src.services.syllabus_service import syllabus_service
 from src.services.whisper import strip_word_level_data
 from src.services.static_questions import get_static_questions
+from src.services.question_supplements import (
+    QuestionSupplementService,
+    serialize_question_supplement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +416,7 @@ async def list_interview_questions(
     
     safe_limit = max(1, min(100, int(limit)))
     items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
+    supplement_map = await _get_supplement_map(interview_id=interview_id, async_session=question_repo.async_session)
     
     return QuestionsListResponse(
         interview_id=interview_id,
@@ -425,6 +431,7 @@ async def list_interview_questions(
                 is_follow_up=q.is_follow_up,
                 parent_question_id=q.parent_question_id,
                 follow_up_strategy=q.follow_up_strategy,
+                supplement=supplement_map.get(q.id),
             ) for q in items
         ],
         next_cursor=next_cursor,
@@ -697,6 +704,8 @@ async def resume_interview(
     
     # Get count of questions with attempts
     attempted_count = await question_repo.get_questions_with_attempts_count(interview_id=interview.id)
+
+    supplement_map = await _get_supplement_map(interview_id=interview.id, async_session=question_repo.async_session)
     
     # Convert to response format
     question_items = [
@@ -710,6 +719,7 @@ async def resume_interview(
             is_follow_up=q.is_follow_up,
             parent_question_id=q.parent_question_id,
             follow_up_strategy=q.follow_up_strategy,
+            supplement=supplement_map.get(q.id),
         )
         for q in questions_without_attempts
     ]
@@ -723,3 +733,13 @@ async def resume_interview(
         attempted_questions=attempted_count,
         remaining_questions=len(questions_without_attempts),
     )
+
+
+async def _get_supplement_map(*, interview_id: int, async_session) -> dict[int, "QuestionSupplementOut"]:
+    supplement_service = QuestionSupplementService(async_session=async_session)
+    try:
+        supplements = await supplement_service.get_for_interview(interview_id=interview_id)
+    except SQLAlchemyError as exc:
+        logger.warning("Supplements unavailable for interview %s: %s", interview_id, exc)
+        return {}
+    return {supp.interview_question_id: serialize_question_supplement(supp) for supp in supplements}

@@ -158,6 +158,19 @@ class FollowUpQuestionLLM(pydantic.BaseModel):
     question: str = pydantic.Field(..., min_length=4)
 
 
+class LLMSupplementItem(pydantic.BaseModel):
+    """Structured supplement payload for a question."""
+    questionId: int
+    supplementType: str = pydantic.Field(pattern="^(code|diagram)$")
+    format: str | None = None
+    content: str
+    rationale: str | None = None
+
+
+class LLMSupplementResponse(pydantic.BaseModel):
+    items: list[LLMSupplementItem] = pydantic.Field(default_factory=list)
+
+
 class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
     """Restructured summary report output - LLM provides only scores and feedback, code handles metadata."""
     perQuestionScores: list[LLMQuestionScores]  # LLM scores each attempted question individually
@@ -664,6 +677,76 @@ async def generate_follow_up_question(
     )
     question = result.question.strip() if result else None
     return question, error, latency_ms, model
+
+
+async def generate_question_supplements_with_llm(
+    question_payload: list[dict[str, Any]],
+) -> tuple[list[LLMSupplementItem], str | None, int | None, str]:
+    """
+    Generate supplemental snippets (diagram or code) for interview questions.
+    Returns list of LLMSupplementItem entries and metadata about the call.
+    """
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
+    if not api_key or not question_payload:
+        return [], None, None, model
+
+    system_prompt = (
+        "You are an AI assistant that suggests concise supplemental material for interview questions. "
+        "For each question you believe benefits from additional context, provide EITHER a code snippet "
+        "(<=20 lines, readable) or a simple Mermaid diagram (<=20 lines). Skip questions that do not "
+        "need supplements. Always return valid JSON."
+    )
+
+    user_content = {
+        "instructions": [
+            "Use supplementType 'code' for source snippets, 'diagram' for Mermaid diagrams.",
+            "Include a 'format' value such as a programming language (python, javascript, sql) "
+            "or 'mermaid' for diagrams.",
+            "Do not exceed 20 lines in the content.",
+            "Return at most one supplement per question and omit questions that do not need one.",
+        ],
+        "questions": question_payload,
+    }
+
+    result, error, latency_ms, model = await structured_output(
+        LLMSupplementResponse,
+        system_prompt=system_prompt,
+        user_content=user_content,
+        temperature=0.3,
+    )
+
+    def _trim_content(content: str, max_lines: int = 20) -> str:
+        lines = (content or "").splitlines()
+        if not lines:
+            return ""
+        trimmed = lines[:max_lines]
+        # Remove trailing blank lines
+        while trimmed and not trimmed[-1].strip():
+            trimmed.pop()
+        return "\n".join(trimmed).strip()
+
+    sanitized: list[LLMSupplementItem] = []
+    if result:
+        for item in result.items:
+            snippet = _trim_content(item.content)
+            if not snippet:
+                continue
+            supplement_type = item.supplementType.lower()
+            if supplement_type not in {"code", "diagram"}:
+                continue
+            fmt = (item.format or "").strip() or ("mermaid" if supplement_type == "diagram" else None)
+            sanitized.append(
+                LLMSupplementItem(
+                    questionId=item.questionId,
+                    supplementType=supplement_type,
+                    format=fmt,
+                    content=snippet,
+                    rationale=item.rationale,
+                )
+            )
+
+    return sanitized, error, latency_ms, model
 
 
 async def analyze_domain_with_llm(

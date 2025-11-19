@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 
 import pydantic
@@ -15,6 +17,10 @@ class InterviewQuestionOut(BaseSchemaModel):
     is_follow_up: bool = pydantic.Field(default=False, description="Whether this question is a follow-up prompt")
     parent_question_id: int | None = pydantic.Field(default=None, description="Parent question ID if this is a follow-up")
     follow_up_strategy: str | None = pydantic.Field(default=None, description="Strategy used for follow-up generation")
+    supplement: "QuestionSupplementOut | None" = pydantic.Field(
+        default=None,
+        description="Optional supplemental snippet (diagram or code) for this question",
+    )
 
 
 class CreateAttemptResponse(BaseSchemaModel):
@@ -43,6 +49,15 @@ class QuestionItem(BaseSchemaModel):
     is_follow_up: bool = False
     parent_question_id: int | None = None
     follow_up_strategy: str | None = None
+    supplement: "QuestionSupplementOut | None" = None
+
+
+class QuestionSupplementOut(BaseSchemaModel):
+    question_id: int = pydantic.Field(description="Interview question ID this supplement belongs to")
+    supplement_type: str = pydantic.Field(description="Type of supplement: 'code' or 'diagram'")
+    format: str | None = pydantic.Field(default=None, description="Language/format such as 'python' or 'mermaid'")
+    content: str = pydantic.Field(description="Renderable snippet content")
+    rationale: str | None = pydantic.Field(default=None, description="Short explanation when provided")
 
 
 class InterviewCreate(BaseSchemaModel):
@@ -165,3 +180,7 @@ class ResumeInterviewResponse(BaseSchemaModel):
     attempted_questions: int = pydantic.Field(description="Number of questions with attempts")
     remaining_questions: int = pydantic.Field(description="Number of questions without attempts")
 
+
+class QuestionSupplementsResponse(BaseSchemaModel):
+    interview_id: int = pydantic.Field(description="Interview identifier")
+    supplements: list[QuestionSupplementOut] = pydantic.Field(description="Generated supplements mapped to questions")

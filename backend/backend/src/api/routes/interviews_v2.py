@@ -1,4 +1,6 @@
 import fastapi
+import logging
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.dependencies.auth import get_current_user
 from src.api.dependencies.repository import get_repository
@@ -8,13 +10,20 @@ from src.models.schemas.interview import (
     GeneratedQuestionsInResponse,
     GenerateQuestionsRequest,
     QuestionItem,
+    QuestionSupplementOut,
+    QuestionSupplementsResponse,
 )
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.static_questions import get_static_questions
 from src.services.syllabus_service import syllabus_service
+from src.services.question_supplements import (
+    QuestionSupplementService,
+    serialize_question_supplement,
+)
 
+logger = logging.getLogger(__name__)
 FOLLOW_UP_STRATEGY = "llm_transcription_based"
 
 
@@ -71,6 +80,7 @@ async def generate_questions_v2(
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
 ) -> GeneratedQuestionsInResponse:
+    supplement_service = QuestionSupplementService(async_session=question_repo.async_session)
     interview = None
     if getattr(payload, "interview_id", None) is not None:
         interview = await interview_repo.get_by_id(interview_id=payload.interview_id)  # type: ignore[arg-type]
@@ -184,6 +194,9 @@ async def generate_questions_v2(
             resume_used=payload.use_resume,
         )
 
+        supplements_map = await _get_supplement_map(
+            interview_id=interview.id, supplement_service=supplement_service
+        )
         response_items: list[dict[str, object]] = []
         for idx, question_obj in enumerate(persisted):
             structured = items[idx] if items and idx < len(items) else None
@@ -197,6 +210,7 @@ async def generate_questions_v2(
                     "isFollowUp": question_obj.is_follow_up,
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
+                    "supplement": supplements_map.get(question_obj.id),
                 }
             )
         qs = {
@@ -207,6 +221,9 @@ async def generate_questions_v2(
             "items": response_items,
         }
     else:
+        supplements_map = await _get_supplement_map(
+            interview_id=interview.id, supplement_service=supplement_service
+        )
         response_items = [
             {
                 "interviewQuestionId": q.id,
@@ -217,6 +234,7 @@ async def generate_questions_v2(
                 "isFollowUp": q.is_follow_up,
                 "parentQuestionId": q.parent_question_id,
                 "followUpStrategy": q.follow_up_strategy,
+                "supplement": supplements_map.get(q.id),
             }
             for q in existing
         ]
@@ -243,9 +261,78 @@ async def generate_questions_v2(
             is_follow_up=item.get("isFollowUp", False),
             parent_question_id=item.get("parentQuestionId"),
             follow_up_strategy=item.get("followUpStrategy"),
+            supplement=item.get("supplement"),
         ) for item in qs.get("items", [])],
         cached=cached,
         llm_model=qs.get("llm_model"),
         llm_latency_ms=qs.get("latency_ms"),
         llm_error=qs.get("llm_error"),
     )
+
+
+@router.post(
+    path="/interviews/{interview_id}/supplements",
+    name="interviews-v2:generate-supplements",
+    response_model=QuestionSupplementsResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Generate supplemental code/diagram snippets for interview questions",
+)
+async def generate_supplements_v2(
+    interview_id: int,
+    regenerate: bool = fastapi.Query(
+        default=False,
+        description="If true, overwrite existing supplements with new LLM output",
+    ),
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+) -> QuestionSupplementsResponse:
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+
+    supplement_service = QuestionSupplementService(async_session=interview_repo.async_session)
+    supplements = await supplement_service.generate_for_interview(
+        interview_id=interview.id,
+        regenerate=regenerate,
+    )
+    return QuestionSupplementsResponse(
+        interview_id=interview.id,
+        supplements=[serialize_question_supplement(s) for s in supplements],
+    )
+
+
+@router.get(
+    path="/interviews/{interview_id}/supplements",
+    name="interviews-v2:get-supplements",
+    response_model=QuestionSupplementsResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Fetch supplemental snippets for interview questions",
+)
+async def get_supplements_v2(
+    interview_id: int,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+) -> QuestionSupplementsResponse:
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Interview not found")
+
+    supplement_service = QuestionSupplementService(async_session=interview_repo.async_session)
+    supplements = await supplement_service.get_for_interview(interview_id=interview.id)
+    return QuestionSupplementsResponse(
+        interview_id=interview.id,
+        supplements=[serialize_question_supplement(s) for s in supplements],
+    )
+
+
+async def _get_supplement_map(
+    *,
+    interview_id: int,
+    supplement_service: QuestionSupplementService,
+) -> dict[int, QuestionSupplementOut]:
+    try:
+        supplements = await supplement_service.get_for_interview(interview_id=interview_id)
+    except SQLAlchemyError as exc:
+        logger.warning("Supplements unavailable for interview %s: %s", interview_id, exc)
+        return {}
+    return {supp.interview_question_id: serialize_question_supplement(supp) for supp in supplements}

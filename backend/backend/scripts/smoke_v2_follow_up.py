@@ -90,6 +90,8 @@ def main() -> None:
         r, err = safe_call(client, "POST", f"{API}/v2/interviews/generate-questions", headers=headers, json=gen_payload)
         print_result("POST /api/v2/interviews/generate-questions", r, err)
         gen_body = safe_json(r) if r else {}
+        if not isinstance(gen_body, dict):
+            raise SystemExit(f"Question generation returned non-JSON body: {gen_body}")
         items = gen_body.get("items") or []
         follow_up_ready = [item for item in items if item.get("followUpStrategy")]
         print(json.dumps({
@@ -104,6 +106,19 @@ def main() -> None:
         question_id = target_question.get("interviewQuestionId")
         if not question_id:
             raise SystemExit("Unable to resolve questionId for follow-up-ready question")
+
+        # Generate supplements
+        r, err = safe_call(client, "POST", f"{API}/v2/interviews/{interview_id}/supplements", headers=headers)
+        print_result("POST /api/v2/interviews/{id}/supplements", r, err)
+        supplement_body = safe_json(r) if r else {}
+        if not isinstance(supplement_body, dict):
+            raise SystemExit(f"Supplement generation failed: {supplement_body}")
+        supplements = supplement_body.get("supplements", [])
+        print(json.dumps({
+            "name": "supplement-summary",
+            "count": len(supplements),
+            "types": list({supp.get("supplement_type") for supp in supplements}),
+        }))
 
         # Create attempt for the follow-up-ready question
         attempt_payload = {"interviewId": interview_id, "questionId": question_id}

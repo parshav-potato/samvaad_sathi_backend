@@ -48,5 +48,12 @@ class InterviewQuestion(Base):  # type: ignore
     question_attempts = relationship(
         "QuestionAttempt", back_populates="question", cascade="all, delete-orphan", passive_deletes=True
     )
+    supplement = relationship(
+        "QuestionSupplement",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
 
     __mapper_args__ = {"eager_defaults": True}
