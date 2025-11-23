@@ -696,6 +696,7 @@ async def generate_question_supplements_with_llm(
         "For each question you believe benefits from additional context, provide EITHER a code snippet "
         "(<=20 lines, readable) or a simple Mermaid diagram (<=20 lines). Skip questions that do not "
         "need supplements. Always return valid JSON."
+        "unless really not necessay try to have at least one supplement"
     )
 
     user_content = {
