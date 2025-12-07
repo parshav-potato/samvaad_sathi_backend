@@ -130,6 +130,24 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
         query = await self.async_session.execute(statement=stmt)
         return query.scalar() or 0
 
+    async def set_parent_question(
+        self,
+        *,
+        question_id: int,
+        parent_question_id: int,
+    ) -> InterviewQuestion | None:
+        """Backfill parent_question_id for follow-up questions when missing."""
+        stmt = sqlalchemy.select(InterviewQuestion).where(InterviewQuestion.id == question_id)
+        query = await self.async_session.execute(statement=stmt)
+        question = query.scalar_one_or_none()
+        if not question:
+            return None
+
+        question.parent_question_id = parent_question_id
+        await self.async_session.commit()
+        await self.async_session.refresh(question)
+        return question
+
     async def get_follow_up_for_parent(self, *, parent_question_id: int) -> InterviewQuestion | None:
         """Return the follow-up question for a given parent question if it exists."""
         stmt = (

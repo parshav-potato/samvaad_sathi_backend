@@ -62,6 +62,14 @@ class QuestionSupplementService:
         else:
             supplements = list(supplement_map.values())
 
+        # Log if LLM returned no supplements despite a non-empty payload
+        if payload and not supplements:
+            logger.warning(
+                "Supplement generation produced no output (questions=%s, interview=%s)",
+                len(questions),
+                interview_id,
+            )
+
         # Ensure deterministic ordering
         order_map = {q.id: q.order for q in questions}
         supplements.sort(key=lambda s: order_map.get(s.interview_question_id, s.id))
@@ -107,7 +115,6 @@ class QuestionSupplementService:
                 supplement_type=item.supplementType,
                 format=item.format,
                 content=item.content,
-                rationale=item.rationale,
             )
 
 
@@ -117,7 +124,6 @@ def serialize_question_supplement(entity: QuestionSupplement) -> QuestionSupplem
         supplement_type=entity.supplement_type,
         format=entity.format,
         content=entity.content,
-        rationale=entity.rationale,
     )
 
 

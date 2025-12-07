@@ -1,12 +1,13 @@
 import json
+import os
 import random
 import string
 from datetime import datetime
 
 import httpx
 
-BASE_URL = "http://127.0.0.1:8000"
-API = "/api"
+BASE_URL = os.getenv("SMOKE_BASE_URL", "http://127.0.0.1:8000")
+API = os.getenv("SMOKE_API_PREFIX", "/api")
 
 
 def rand_str(n: int = 8) -> str:

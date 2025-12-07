@@ -10,6 +10,9 @@ def main() -> None:
     # Run golden path
     import scripts.smoke_golden_path as golden
     golden.main()
+    # Run v2 follow-up path
+    import scripts.smoke_v2_follow_up as v2_follow_up
+    v2_follow_up.main()
     # Run re-attempt scenarios
     import scripts.smoke_reattempt as reattempt
     reattempt.main()
@@ -20,5 +23,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

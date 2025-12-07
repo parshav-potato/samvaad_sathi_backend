@@ -131,9 +131,22 @@ async def transcribe_audio_answer(
     final_saved = saved and not final_save_error
     
     follow_up_metadata = None
+    follow_up_question = None
     if final_saved:
         try:
             follow_up_metadata = await follow_up_service.handle_transcription_saved(question_attempt_id_int)
+            if follow_up_metadata:
+                qid = follow_up_metadata.get("follow_up_question_id")
+                attempt_id = follow_up_metadata.get("follow_up_question_attempt_id")
+                text = follow_up_metadata.get("follow_up_question_text")
+                if qid and attempt_id and text:
+                    follow_up_question = {
+                        "interview_question_id": qid,
+                        "question_attempt_id": attempt_id,
+                        "parent_question_id": follow_up_metadata.get("parent_question_id"),
+                        "text": text,
+                        "strategy": follow_up_metadata.get("strategy"),
+                    }
         except Exception as follow_up_error:  # noqa: BLE001
             logger.warning("Failed to generate follow-up question for attempt %s: %s", question_attempt_id_int, follow_up_error)
 
@@ -164,4 +177,5 @@ async def transcribe_audio_answer(
         save_error=final_save_error,
         follow_up_generated=follow_up_metadata is not None,
         follow_up_metadata=follow_up_metadata,
+        follow_up_question=follow_up_question,
     )

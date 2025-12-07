@@ -32,12 +32,31 @@ from scripts.smoke_utils import (
 
 AUDIO_SAMPLE = Path(__file__).resolve().parent.parent / "assets" / "Speech.mp3"
 
+ALLOWED_SUPPLEMENT_TYPES = {"code", "diagram"}
+MERMAID_STARTERS = ("flowchart", "graph", "sequenceDiagram", "stateDiagram", "classDiagram")
+
 
 def rand_email() -> str:
     token = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
     return f"v2_{token}@example.com"
 
 
+def _validate_supplement(supp: dict) -> None:
+    stype = str(supp.get("supplementType") or supp.get("supplement_type") or "").lower()
+    fmt = str(supp.get("format") or "").lower()
+    content = str(supp.get("content") or "")
+
+    if stype not in ALLOWED_SUPPLEMENT_TYPES:
+        raise SystemExit(f"Supplement type invalid: {stype}")
+
+    if stype == "diagram":
+        if fmt != "mermaid":
+            raise SystemExit(f"Diagram supplement missing mermaid format: {fmt}")
+        stripped = content.strip()
+        if "```mermaid" in stripped:
+            return
+        if not any(stripped.startswith(prefix) for prefix in MERMAID_STARTERS):
+            raise SystemExit(f"Mermaid content does not start with a known directive: {stripped[:40]}")
 def main() -> None:
     email = rand_email()
     password = "pass123!"
@@ -94,31 +113,25 @@ def main() -> None:
             raise SystemExit(f"Question generation returned non-JSON body: {gen_body}")
         items = gen_body.get("items") or []
         follow_up_ready = [item for item in items if item.get("followUpStrategy")]
+        supplements_present = [item for item in items if item.get("supplement")]
         print(json.dumps({
             "name": "follow-up-metadata",
             "total_questions": len(items),
             "follow_up_ready": len(follow_up_ready),
+            "supplements_with_items": len(supplements_present),
         }))
         if len(items) != 5 or len(follow_up_ready) < 2:
             raise SystemExit("V2 question generation did not return expected follow-up metadata")
+        if len(supplements_present) != len(items):
+            raise SystemExit("Supplements were not returned inline with generated questions")
+        # Validate supplement structure/types
+        for itm in supplements_present:
+            _validate_supplement(itm.get("supplement") or {})
 
         target_question = follow_up_ready[0]
         question_id = target_question.get("interviewQuestionId")
         if not question_id:
             raise SystemExit("Unable to resolve questionId for follow-up-ready question")
-
-        # Generate supplements
-        r, err = safe_call(client, "POST", f"{API}/v2/interviews/{interview_id}/supplements", headers=headers)
-        print_result("POST /api/v2/interviews/{id}/supplements", r, err)
-        supplement_body = safe_json(r) if r else {}
-        if not isinstance(supplement_body, dict):
-            raise SystemExit(f"Supplement generation failed: {supplement_body}")
-        supplements = supplement_body.get("supplements", [])
-        print(json.dumps({
-            "name": "supplement-summary",
-            "count": len(supplements),
-            "types": list({supp.get("supplement_type") for supp in supplements}),
-        }))
 
         # Create attempt for the follow-up-ready question
         attempt_payload = {"interviewId": interview_id, "questionId": question_id}
@@ -136,17 +149,34 @@ def main() -> None:
         print_result("POST /api/transcribe-whisper (v2 follow-up)", r, err)
         transcribe_body = safe_json(r) if r else {}
         follow_up_generated = bool(transcribe_body.get("follow_up_generated") or transcribe_body.get("followUpGenerated"))
-        if not follow_up_generated:
-            print("⚠️ Follow-up was not generated; check backend logs for details.")
+        follow_up_question = transcribe_body.get("follow_up_question") or transcribe_body.get("followUpQuestion")
+        if not follow_up_generated or not follow_up_question:
+            raise SystemExit("Follow-up was not returned inline with transcription response")
+        follow_up_qid_inline = follow_up_question.get("interview_question_id") or follow_up_question.get("interviewQuestionId")
+        follow_up_attempt_id_inline = follow_up_question.get("question_attempt_id") or follow_up_question.get("questionAttemptId")
+        if not follow_up_qid_inline or not follow_up_attempt_id_inline:
+            raise SystemExit(f"Follow-up payload missing ids: {follow_up_question}")
+        print(json.dumps({
+            "name": "follow-up-inline",
+            "question_id": follow_up_qid_inline,
+            "attempt_id": follow_up_attempt_id_inline,
+            "strategy": follow_up_question.get("strategy"),
+        }))
 
         # Fetch questions to confirm follow-up persistence
         r, err = safe_call(client, "GET", f"{API}/interviews/{interview_id}/questions?limit=20", headers=headers)
         print_result("GET /api/interviews/{id}/questions (v2)", r, err)
         question_list = safe_json(r) if r else {}
+        question_items = question_list.get("items", []) if isinstance(question_list, dict) else []
         follow_up_questions = [
-            q for q in question_list.get("items", [])
+            q for q in question_items
             if q.get("is_follow_up") or q.get("isFollowUp")
         ]
+        supplements_from_get = [q for q in question_items if q.get("supplement")]
+        if question_items and len(supplements_from_get) != len(question_items):
+            raise SystemExit("Supplements were not included on the first questions fetch")
+        for supp_wrapped in supplements_from_get:
+            _validate_supplement(supp_wrapped.get("supplement") or {})
         print(json.dumps({
             "name": "follow-up-verification",
             "follow_ups_found": len(follow_up_questions),
@@ -162,9 +192,11 @@ def main() -> None:
         
         # 1. Identify the newly created follow-up question
         follow_up_q = follow_up_questions[0]
-        follow_up_qid = follow_up_q.get("interviewQuestionId") or follow_up_q.get("interview_question_id")
+        follow_up_qid = follow_up_qid_inline or follow_up_q.get("interviewQuestionId") or follow_up_q.get("interview_question_id")
         if not follow_up_qid:
             raise SystemExit("Follow-up question ID not found")
+        if follow_up_qid_inline and follow_up_qid_inline != follow_up_qid:
+            print(f"   ⚠️ Follow-up question id mismatch (inline {follow_up_qid_inline} vs list {follow_up_qid})")
             
         print(f"   Targeting follow-up question ID: {follow_up_qid}")
 
@@ -181,7 +213,7 @@ def main() -> None:
         attempts_body = safe_json(r) if r else {}
         attempts_list = attempts_body.get("items", [])
         
-        follow_up_attempt_id = None
+        follow_up_attempt_id = follow_up_attempt_id_inline
         for att in attempts_list:
             if att.get("questionId") == follow_up_qid:
                 follow_up_attempt_id = att.get("questionAttemptId")
@@ -196,7 +228,7 @@ def main() -> None:
             follow_up_attempt_id = ab.get("questionAttemptId")
 
         if not follow_up_attempt_id:
-             raise SystemExit("Failed to get attempt ID for follow-up question")
+            raise SystemExit("Failed to get attempt ID for follow-up question")
 
         print(f"   Using Follow-up Attempt ID: {follow_up_attempt_id}")
 
@@ -212,9 +244,9 @@ def main() -> None:
         # unless explicitly configured. The generated follow-up likely has strategy=None.
         fu_transcribe_body = safe_json(r) if r else {}
         if fu_transcribe_body.get("follow_up_generated"):
-             print("   ℹ️  Note: Another follow-up was generated (recursive follow-ups?).")
+            print("   ℹ️  Note: Another follow-up was generated (recursive follow-ups?).")
         else:
-             print("   ✅ Correct: No further follow-up generated for this answer.")
+            print("   ✅ Correct: No further follow-up generated for this answer.")
 
         # 4. Trigger Analysis for the follow-up answer
         # We'll run the complete analysis
@@ -230,9 +262,9 @@ def main() -> None:
              
         analysis_body = safe_json(r)
         if not analysis_body.get("analysis_complete"):
-             print(f"   ⚠️  Analysis incomplete: {analysis_body.get('message')}")
+            print(f"   ⚠️  Analysis incomplete: {analysis_body.get('message')}")
         else:
-             print("   ✅ Analysis completed successfully for follow-up.")
+            print("   ✅ Analysis completed successfully for follow-up.")
              
         # Verify analysis content exists
         agg = analysis_body.get("aggregated_analysis", {})

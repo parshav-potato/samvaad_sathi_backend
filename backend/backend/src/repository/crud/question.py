@@ -111,4 +111,14 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         
         return question_attempt
 
+    async def get_first_by_question_id(self, *, question_id: int) -> QuestionAttempt | None:
+        """Fetch the earliest attempt for a given question (useful for metadata lookups)."""
+        stmt = (
+            sqlalchemy.select(QuestionAttempt)
+            .where(QuestionAttempt.question_id == question_id)
+            .order_by(QuestionAttempt.id.asc())
+            .limit(1)
+        )
+        query = await self.async_session.execute(statement=stmt)
+        return query.scalar_one_or_none()
 

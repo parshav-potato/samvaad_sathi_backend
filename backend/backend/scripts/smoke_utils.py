@@ -1,9 +1,10 @@
 import json
+import os
 import httpx
 
-
-BASE_URL = "http://127.0.0.1:8000"
-API = "/api"
+# Allow overriding base URL/prefix for smoke runs (e.g., pointing at staging)
+BASE_URL = os.getenv("SMOKE_BASE_URL", "http://127.0.0.1:8000")
+API = os.getenv("SMOKE_API_PREFIX", "/api")
 
 
 def safe_json(resp: httpx.Response):
@@ -43,5 +44,4 @@ def extract_token(body: dict) -> str | None:
 
 def auth_headers(token: str | None) -> dict:
     return {"Authorization": f"Bearer {token}"} if token else {}
-
 

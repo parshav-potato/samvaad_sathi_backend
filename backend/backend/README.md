@@ -32,8 +32,15 @@ docker compose logs -f api
 4) Run smoke tests (inside container)
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
-docker compose exec api python scripts/smoke_test.py
+# Full suite (includes V2 follow-up flow)
+docker compose exec api python scripts/run_all_smoke.py
 ```
+```powershell
+# Individual runs
+docker compose exec api python scripts/smoke_test.py          # base auth/interview path
+docker compose exec api python scripts/smoke_v2_follow_up.py  # V2 follow-up workflow
+```
+- Override target with env vars: `SMOKE_BASE_URL` / `SMOKE_API_PREFIX`
 
 5) Run API directly (local, without Docker)
 ```powershell
@@ -214,8 +221,14 @@ Base prefix: `/api`
 Run comprehensive end-to-end checks:
 ```powershell
 cd D:\samvaad_sathi_backend\backend\backend
-python scripts\smoke_test.py
+python scripts\run_all_smoke.py   # includes V2 follow-up flow
 ```
+Targeted runs:
+```powershell
+python scripts\smoke_test.py          # base auth/interview path
+python scripts\smoke_v2_follow_up.py  # V2 follow-up workflow
+```
+- Override target with env vars: `SMOKE_BASE_URL` / `SMOKE_API_PREFIX`
 
 Alternatively, run from the Docker container as shown above.
 

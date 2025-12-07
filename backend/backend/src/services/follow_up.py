@@ -82,6 +82,8 @@ class FollowUpService:
         metadata = {
             "parent_question_id": question.id,
             "follow_up_question_id": follow_up_question.id,
+            "follow_up_question_attempt_id": follow_up_attempt.id,
+            "follow_up_question_text": follow_up_question.text,
             "llm_model": llm_model,
             "llm_latency_ms": latency_ms,
             "llm_error": llm_error,

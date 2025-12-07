@@ -164,7 +164,6 @@ class LLMSupplementItem(pydantic.BaseModel):
     supplementType: str = pydantic.Field(pattern="^(code|diagram)$")
     format: str | None = None
     content: str
-    rationale: str | None = None
 
 
 class LLMSupplementResponse(pydantic.BaseModel):
@@ -692,22 +691,38 @@ async def generate_question_supplements_with_llm(
         return [], None, None, model
 
     system_prompt = (
-        "You are an AI assistant that suggests concise supplemental material for interview questions. "
-        "For each question you believe benefits from additional context, provide EITHER a code snippet "
-        "(<=20 lines, readable) or a simple Mermaid diagram (<=20 lines). Skip questions that do not "
-        "need supplements. Always return valid JSON."
-        "unless really not necessay try to have at least one supplement"
+        "You are an AI assistant that supplies concise, high-signal supplements for EVERY interview question. "
+        "For each question, emit exactly one supplement: either a readable code snippet (<=20 lines) "
+        "or a simple Mermaid diagram (<=20 lines). Prefer code for procedural/algorithmic topics and "
+        "Mermaid for flows/architecture. Always return valid JSON with an 'items' array."
     )
 
     user_content = {
         "instructions": [
             "Use supplementType 'code' for source snippets, 'diagram' for Mermaid diagrams.",
-            "Include a 'format' value such as a programming language (python, javascript, sql) "
-            "or 'mermaid' for diagrams.",
-            "Do not exceed 20 lines in the content.",
-            "Return at most one supplement per question and omit questions that do not need one.",
+            "Include a 'format' value such as a programming language (python, javascript, sql) or 'mermaid' for diagrams.",
+            "Do not exceed 20 lines in the content; focus on runnable pseudocode or clearly labelled steps.",
+            "Return exactly one supplement per question; if stuck, provide a minimal scaffold that still helps the candidate orient.",
+            "OUTPUT JSON shape: {\"items\": [{\"questionId\": <int>, \"supplementType\": \"code\"|\"diagram\", \"format\": \"javascript\"|\"python\"|\"sql\"|\"mermaid\", \"content\": \"string\"}]}",
+            "Use the questionId from the provided payload verbatim.",
         ],
         "questions": question_payload,
+        "example": {
+            "items": [
+                {
+                    "questionId": 123,
+                    "supplementType": "code",
+                    "format": "javascript",
+                    "content": "function debounce(fn, wait = 200) {\n  let t;\n  return (...args) => {\n    clearTimeout(t);\n    t = setTimeout(() => fn(...args), wait);\n  };\n}",
+                },
+                {
+                    "questionId": 456,
+                    "supplementType": "diagram",
+                    "format": "mermaid",
+                    "content": "flowchart LR\n  UI-->API\n  API-->DB\n  DB-->Cache\n  Cache-->UI",
+                }
+            ]
+        },
     }
 
     result, error, latency_ms, model = await structured_output(
@@ -743,7 +758,6 @@ async def generate_question_supplements_with_llm(
                     supplementType=supplement_type,
                     format=fmt,
                     content=snippet,
-                    rationale=item.rationale,
                 )
             )
 

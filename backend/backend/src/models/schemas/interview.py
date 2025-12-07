@@ -57,7 +57,6 @@ class QuestionSupplementOut(BaseSchemaModel):
     supplement_type: str = pydantic.Field(description="Type of supplement: 'code' or 'diagram'")
     format: str | None = pydantic.Field(default=None, description="Language/format such as 'python' or 'mermaid'")
     content: str = pydantic.Field(description="Renderable snippet content")
-    rationale: str | None = pydantic.Field(default=None, description="Short explanation when provided")
 
 
 class InterviewCreate(BaseSchemaModel):

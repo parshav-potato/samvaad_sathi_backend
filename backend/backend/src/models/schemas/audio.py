@@ -3,6 +3,15 @@ import pydantic
 from src.models.schemas.base import BaseSchemaModel
 
 
+class FollowUpQuestion(BaseSchemaModel):
+    """Payload for a generated follow-up question (returned inline)."""
+    interview_question_id: int = pydantic.Field(description="ID of the generated follow-up question")
+    question_attempt_id: int = pydantic.Field(description="Attempt ID linked to the follow-up question")
+    parent_question_id: int | None = pydantic.Field(default=None, description="ID of the parent question")
+    text: str = pydantic.Field(description="Follow-up question text")
+    strategy: str | None = pydantic.Field(default=None, description="Follow-up strategy used for generation")
+
+
 class AudioTranscriptionResponse(BaseSchemaModel):
     """Response model for audio transcription endpoint"""
     question_attempt_id: int = pydantic.Field(description="ID of the question attempt this audio belongs to")
@@ -21,6 +30,10 @@ class AudioTranscriptionResponse(BaseSchemaModel):
     save_error: str | None = pydantic.Field(default=None, description="Error message if save operation failed")
     follow_up_generated: bool = pydantic.Field(default=False, description="Whether a follow-up question was generated")
     follow_up_metadata: dict | None = pydantic.Field(default=None, description="Metadata about the generated follow-up question, if any")
+    follow_up_question: FollowUpQuestion | None = pydantic.Field(
+        default=None,
+        description="Generated follow-up question (if created) with IDs and text",
+    )
 
 
 class AudioValidationError(BaseSchemaModel):

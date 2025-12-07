@@ -60,6 +60,11 @@ Run the comprehensive smoke test:
 ```bash
 python scripts/smoke_test.py
 ```
+Or run the full suite (includes V2 follow-up workflow) with:
+```bash
+python scripts/run_all_smoke.py
+```
+Set `SMOKE_BASE_URL` / `SMOKE_API_PREFIX` to target non-default hosts.
 
 ## File Storage
 - Audio files are processed completely in memory and temporary files

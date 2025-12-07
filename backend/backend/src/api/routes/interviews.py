@@ -9,6 +9,7 @@ from src.models.schemas.interview import InterviewCreate, InterviewInResponse, G
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
+from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.syllabus_service import syllabus_service
 from src.services.whisper import strip_word_level_data
@@ -409,6 +410,7 @@ async def list_interview_questions(
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    question_attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> QuestionsListResponse:
     interview = await interview_repo.get_by_id(interview_id=interview_id)
     if interview is None or interview.user_id != current_user.id:
@@ -416,7 +418,18 @@ async def list_interview_questions(
     
     safe_limit = max(1, min(100, int(limit)))
     items, next_cursor = await question_repo.list_by_interview_cursor(interview_id=interview_id, limit=safe_limit, cursor_id=cursor)
-    supplement_map = await _get_supplement_map(interview_id=interview_id, async_session=question_repo.async_session)
+    # Backfill missing parent pointers for follow-up questions using attempt metadata if needed
+    await _backfill_follow_up_parents(
+        questions=items,
+        question_repo=question_repo,
+        question_attempt_repo=question_attempt_repo,
+    )
+
+    supplement_map = await _get_supplement_map(
+        interview_id=interview_id,
+        async_session=question_repo.async_session,
+        ensure_generate=True,
+    )
     
     return QuestionsListResponse(
         interview_id=interview_id,
@@ -689,6 +702,7 @@ async def resume_interview(
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    question_attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> ResumeInterviewResponse:
     # Verify interview belongs to current user
     interview = await interview_repo.get_by_id_and_user(request.interview_id, current_user.id)
@@ -705,7 +719,18 @@ async def resume_interview(
     # Get count of questions with attempts
     attempted_count = await question_repo.get_questions_with_attempts_count(interview_id=interview.id)
 
-    supplement_map = await _get_supplement_map(interview_id=interview.id, async_session=question_repo.async_session)
+    # Backfill any missing follow-up parent pointers
+    await _backfill_follow_up_parents(
+        questions=questions_without_attempts,
+        question_repo=question_repo,
+        question_attempt_repo=question_attempt_repo,
+    )
+
+    supplement_map = await _get_supplement_map(
+        interview_id=interview.id,
+        async_session=question_repo.async_session,
+        ensure_generate=True,
+    )
     
     # Convert to response format
     question_items = [
@@ -735,11 +760,35 @@ async def resume_interview(
     )
 
 
-async def _get_supplement_map(*, interview_id: int, async_session) -> dict[int, "QuestionSupplementOut"]:
+async def _get_supplement_map(*, interview_id: int, async_session, ensure_generate: bool = False) -> dict[int, "QuestionSupplementOut"]:
     supplement_service = QuestionSupplementService(async_session=async_session)
     try:
-        supplements = await supplement_service.get_for_interview(interview_id=interview_id)
+        if ensure_generate:
+            supplements = await supplement_service.generate_for_interview(
+                interview_id=interview_id,
+                regenerate=False,
+            )
+        else:
+            supplements = await supplement_service.get_for_interview(interview_id=interview_id)
     except SQLAlchemyError as exc:
         logger.warning("Supplements unavailable for interview %s: %s", interview_id, exc)
         return {}
     return {supp.interview_question_id: serialize_question_supplement(supp) for supp in supplements}
+
+
+async def _backfill_follow_up_parents(
+    *,
+    questions: list,
+    question_repo: InterviewQuestionCRUDRepository,
+    question_attempt_repo: QuestionAttemptCRUDRepository,
+) -> None:
+    """Ensure follow-up questions always have a parent_question_id."""
+    for q in questions:
+        if getattr(q, "is_follow_up", False) and not getattr(q, "parent_question_id", None):
+            attempt = await question_attempt_repo.get_first_by_question_id(question_id=q.id)
+            parent_id = None
+            if attempt and isinstance(attempt.analysis_json, dict):
+                parent_id = attempt.analysis_json.get("follow_up", {}).get("parent_question_id")
+            if parent_id:
+                await question_repo.set_parent_question(question_id=q.id, parent_question_id=int(parent_id))
+                q.parent_question_id = int(parent_id)

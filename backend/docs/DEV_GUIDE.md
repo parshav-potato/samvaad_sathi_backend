@@ -12,7 +12,7 @@
 - JWT generator extended to support `User` tokens (`generate_access_token_for_user`).
 - Async SQLAlchemy session configured to avoid `MissingGreenlet` by controlling `expire_on_commit`.
 - ORM models imported at startup so relationship references (e.g., `Interview`) resolve correctly.
-- Added `scripts/smoke_test.py` to quickly validate endpoints locally.
+- Added smoke scripts under `scripts/` (smoke_test.py, run_all_smoke.py, smoke_v2_follow_up.py) to quickly validate endpoints locally.
 
 ## Environment Configuration
 The app reads env vars from `.env` at:
@@ -101,15 +101,15 @@ Swagger UI: http://127.0.0.1:8000/docs
   - `DELETE /api/accounts?id=` – Delete account by ID
 
 ## Smoke Tests
-A quick local check is available at `backend/backend/scripts/smoke_test.py`.
+- Full sweep (includes V2 follow-up flow): `python scripts/run_all_smoke.py`
+- Base auth/interview path only: `python scripts/smoke_test.py`
+- V2 follow-up workflow only: `python scripts/smoke_v2_follow_up.py`
+- Override target service with `SMOKE_BASE_URL` / `SMOKE_API_PREFIX`
 
-Run it:
+Example:
 ```powershell
-D:\samvaad_sathi_backend\backend\backend\venv\Scripts\python.exe D:\samvaad_sathi_backend\backend\backend\scripts\smoke_test.py
+D:\samvaad_sathi_backend\backend\backend\venv\Scripts\python.exe D:\samvaad_sathi_backend\backend\backend\scripts\run_all_smoke.py
 ```
-It exercises:
-- Users: register, login, me, duplicate, wrong password, missing auth
-- Accounts: signup, signin, list, get by id, patch, delete
 
 ## Implementation Notes
 - Async DB session is created with `expire_on_commit` configurable via `.env` (`IS_DB_EXPIRE_ON_COMMIT`). Setting this to `False` in dev avoids attribute refresh that can trigger `MissingGreenlet`.

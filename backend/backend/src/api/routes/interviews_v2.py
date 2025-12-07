@@ -15,6 +15,7 @@ from src.models.schemas.interview import (
 )
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
+from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.static_questions import get_static_questions
 from src.services.syllabus_service import syllabus_service
@@ -79,6 +80,7 @@ async def generate_questions_v2(
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    question_attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
 ) -> GeneratedQuestionsInResponse:
     supplement_service = QuestionSupplementService(async_session=question_repo.async_session)
     interview = None
@@ -195,8 +197,11 @@ async def generate_questions_v2(
         )
 
         supplements_map = await _get_supplement_map(
-            interview_id=interview.id, supplement_service=supplement_service
+            interview_id=interview.id,
+            supplement_service=supplement_service,
+            ensure_generate=True,
         )
+        _validate_supplements_response(items=supplements_map, source="generate-questions")
         response_items: list[dict[str, object]] = []
         for idx, question_obj in enumerate(persisted):
             structured = items[idx] if items and idx < len(items) else None
@@ -221,9 +226,18 @@ async def generate_questions_v2(
             "items": response_items,
         }
     else:
-        supplements_map = await _get_supplement_map(
-            interview_id=interview.id, supplement_service=supplement_service
+        # For cached/interrupted interviews, ensure follow-up questions have parent pointers
+        await _backfill_follow_up_parents(
+            questions=existing,
+            question_repo=question_repo,
+            question_attempt_repo=question_attempt_repo,
         )
+        supplements_map = await _get_supplement_map(
+            interview_id=interview.id,
+            supplement_service=supplement_service,
+            ensure_generate=True,
+        )
+        _validate_supplements_response(items=supplements_map, source="generate-questions-cached")
         response_items = [
             {
                 "interviewQuestionId": q.id,
@@ -329,10 +343,69 @@ async def _get_supplement_map(
     *,
     interview_id: int,
     supplement_service: QuestionSupplementService,
+    ensure_generate: bool = False,
 ) -> dict[int, QuestionSupplementOut]:
     try:
-        supplements = await supplement_service.get_for_interview(interview_id=interview_id)
+        if ensure_generate:
+            supplements = await supplement_service.generate_for_interview(
+                interview_id=interview_id,
+                regenerate=False,
+            )
+        else:
+            supplements = await supplement_service.get_for_interview(interview_id=interview_id)
     except SQLAlchemyError as exc:
         logger.warning("Supplements unavailable for interview %s: %s", interview_id, exc)
         return {}
     return {supp.interview_question_id: serialize_question_supplement(supp) for supp in supplements}
+
+
+def _validate_supplements_response(*, items: dict[int, QuestionSupplementOut], source: str) -> None:
+    """Validate supplements returned from LLM before sending to clients."""
+    if not items:
+        return
+    allowed_types = {"code", "diagram"}
+    mermaid_starters = ("flowchart", "graph", "sequenceDiagram", "stateDiagram", "classDiagram")
+
+    for qid, supp in items.items():
+        stype = (supp.supplement_type or "").lower()
+        fmt = (supp.format or "").lower() if supp.format else ""
+        content = supp.content or ""
+        if stype not in allowed_types:
+            logger.warning("Invalid supplement type (%s) for question %s from %s", stype, qid, source)
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid supplement type generated",
+            )
+        if stype == "diagram":
+            if fmt != "mermaid":
+                logger.warning("Diagram supplement missing mermaid format for question %s from %s", qid, source)
+                raise fastapi.HTTPException(
+                    status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Invalid diagram supplement format",
+                )
+            stripped = content.strip()
+            if not stripped.startswith("```mermaid"):
+                if not any(stripped.startswith(prefix) for prefix in mermaid_starters):
+                    logger.warning("Mermaid supplement failed syntax precheck for question %s from %s", qid, source)
+                    raise fastapi.HTTPException(
+                        status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Mermaid supplement failed syntax precheck",
+                    )
+
+
+async def _backfill_follow_up_parents(
+    *,
+    questions: list,
+    question_repo: InterviewQuestionCRUDRepository,
+    question_attempt_repo: QuestionAttemptCRUDRepository,
+) -> None:
+    """Ensure follow-up questions always have a parent_question_id."""
+    for q in questions:
+        if getattr(q, "is_follow_up", False) and not getattr(q, "parent_question_id", None):
+            attempt = await question_attempt_repo.get_first_by_question_id(question_id=q.id)
+            parent_id = None
+            if attempt and isinstance(attempt.analysis_json, dict):
+                parent_id = attempt.analysis_json.get("follow_up", {}).get("parent_question_id")
+            if parent_id:
+                await question_repo.set_parent_question(question_id=q.id, parent_question_id=int(parent_id))
+                q.parent_question_id = int(parent_id)
