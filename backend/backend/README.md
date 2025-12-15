@@ -213,6 +213,7 @@ Base prefix: `/api`
     - `overallFeedback`: Speech fluency feedback with actionable steps
     - `questionAnalysis`: Per-question feedback (null for unattempted questions)
   - **Features**: LLM-powered synthesis, fallback to heuristic scoring, database persistence
+  - **V1 Note**: For legacy V1 interviews, the per-question section may be missing/empty if the interview has no persisted questions (no `InterviewQuestion` rows) to map attempts back to.
 - `GET /api/summary-report/{interview_id}`: Retrieve persisted summary report
 - `GET /api/summary-reports?limit=10`: List recent summary reports with scores
 - `POST /api/final-report`: Generate and persist session-level report (legacy format)
