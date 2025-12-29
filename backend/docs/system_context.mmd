@@ -1,0 +1,16 @@
+graph TD
+    User[Candidate / User]
+    
+    subgraph "Samvaad Sathi System"
+        API["Backend API<br/>(FastAPI / Async)"]
+        Auth["Identity Provider<br/>(Authentication & Authorization)"]
+        DB[("Primary Database<br/>(PostgreSQL)")]
+        LLM["LLM Provider<br/>(Generative AI & Analysis)"]
+        Storage["Object Storage<br/>(Audio & Resumes)"]
+    end
+
+    User -->|HTTPS/REST| API
+    API -->|Validate Token| Auth
+    API -->|Persist Data| DB
+    API -->|Generate Questions/Analyze| LLM
+    API -->|Store Uploads| Storage

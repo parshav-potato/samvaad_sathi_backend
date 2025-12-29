@@ -177,6 +177,19 @@ class NewStrictSummarySynthesisLLM(pydantic.BaseModel):
     perQuestionFeedback: list[LLMQuestionFeedback]  # Feedback per attempted question (same length as perQuestionScores)
 
 
+class LLMQuestionFeedbackLite(pydantic.BaseModel):
+    """Simplified feedback for a single question."""
+    strengths: str
+    areasOfImprovement: str
+
+
+class NewStrictSummarySynthesisLLMLite(pydantic.BaseModel):
+    """Restructured summary report output (Lite) - LLM provides only scores and simplified feedback."""
+    perQuestionScores: list[LLMQuestionScores]
+    overallFeedback: LLMOverallFeedback
+    perQuestionFeedback: list[LLMQuestionFeedbackLite]
+
+
 
 # Legacy models (deprecated - kept for backward compatibility)
 class LLMKnowledgeBreakdownStrict(pydantic.BaseModel):
@@ -330,6 +343,167 @@ async def synthesize_summary_sections(
 
     result, error, latency_ms, model = await structured_output(
         NewStrictSummarySynthesisLLM,
+        system_prompt=sys_prompt,
+        user_content=user_content,
+        temperature=0,
+    )
+
+    data: dict = {}
+    if result:
+        data = result.model_dump()
+    return data, error, latency_ms, model
+
+
+class LLMKnowledgeScoresStrict(pydantic.BaseModel):
+    accuracy: int = pydantic.Field(..., ge=0, le=5)
+    depth: int = pydantic.Field(..., ge=0, le=5)
+    relevance: int = pydantic.Field(..., ge=0, le=5)
+    examples: int = pydantic.Field(..., ge=0, le=5)
+    terminology: int = pydantic.Field(..., ge=0, le=5)
+
+
+class LLMSpeechScoresStrict(pydantic.BaseModel):
+    fluency: int = pydantic.Field(..., ge=0, le=5)
+    structure: int = pydantic.Field(..., ge=0, le=5)
+    pacing: int = pydantic.Field(..., ge=0, le=5)
+    grammar: int = pydantic.Field(..., ge=0, le=5)
+
+
+class LLMPerQuestionScoresStrict(pydantic.BaseModel):
+    questionId: int
+    knowledgeScores: LLMKnowledgeScoresStrict
+    speechScores: LLMSpeechScoresStrict
+
+
+class LLMQuestionFeedbackLiteStrict(pydantic.BaseModel):
+    strengths: str
+    areasOfImprovement: str
+
+
+class LLMRecommendedPracticeStrict(pydantic.BaseModel):
+    title: str
+    description: str
+
+
+class LLMSpeechFluencyFeedbackStrict(pydantic.BaseModel):
+    strengths: str
+    areasOfImprovement: str
+    ratingEmoji: str
+    ratingTitle: str
+    ratingDescription: str
+
+
+class LLMNextStepStrict(pydantic.BaseModel):
+    title: str
+
+
+class LLMFinalTipStrict(pydantic.BaseModel):
+    title: str
+    description: str
+
+
+class NewStrictSummarySynthesisLLMLite(pydantic.BaseModel):
+    perQuestionScores: list[LLMPerQuestionScoresStrict]
+    perQuestionFeedback: list[LLMQuestionFeedbackLiteStrict]
+    recommendedPractice: LLMRecommendedPracticeStrict
+    speechFluencyFeedback: LLMSpeechFluencyFeedbackStrict
+    nextSteps: list[LLMNextStepStrict]
+    finalTip: LLMFinalTipStrict
+
+
+async def synthesize_summary_sections_lite(
+    *,
+    per_question_inputs: List[dict],
+    computed_metrics: Dict[str, Any],
+    max_questions: int | None = None,
+    interview_track: str | None = None,
+    interview_date: str | None = None,
+    candidate_name: str | None = None,
+    total_questions: int = 0,
+) -> tuple[dict, str | None, int | None, str]:
+    """
+    Drive the LLM to create the restructured summary report (Lite) from per-question analyses.
+    Returns: (summary_json, error, latency_ms, model)
+    """
+    model = settings.OPENAI_MODEL
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        # No key: return empty structures; caller can fallback to heuristic
+        return {}, None, None, model
+
+    if max_questions is not None:
+        per_question_inputs = per_question_inputs[:max_questions]
+
+    sys_prompt = (
+        "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
+        "pause) for interview questions, analyze each question independently and provide scores and feedback.\n\n"
+        "Your task: \n"
+        "1. Score each attempted question on knowledge and speech criteria (0-5 scale per criterion)\n"
+        "2. Provide overall speech fluency feedback across all attempts\n"
+        "3. Provide per-question simplified feedback for each attempted question\n"
+        "4. Provide a recommended practice exercise\n"
+        "5. Provide immediate next steps\n"
+        "6. Provide a final tip\n\n"
+        "The code will handle: reportId, candidateInfo, question metadata, totals, averages, and percentages.\n\n"
+        "Strict JSON schema: {\n"
+        "  perQuestionScores: [{ questionId: int, knowledgeScores: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) }, speechScores: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }],\n"
+        "  perQuestionFeedback: [{ strengths: string, areasOfImprovement: string }],\n"
+        "  recommendedPractice: { title: string, description: string },\n"
+        "  speechFluencyFeedback: { strengths: string, areasOfImprovement: string, ratingEmoji: string, ratingTitle: string, ratingDescription: string },\n"
+        "  nextSteps: [{ title: string }],\n"
+        "  finalTip: { title: string, description: string }\n"
+        "}\n\n"
+        "SCORING GUIDELINES:\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "PER-QUESTION SCORING (0-5 scale for each criterion):\n"
+        "\n"
+        "Knowledge Criteria:\n"
+        "  - accuracy: How correct and factually accurate was the answer?\n"
+        "  - depth: How detailed and comprehensive was the explanation?\n"
+        "  - relevance: How well did the answer address the question?\n"
+        "  - examples: Quality and appropriateness of examples provided\n"
+        "  - terminology: Proper use of technical terms and concepts\n"
+        "\n"
+        "Speech Criteria:\n"
+        "  - fluency: Smoothness of speech, minimal hesitations/filler words\n"
+        "  - structure: Logical organization and clarity of response\n"
+        "  - pacing: Appropriate speech speed (not too fast/slow)\n"
+        "  - grammar: Correct sentence structure and language use\n"
+        "\n"
+        "IMPORTANT NOTES:\n"
+        "1. perQuestionScores: Include scores for ALL questions provided in per_question data\n"
+        "2. perQuestionFeedback: Array corresponding to perQuestionScores order (same length)\n"
+        "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
+        "   - strengths: A SINGLE concise sentence summarizing what they did well.\n"
+        "   - areasOfImprovement: A SINGLE concise sentence summarizing what was missing or weak.\n"
+        "3. Base scores on the computed_metrics and analysis data provided for each question\n"
+        "4. Each criterion is scored independently on 0-5 scale\n"
+        "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
+        "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji should be like 'Slightly-happy', 'Neutral', etc.\n"
+        "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
+        "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
+        "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
+        "10. nextSteps: Provide 2-3 immediate next steps (titles only)\n"
+        "11. finalTip: A concluding tip for the candidate"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    user_content = {
+        "per_question": per_question_inputs,
+        "computed_metrics": computed_metrics,
+        "total_questions": total_questions,
+        "guidelines": [
+            "Base all numeric scores on provided computed_metrics and per-question analyses",
+            "Focus speechFluencyFeedback ONLY on speech aspects, not knowledge",
+            "Provide specific, actionable feedback grounded in observed patterns",
+            "Use simple language; avoid jargon like 'WPM' or overly technical terms",
+            "Connect improvement suggestions to specific weaknesses observed in analyses",
+            "For per-question feedback, provide ONLY single-sentence summaries for strengths and improvements"
+        ],
+    }
+
+    result, error, latency_ms, model = await structured_output(
+        NewStrictSummarySynthesisLLMLite,
         system_prompt=sys_prompt,
         user_content=user_content,
         temperature=0,

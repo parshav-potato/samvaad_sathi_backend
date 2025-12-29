@@ -20,6 +20,7 @@ import sqlalchemy
 
 from src.models.db.question_attempt import QuestionAttempt
 from src.models.db.interview_question import InterviewQuestion
+from src.models.db.interview import Interview
 from src.models.schemas.summary_report import (
     SummaryReportResponse,
     CandidateInfo,
@@ -35,7 +36,13 @@ from src.models.schemas.summary_report import (
     QuestionFeedback,
     QuestionFeedbackSubsection,
 )
-from src.services.llm import synthesize_summary_sections
+from src.models.schemas.summary_report_v2 import (
+    SummaryReportResponseLite,
+    QuestionAnalysisItemLite,
+    QuestionFeedbackLite,
+    CandidateInfoLite,
+)
+from src.services.llm import synthesize_summary_sections, synthesize_summary_sections_lite
 
 
 def _as_float(v: Any) -> Optional[float]:
@@ -828,3 +835,365 @@ class SummaryReportServiceV2:
         )
         
         return report.model_dump(exclude_none=False)
+
+    async def generate_for_interview_lite(
+        self,
+        interview_id: int,
+        question_attempts: Iterable[QuestionAttempt],
+        track: str,
+        resume_used: bool | None = None,
+        candidate_name: str | None = None,
+    ) -> Dict[str, Any]:
+        """Generate the new restructured summary report (Lite)."""
+        
+        question_attempts = list(question_attempts)
+        
+        # Fetch interview for duration
+        interview_stmt = sqlalchemy.select(Interview).where(Interview.id == interview_id)
+        interview_res = await self._db.execute(interview_stmt)
+        interview = interview_res.scalar_one_or_none()
+        
+        duration_str = "0 mins"
+        duration_feedback = "You managed your time effectively."
+        
+        if interview and interview.created_at:
+            start_time = interview.created_at
+            end_time = start_time
+            for qa in question_attempts:
+                if qa.created_at and qa.created_at > end_time:
+                    end_time = qa.created_at
+            
+            # Ensure end_time is timezone aware if start_time is
+            if end_time.tzinfo is None and start_time.tzinfo is not None:
+                end_time = end_time.replace(tzinfo=start_time.tzinfo)
+                
+            diff = (end_time - start_time).total_seconds()
+            mins = int(diff / 60)
+            if mins < 1: mins = 1
+            duration_str = f"{mins} mins"
+        
+        # Fetch all InterviewQuestions for this interview
+        stmt = sqlalchemy.select(InterviewQuestion).where(
+            InterviewQuestion.interview_id == interview_id
+        ).order_by(InterviewQuestion.order.asc())
+        result = await self._db.execute(stmt)
+        all_interview_questions = list(result.scalars().all())
+        
+        # Build a map of question_id -> QuestionAttempt
+        attempts_by_question_id: Dict[int, QuestionAttempt] = {}
+        actually_attempted_question_ids: set[int] = set()
+        
+        for qa in question_attempts:
+            if qa.question_id is not None:
+                attempts_by_question_id[qa.question_id] = qa
+                has_transcription = qa.transcription is not None and len(str(qa.transcription).strip()) > 0
+                analysis = getattr(qa, "analysis_json", None) or {}
+                has_analysis = bool(analysis)
+                if has_transcription or has_analysis:
+                    actually_attempted_question_ids.add(qa.question_id)
+        
+        total_questions = len(all_interview_questions)
+        attempted_questions = len(actually_attempted_question_ids)
+        
+        # Collect metrics
+        kc_accuracy: List[float] = []
+        kc_depth: List[float] = []
+        kc_relevance: List[float] = []
+        kc_examples: List[float] = []
+        kc_terminology: List[float] = []
+        ssf_fluency: List[float] = []
+        ssf_structure: List[float] = []
+        ssf_pacing: List[float] = []
+        ssf_grammar: List[float] = []
+        speech_strengths: List[str] = []
+        speech_improvements: List[str] = []
+        per_question_inputs: List[dict] = []
+        
+        for interview_question in all_interview_questions:
+            qa = attempts_by_question_id.get(interview_question.id)
+            if interview_question.id not in actually_attempted_question_ids:
+                continue
+            if qa is None:
+                continue
+            
+            analysis: Dict[str, Any] = getattr(qa, "analysis_json", None) or {}
+            d = analysis.get("domain") or {}
+            criteria = d.get("criteria") or {}
+            
+            accuracy_score = _as_float(((criteria.get("correctness") or {}).get("score")))
+            if accuracy_score is not None: kc_accuracy.append(max(0.0, min(100.0, accuracy_score)))
+            depth_score = _as_float(((criteria.get("depth") or {}).get("score")))
+            if depth_score is not None: kc_depth.append(max(0.0, min(100.0, depth_score)))
+            relevance_score = _as_float(((criteria.get("relevance") or {}).get("score")))
+            if relevance_score is not None: kc_relevance.append(max(0.0, min(100.0, relevance_score)))
+            examples_score = _as_float(((criteria.get("examples") or {}).get("score")))
+            if examples_score is not None: kc_examples.append(max(0.0, min(100.0, examples_score)))
+            terminology_score = _as_float(((criteria.get("terminology") or {}).get("score")))
+            if terminology_score is not None: kc_terminology.append(max(0.0, min(100.0, terminology_score)))
+            
+            c = analysis.get("communication") or {}
+            ccrit = c.get("criteria") or {}
+            structure_val = _as_float(c.get("structure_score") or (ccrit.get("structure", {}) or {}).get("score"))
+            if structure_val is not None: ssf_structure.append(max(0.0, min(100.0, structure_val)))
+            grammar_val = _as_float(c.get("grammar_score") or (ccrit.get("grammar", {}) or {}).get("score"))
+            if grammar_val is not None: ssf_grammar.append(max(0.0, min(100.0, grammar_val)))
+            
+            p = analysis.get("pace") or {}
+            z = analysis.get("pause") or {}
+            pace_raw = p.get("score")
+            if isinstance(pace_raw, (int, float)):
+                pace_scaled = pace_raw * 20 if pace_raw <= 5 else pace_raw
+                ssf_pacing.append(max(0.0, min(100.0, pace_scaled)))
+            
+            speech_strengths.extend(_as_list_str(c.get("strengths")))
+            speech_improvements.extend(_as_list_str(c.get("recommendations")))
+            speech_improvements.extend(_as_list_str(p.get("recommendations")))
+            speech_improvements.extend(_as_list_str(z.get("recommendations")))
+            
+            per_question_inputs.append({
+                "questionId": interview_question.id,
+                "questionAttemptId": qa.id,
+                "questionText": interview_question.text,
+                "questionCategory": interview_question.category,
+                "attempted": True,
+                "domain": d,
+                "communication": c,
+                "pace": p,
+                "pause": z,
+            })
+            
+        computed_metrics = {
+            "kc_accuracy_pct": _avg(kc_accuracy),
+            "kc_depth_pct": _avg(kc_depth),
+            "kc_relevance_pct": _avg(kc_relevance),
+            "kc_examples_pct": _avg(kc_examples) if kc_examples else 0.0,
+            "kc_terminology_pct": _avg(kc_terminology) if kc_terminology else 0.0,
+            "ssf_fluency_pct": _avg(ssf_fluency) if ssf_fluency else _avg([x for x in [_avg(ssf_structure), _avg(ssf_grammar)] if x is not None]),
+            "ssf_structure_pct": _avg(ssf_structure),
+            "ssf_pacing_pct": _avg(ssf_pacing),
+            "ssf_grammar_pct": _avg(ssf_grammar),
+            "total_questions": total_questions,
+            "attempted_questions": attempted_questions,
+            "speech_strengths": _unique(speech_strengths)[:6],
+            "speech_improvements": _unique(speech_improvements)[:6],
+        }
+        
+        interview_date = datetime.now(timezone.utc).isoformat()
+        llm_data, llm_error, latency_ms, model_name = await synthesize_summary_sections_lite(
+            per_question_inputs=per_question_inputs,
+            computed_metrics=computed_metrics,
+            max_questions=None,
+            interview_track=track,
+            interview_date=interview_date,
+            candidate_name=candidate_name,
+            total_questions=total_questions,
+        )
+        
+        if not llm_data or llm_error:
+            # Fallback logic for error case
+            fallback_std = self._build_fallback_report(
+                interview_id=interview_id,
+                track=track,
+                computed_metrics=computed_metrics,
+                all_questions=all_interview_questions,
+                attempts_map=attempts_by_question_id,
+                interview_date=interview_date,
+                candidate_name=candidate_name,
+            )
+            # Construct minimal valid response
+            qa_items = []
+            for item in fallback_std.get("questionAnalysis", []):
+                qa_items.append(QuestionAnalysisItemLite(
+                    id=item["id"],
+                    totalQuestions=item["totalQuestions"],
+                    type=item["type"],
+                    question=item["question"],
+                    feedback=QuestionFeedbackLite(strengths="N/A", areasOfImprovement="N/A")
+                ))
+            
+            return SummaryReportResponseLite(
+                reportId=str(uuid.uuid4()),
+                candidateInfo=CandidateInfoLite(
+                    name=candidate_name,
+                    interviewDate=interview_date,
+                    roleTopic=track.title(),
+                    duration=duration_str,
+                    durationFeedback=duration_feedback
+                ),
+                scoreSummary=ScoreSummary(**fallback_std["scoreSummary"]),
+                questionAnalysis=qa_items,
+                recommendedPractice={"title": "Practice", "description": "Practice more."},
+                speechFluencyFeedback={"strengths": "N/A", "areasOfImprovement": "N/A", "ratingEmoji": "Neutral", "ratingTitle": "N/A", "ratingDescription": "N/A"},
+                nextSteps=[{"title": "Practice"}],
+                finalTip={"title": "Tip", "description": "Keep practicing."}
+            ).model_dump(exclude_none=False)
+
+        try:
+            final_report = self._calculate_final_scores_lite(
+                llm_data=llm_data,
+                total_questions=total_questions,
+                all_questions=all_interview_questions,
+                attempts_by_question_id=attempts_by_question_id,
+                actually_attempted_question_ids=actually_attempted_question_ids,
+                track=track,
+                interview_date=interview_date,
+                candidate_name=candidate_name,
+                duration_str=duration_str,
+                duration_feedback=duration_feedback,
+            )
+            parsed = SummaryReportResponseLite(**final_report)
+            return parsed.model_dump(exclude_none=False)
+        except Exception as e:
+            # Fallback on exception
+            print(f"Error parsing lite report: {e}")
+            # Return minimal valid response (same as above)
+            return SummaryReportResponseLite(
+                reportId=str(uuid.uuid4()),
+                candidateInfo=CandidateInfoLite(
+                    name=candidate_name,
+                    interviewDate=interview_date,
+                    roleTopic=track.title(),
+                    duration=duration_str,
+                    durationFeedback=duration_feedback
+                ),
+                scoreSummary=ScoreSummary(
+                    knowledgeCompetence=KnowledgeCompetenceScore(score=0, maxScore=25, average=0, maxAverage=5, percentage=0, criteria=ScoreCriteria()),
+                    speechAndStructure=SpeechAndStructureScore(score=0, maxScore=20, average=0, maxAverage=5, percentage=0, criteria=SpeechCriteria())
+                ),
+                questionAnalysis=[],
+                recommendedPractice={"title": "Error", "description": "Could not generate report."},
+                speechFluencyFeedback={"strengths": "Error", "areasOfImprovement": "Error", "ratingEmoji": "Sad", "ratingTitle": "Error", "ratingDescription": "Error"},
+                nextSteps=[],
+                finalTip={"title": "Error", "description": "Error"}
+            ).model_dump(exclude_none=False)
+
+    def _calculate_final_scores_lite(
+        self,
+        llm_data: Dict[str, Any],
+        total_questions: int,
+        all_questions: List[InterviewQuestion],
+        attempts_by_question_id: Dict[int, QuestionAttempt],
+        actually_attempted_question_ids: set[int],
+        track: str,
+        interview_date: str,
+        candidate_name: str | None,
+        duration_str: str,
+        duration_feedback: str,
+    ) -> Dict[str, Any]:
+        """Calculate final scores for Lite report."""
+        per_question_scores = llm_data.get("perQuestionScores", [])
+        per_question_feedback = llm_data.get("perQuestionFeedback", [])
+        attempted_questions = len(per_question_scores)
+        
+        kc_accuracy_sum = kc_depth_sum = kc_relevance_sum = kc_examples_sum = kc_terminology_sum = 0
+        ssf_fluency_sum = ssf_structure_sum = ssf_pacing_sum = ssf_grammar_sum = 0
+        
+        for q_scores in per_question_scores:
+            k = q_scores.get("knowledgeScores", {})
+            kc_accuracy_sum += k.get("accuracy", 0)
+            kc_depth_sum += k.get("depth", 0)
+            kc_relevance_sum += k.get("relevance", 0)
+            kc_examples_sum += k.get("examples", 0)
+            kc_terminology_sum += k.get("terminology", 0)
+            s = q_scores.get("speechScores", {})
+            ssf_fluency_sum += s.get("fluency", 0)
+            ssf_structure_sum += s.get("structure", 0)
+            ssf_pacing_sum += s.get("pacing", 0)
+            ssf_grammar_sum += s.get("grammar", 0)
+            
+        kc_total_from_attempted = (kc_accuracy_sum + kc_depth_sum + kc_relevance_sum + kc_examples_sum + kc_terminology_sum)
+        ssf_total_from_attempted = (ssf_fluency_sum + ssf_structure_sum + ssf_pacing_sum + ssf_grammar_sum)
+        
+        if attempted_questions > 0:
+            kc_avg_per_question = kc_total_from_attempted / attempted_questions
+            ssf_avg_per_question = ssf_total_from_attempted / attempted_questions
+        else:
+            kc_avg_per_question = ssf_avg_per_question = 0
+            
+        completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
+        kc_score_total = round(kc_avg_per_question * completion_ratio)
+        ssf_score_total = round(ssf_avg_per_question * completion_ratio)
+        
+        if kc_total_from_attempted > 0:
+            kc_accuracy_final = round(kc_score_total * (kc_accuracy_sum / kc_total_from_attempted))
+            kc_depth_final = round(kc_score_total * (kc_depth_sum / kc_total_from_attempted))
+            kc_relevance_final = round(kc_score_total * (kc_relevance_sum / kc_total_from_attempted))
+            kc_examples_final = round(kc_score_total * (kc_examples_sum / kc_total_from_attempted))
+            kc_terminology_final = kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final)
+        else:
+            kc_accuracy_final = kc_depth_final = kc_relevance_final = kc_examples_final = kc_terminology_final = 0
+            
+        if ssf_total_from_attempted > 0:
+            ssf_fluency_final = round(ssf_score_total * (ssf_fluency_sum / ssf_total_from_attempted))
+            ssf_structure_final = round(ssf_score_total * (ssf_structure_sum / ssf_total_from_attempted))
+            ssf_pacing_final = round(ssf_score_total * (ssf_pacing_sum / ssf_total_from_attempted))
+            ssf_grammar_final = ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final)
+        else:
+            ssf_fluency_final = ssf_structure_final = ssf_pacing_final = ssf_grammar_final = 0
+            
+        kc_avg = kc_score_total / 5.0
+        ssf_avg = ssf_score_total / 4.0
+        kc_pct = int((kc_score_total / 25.0) * 100)
+        ssf_pct = int((ssf_score_total / 20.0) * 100)
+        
+        score_summary = {
+            "knowledgeCompetence": {
+                "score": kc_score_total, "maxScore": 25, "average": round(kc_avg, 2), "maxAverage": 5.0, "percentage": kc_pct,
+                "criteria": {
+                    "accuracy": kc_accuracy_final, "depth": kc_depth_final, "relevance": kc_relevance_final,
+                    "examples": kc_examples_final, "terminology": kc_terminology_final
+                }
+            },
+            "speechAndStructure": {
+                "score": ssf_score_total, "maxScore": 20, "average": round(ssf_avg, 2), "maxAverage": 5.0, "percentage": ssf_pct,
+                "criteria": {
+                    "fluency": ssf_fluency_final, "structure": ssf_structure_final, "pacing": ssf_pacing_final, "grammar": ssf_grammar_final
+                }
+            }
+        }
+        
+        candidate_info = {
+            "name": candidate_name,
+            "interviewDate": interview_date,
+            "roleTopic": track.title(),
+            "duration": duration_str,
+            "durationFeedback": duration_feedback,
+        }
+        
+        question_analysis = []
+        feedback_idx = 0
+        
+        for idx, iq in enumerate(all_questions):
+            if iq.id not in actually_attempted_question_ids:
+                continue
+                
+            category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
+            question_type = category_map.get(iq.category, "Technical question")
+            
+            feedback_item = None
+            if feedback_idx < len(per_question_feedback):
+                fb_data = per_question_feedback[feedback_idx]
+                feedback_item = {
+                    "strengths": fb_data.get("strengths", ""),
+                    "areasOfImprovement": fb_data.get("areasOfImprovement", "")
+                }
+                feedback_idx += 1
+            
+            question_analysis.append({
+                "id": idx + 1,
+                "totalQuestions": total_questions,
+                "type": question_type,
+                "question": iq.text,
+                "feedback": feedback_item,
+            })
+            
+        return {
+            "reportId": str(uuid.uuid4()),
+            "candidateInfo": candidate_info,
+            "scoreSummary": score_summary,
+            "questionAnalysis": question_analysis,
+            "recommendedPractice": llm_data.get("recommendedPractice"),
+            "speechFluencyFeedback": llm_data.get("speechFluencyFeedback"),
+            "nextSteps": llm_data.get("nextSteps"),
+            "finalTip": llm_data.get("finalTip"),
+        }

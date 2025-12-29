@@ -1,0 +1,36 @@
+graph TD
+    subgraph "Data Acquisition"
+        User((User)) -->|Upload Audio/Resume| API[FastAPI Gateway]
+        NPTEL[(NPTEL2020 Dataset)]
+    end
+
+    subgraph "Data Management Layer"
+        API -->|Validation| Validator{Quality Check}
+        Validator -->|Pass| Norm["Normalization<br/>(16kHz Mono)"]
+        Validator -->|Fail| Reject[Reject Request]
+        
+        Norm -->|Store Raw| ObjStore["Object Storage<br/>(S3/MinIO)"]
+        Norm -->|Store Meta| DB[(PostgreSQL)]
+    end
+
+    subgraph "Inference Pipeline (Phase 2)"
+        ObjStore -->|Stream| FeatureExt["Feature Extraction<br/>(Librosa)"]
+        ObjStore -->|Stream| Whisper["Whisper ASR<br/>(Base Model)"]
+        
+        Whisper -->|Text| LLM["LLM Analysis<br/>(OpenRouter)"]
+        Whisper -->|Phonemes| Pronunc["Pronunciation Scorer<br/>(GOP/MDD)"]
+        FeatureExt -->|Prosody| PacePause["Pace & Pause<br/>Analysis"]
+        
+        LLM --> DB
+        Pronunc --> DB
+        PacePause --> DB
+    end
+
+    subgraph "Training & Adaptation (Phase 3)"
+        direction TB
+        NPTEL -->|Curated Audio| Trainer[Fine-Tuning Engine]
+        ObjStore -.->|Anonymized Samples| Trainer
+        
+        Trainer -->|PEFT/LoRA| Adapter[Accent Adapter]
+        Adapter -.->|Update Weights| Whisper
+    end
