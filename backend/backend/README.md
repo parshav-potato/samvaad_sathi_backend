@@ -198,6 +198,27 @@ Base prefix: `/api`
   - **Hints Include**: Framework suggestions (STAR method, problem-solution-result), organizational approaches, answer structure guidance
   - **Note**: Questions/supplements fetched from DB, only hints are newly generated via LLM
 
+### 🗣️ Pronunciation Practice (Auth Required)
+- `POST /api/v2/pronunciation/create`: Create pronunciation practice session
+  - **Request**: `{ "difficulty": "easy" | "medium" | "hard" }`
+  - **Response**: Practice session with 10 randomly selected words and phonetic guides
+  - **Word Bank**: 20 words per difficulty level (60 total)
+  - **Features**: Stateless session creation, phonetic pronunciation guides, indexed word list
+- `GET /api/v2/pronunciation/{practice_id}/audio/{question_number}?slow=false`: Get pronunciation audio
+  - **Parameters**: 
+    - `practice_id` (int): Practice session ID
+    - `question_number` (int): Word index (0-9)
+    - `slow` (bool, optional): Generate slow-paced audio for practice (default: false)
+  - **Response**: Audio file in Opus format (audio/ogg)
+  - **Headers**: Includes `X-Audio-Latency-Ms` for performance monitoring
+  - **Features**: 
+    - OpenAI TTS (gpt-4o-mini-tts model)
+    - Clear "coral" voice optimized for pronunciation
+    - Optimized Opus format for bandwidth efficiency
+    - Stateless audio generation (no file storage)
+    - Speed-controlled pronunciation (normal or slow)
+  - **Performance**: Typical latency 1.5-2 seconds, audio size 10-20 KB
+
 ### 🎤 Audio Transcription (Auth Required)
 - `POST /api/transcribe-whisper`: Upload audio file and transcribe using OpenAI Whisper
   - **Request**: `multipart/form-data` with `file` (audio), `question_attempt_id` (int), `language` (optional, default: "en")
