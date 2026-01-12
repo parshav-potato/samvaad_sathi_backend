@@ -13,6 +13,9 @@ def main() -> None:
     # Run v2 follow-up path
     import scripts.smoke_v2_follow_up as v2_follow_up
     v2_follow_up.main()
+    # Run pronunciation practice
+    import scripts.smoke_pronunciation as pronunciation
+    pronunciation.main()
     # Run re-attempt scenarios
     import scripts.smoke_reattempt as reattempt
     reattempt.main()

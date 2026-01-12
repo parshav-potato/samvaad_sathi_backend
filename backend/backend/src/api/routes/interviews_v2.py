@@ -15,9 +15,14 @@ from src.models.schemas.interview import (
     QuestionSupplementOut,
     QuestionSupplementsResponse,
 )
+from src.models.schemas.pronunciation import (
+    PronunciationPracticeCreate,
+    PronunciationPracticeResponse,
+)
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
+from src.repository.crud.pronunciation_practice import PronunciationPracticeCRUDRepository
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.static_questions import get_static_questions
 from src.services.syllabus_service import syllabus_service
@@ -26,6 +31,7 @@ from src.services.question_supplements import (
     serialize_question_supplement,
 )
 from src.services.structure_hints import generate_structure_hints_for_questions
+from src.services.pronunciation_tts import generate_pronunciation_audio
 
 logger = logging.getLogger(__name__)
 FOLLOW_UP_STRATEGY = "llm_transcription_based"
@@ -502,3 +508,163 @@ async def _backfill_follow_up_parents(
             if parent_id:
                 await question_repo.set_parent_question(question_id=q.id, parent_question_id=int(parent_id))
                 q.parent_question_id = int(parent_id)
+
+
+# ==========================
+# Pronunciation Practice APIs
+# ==========================
+
+
+@router.post(
+    path="/pronunciation/create",
+    name="pronunciation:create",
+    response_model=PronunciationPracticeResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Create a pronunciation practice session with 10 random words",
+)
+async def create_pronunciation_practice(
+    payload: PronunciationPracticeCreate,
+    current_user=fastapi.Depends(get_current_user),
+    pronunciation_repo: PronunciationPracticeCRUDRepository = fastapi.Depends(
+        get_repository(repo_type=PronunciationPracticeCRUDRepository)
+    ),
+) -> PronunciationPracticeResponse:
+    """
+    Create a new pronunciation practice session.
+    
+    - Selects 10 random words from the specified difficulty level
+    - Returns practice session ID and word list with phonetic guides
+    """
+    try:
+        practice = await pronunciation_repo.create_practice_session(
+            user_id=current_user.id,
+            difficulty=payload.difficulty,
+        )
+        
+        # Convert words array to response format with indices
+        from src.models.schemas.pronunciation import PronunciationWord
+        words = [
+            PronunciationWord(
+                index=idx,
+                word=word_obj["word"],
+                phonetic=word_obj["phonetic"]
+            )
+            for idx, word_obj in enumerate(practice.words)
+        ]
+        
+        return PronunciationPracticeResponse(
+            practice_id=practice.id,
+            difficulty=practice.difficulty,
+            words=words,
+            total_words=len(words),
+            status=practice.status,
+            created_at=practice.created_at,
+        )
+    
+    except ValueError as e:
+        logger.error(f"Invalid difficulty level: {e}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Error creating pronunciation practice: {e}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create pronunciation practice session",
+        )
+
+
+@router.get(
+    path="/pronunciation/{practice_id}/audio/{question_number}",
+    name="pronunciation:get-audio",
+    summary="Get pronunciation audio for a specific word",
+    responses={
+        200: {
+            "content": {"audio/ogg": {}},
+            "description": "Returns audio file in Opus format",
+        }
+    },
+)
+async def get_pronunciation_audio(
+    practice_id: int,
+    question_number: int,
+    slow: bool = fastapi.Query(False, description="Generate slow-paced audio for practice"),
+    current_user=fastapi.Depends(get_current_user),
+    pronunciation_repo: PronunciationPracticeCRUDRepository = fastapi.Depends(
+        get_repository(repo_type=PronunciationPracticeCRUDRepository)
+    ),
+) -> fastapi.Response:
+    """
+    Get pronunciation audio for a specific word in a practice session.
+    
+    - **practice_id**: The pronunciation practice session ID
+    - **question_number**: Index of the word (0-9)
+    - **slow**: Whether to generate slow-paced audio (default: false)
+    
+    Returns optimized audio file in Opus format.
+    """
+    # Validate question number
+    if question_number < 0 or question_number > 9:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="question_number must be between 0 and 9",
+        )
+    
+    # Get practice session
+    practice = await pronunciation_repo.get_by_id_and_user(
+        practice_id=practice_id,
+        user_id=current_user.id,
+    )
+    
+    if not practice:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Pronunciation practice session not found",
+        )
+    
+    # Get the word at the specified index
+    if question_number >= len(practice.words):
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=f"question_number {question_number} out of range for this practice session",
+        )
+    
+    word_obj = practice.words[question_number]
+    word = word_obj.get("word", "")
+    
+    if not word:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid word data in practice session",
+        )
+    
+    # Generate audio using TTS service
+    audio_bytes, error, latency_ms = await generate_pronunciation_audio(
+        word=word,
+        slow=slow,
+    )
+    
+    if error:
+        logger.error(f"TTS error for word '{word}': {error}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate pronunciation audio",
+        )
+    
+    if not audio_bytes:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No audio generated",
+        )
+    
+    # Return audio file with appropriate headers
+    return fastapi.Response(
+        content=audio_bytes,
+        media_type="audio/ogg",
+        headers={
+            "Content-Disposition": f'inline; filename="pronunciation_{practice_id}_{question_number}{"_slow" if slow else ""}.ogg"',
+            "X-Audio-Latency-Ms": str(latency_ms),
+        },
+    )
+
