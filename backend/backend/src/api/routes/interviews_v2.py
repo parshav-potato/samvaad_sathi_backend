@@ -8,8 +8,10 @@ from src.models.schemas.interview import (
     InterviewCreate,
     InterviewInResponse,
     GeneratedQuestionsInResponse,
+    StructurePracticeQuestionsResponse,
     GenerateQuestionsRequest,
     QuestionItem,
+    QuestionItemWithHint,
     QuestionSupplementOut,
     QuestionSupplementsResponse,
 )
@@ -23,6 +25,7 @@ from src.services.question_supplements import (
     QuestionSupplementService,
     serialize_question_supplement,
 )
+from src.services.structure_hints import generate_structure_hints_for_questions
 
 logger = logging.getLogger(__name__)
 FOLLOW_UP_STRATEGY = "llm_transcription_based"
@@ -281,6 +284,96 @@ async def generate_questions_v2(
         llm_model=qs.get("llm_model"),
         llm_latency_ms=qs.get("latency_ms"),
         llm_error=qs.get("llm_error"),
+    )
+
+
+@router.post(
+    path="/interviews/structure-practice",
+    name="interviews-v2:structure-practice",
+    response_model=StructurePracticeQuestionsResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Get interview questions with structure hints for practice",
+)
+async def get_structure_practice_questions(
+    interview_id: int = fastapi.Body(..., embed=True),
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+) -> StructurePracticeQuestionsResponse:
+    """
+    Fetch existing interview questions with AI-generated structure hints.
+    Questions and supplements are fetched from DB, only hints are newly generated.
+    """
+    # Validate interview ownership
+    interview = await interview_repo.get_by_id(interview_id=interview_id)
+    if interview is None or interview.user_id != current_user.id:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Interview not found"
+        )
+    
+    # Get existing questions from database
+    questions = await question_repo.list_by_interview(interview_id=interview.id)
+    if not questions:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="No questions found for this interview. Generate questions first."
+        )
+    
+    # Get supplements
+    supplement_service = QuestionSupplementService(async_session=question_repo.async_session)
+    supplements_map = await _get_supplement_map(
+        interview_id=interview.id,
+        supplement_service=supplement_service,
+        ensure_generate=False,  # Don't generate, just fetch existing
+    )
+    
+    # Prepare questions data for hint generation
+    questions_data = [
+        {
+            "text": q.text,
+            "topic": q.topic,
+            "category": q.category,
+        }
+        for q in questions
+    ]
+    
+    # Generate structure hints using LLM
+    hints_map, llm_error, latency_ms, llm_model = await generate_structure_hints_for_questions(
+        questions=questions_data,
+        track=interview.track,
+        difficulty=interview.difficulty,
+    )
+    
+    # Build response items with hints
+    items_with_hints = []
+    for q in questions:
+        hint = hints_map.get(q.text, "Break down your answer logically with clear examples and explain your reasoning.")
+        items_with_hints.append(
+            QuestionItemWithHint(
+                interview_question_id=q.id,
+                text=q.text,
+                topic=q.topic,
+                difficulty=None,
+                category=q.category,
+                is_follow_up=q.is_follow_up,
+                parent_question_id=q.parent_question_id,
+                follow_up_strategy=q.follow_up_strategy,
+                supplement=supplements_map.get(q.id),
+                structure_hint=hint,
+            )
+        )
+    
+    return StructurePracticeQuestionsResponse(
+        interview_id=interview.id,
+        track=interview.track,
+        count=len(questions),
+        questions=[q.text for q in questions],
+        question_ids=[q.id for q in questions],
+        items=items_with_hints,
+        llm_model=llm_model,
+        llm_latency_ms=latency_ms,
+        llm_error=llm_error,
     )
 
 

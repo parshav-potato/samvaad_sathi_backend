@@ -52,6 +52,20 @@ class QuestionItem(BaseSchemaModel):
     supplement: "QuestionSupplementOut | None" = None
 
 
+class QuestionItemWithHint(BaseSchemaModel):
+    """Question item with structure hint for practice mode"""
+    interview_question_id: int | None = None
+    text: str
+    topic: str | None = None
+    difficulty: str | None = None
+    category: str | None = None
+    is_follow_up: bool = False
+    parent_question_id: int | None = None
+    follow_up_strategy: str | None = None
+    supplement: "QuestionSupplementOut | None" = None
+    structure_hint: str = pydantic.Field(description="1-2 line hint about expected answer structure")
+
+
 class QuestionSupplementOut(BaseSchemaModel):
     question_id: int = pydantic.Field(description="Interview question ID this supplement belongs to")
     supplement_type: str = pydantic.Field(description="Type of supplement: 'code' or 'diagram'")
@@ -95,6 +109,19 @@ class GeneratedQuestionsInResponse(BaseSchemaModel):
     question_ids: list[int] | None = None  # Include question IDs for consistency with get-questions endpoint
     items: list[QuestionItem] | None = None
     cached: bool | None = None
+    llm_model: str | None = None
+    llm_latency_ms: int | None = None
+    llm_error: str | None = None
+
+
+class StructurePracticeQuestionsResponse(BaseSchemaModel):
+    """Response for structure practice mode with hints"""
+    interview_id: int
+    track: str
+    count: int
+    questions: list[str]
+    question_ids: list[int] | None = None
+    items: list[QuestionItemWithHint]
     llm_model: str | None = None
     llm_latency_ms: int | None = None
     llm_error: str | None = None

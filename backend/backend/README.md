@@ -186,6 +186,18 @@ Base prefix: `/api`
 - `GET /api/interviews/{id}/questions?limit=20&cursor=<lastQuestionId>`: Cursor-based listing (oldest first). Response: `{ interviewId, items, next_cursor, limit }`.
 - `GET /api/interviews/{id}/question-attempts`: Get QuestionAttempt objects with IDs for audio transcription support.
 
+### 🎯 Interviews V2 (Auth Required)
+- `POST /api/v2/interviews/create`: Create or resume a V2 interview session.
+- `POST /api/v2/interviews/generate-questions`: Generate 5-question adaptive interview set with supplements.
+  - **Features**: LLM-powered question generation, automatic supplement generation (code/diagrams), follow-up question support
+  - **Response**: Questions with metadata, supplements (mermaid diagrams or code snippets), follow-up indicators
+- `POST /api/v2/interviews/structure-practice`: Get interview questions with AI-generated structure hints
+  - **Request**: `{ "interview_id": number }`
+  - **Response**: Same questions and supplements as generate-questions, but with added 1-2 line structure hints
+  - **Purpose**: Help candidates understand how to structure their answers effectively
+  - **Hints Include**: Framework suggestions (STAR method, problem-solution-result), organizational approaches, answer structure guidance
+  - **Note**: Questions/supplements fetched from DB, only hints are newly generated via LLM
+
 ### 🎤 Audio Transcription (Auth Required)
 - `POST /api/transcribe-whisper`: Upload audio file and transcribe using OpenAI Whisper
   - **Request**: `multipart/form-data` with `file` (audio), `question_attempt_id` (int), `language` (optional, default: "en")

@@ -128,6 +128,39 @@ def main() -> None:
         for itm in supplements_present:
             _validate_supplement(itm.get("supplement") or {})
 
+        # Test structure-practice endpoint
+        structure_payload = {"interview_id": interview_id}
+        r, err = safe_call(client, "POST", f"{API}/v2/interviews/structure-practice", headers=headers, json=structure_payload)
+        print_result("POST /api/v2/interviews/structure-practice", r, err)
+        structure_body = safe_json(r) if r else {}
+        structure_items = structure_body.get("items", [])
+        if len(structure_items) != len(items):
+            raise SystemExit(f"Structure practice returned {len(structure_items)} items, expected {len(items)}")
+        
+        # Verify hints are present and not empty
+        hints_present = sum(1 for item in structure_items if item.get("structureHint") or item.get("structure_hint"))
+        if hints_present != len(structure_items):
+            raise SystemExit(f"Only {hints_present}/{len(structure_items)} items have structure hints")
+        
+        # Verify supplements are preserved
+        structure_supplements = [item for item in structure_items if item.get("supplement")]
+        if len(structure_supplements) != len(supplements_present):
+            raise SystemExit(f"Supplements not preserved in structure-practice: {len(structure_supplements)} vs {len(supplements_present)}")
+        
+        # Check hint quality (should be 1-2 lines, not too short)
+        sample_hint = structure_items[0].get("structureHint") or structure_items[0].get("structure_hint") or ""
+        if len(sample_hint) < 20:
+            raise SystemExit(f"Structure hint too short (possibly failed): '{sample_hint}'")
+        
+        print(json.dumps({
+            "name": "structure-practice-validation",
+            "items_with_hints": hints_present,
+            "supplements_preserved": len(structure_supplements),
+            "sample_hint_length": len(sample_hint),
+            "llm_model": structure_body.get("llmModel") or structure_body.get("llm_model"),
+        }))
+        print(f"   ✅ Structure practice hints validated. Sample: {sample_hint[:80]}...")
+
         target_question = follow_up_ready[0]
         question_id = target_question.get("interviewQuestionId")
         if not question_id:
