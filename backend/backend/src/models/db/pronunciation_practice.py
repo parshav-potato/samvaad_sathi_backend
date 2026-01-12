@@ -29,6 +29,7 @@ class PronunciationPractice(Base):  # type: ignore
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )
 
-    user = relationship("User", back_populates="pronunciation_practices")
+    # No reverse relationship needed - keeps backward compatibility with old backend versions
+    # user = relationship("User")
 
     __mapper_args__ = {"eager_defaults": True}

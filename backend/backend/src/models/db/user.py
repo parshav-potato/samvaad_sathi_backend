@@ -74,9 +74,6 @@ class User(Base):  # type: ignore
     interviews = relationship(
         "Interview", back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
-    pronunciation_practices = relationship(
-        "PronunciationPractice", back_populates="user", cascade="all, delete-orphan", passive_deletes=True
-    )
 
     __mapper_args__ = {"eager_defaults": True}
 
