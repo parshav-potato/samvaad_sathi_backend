@@ -40,6 +40,88 @@ FOLLOW_UP_STRATEGY = "llm_transcription_based"
 router = fastapi.APIRouter(prefix="/v2", tags=["interviews-v2"])
 
 
+def _get_cached_structure_practice_response() -> StructurePracticeQuestionsResponse:
+    """
+    Returns a fixed/cached response with generic practice questions and structure hints.
+    Used when no interview_id is provided to the structure-practice endpoint.
+    """
+    cached_items = [
+        QuestionItemWithHint(
+            interview_question_id=0,
+            text="Explain the concept of closures in JavaScript and provide a practical use case where closures are particularly useful.",
+            topic="Closures in JavaScript",
+            difficulty=None,
+            category="tech",
+            is_follow_up=False,
+            parent_question_id=None,
+            follow_up_strategy=None,
+            supplement=None,
+            structure_hint="Use C-T-E-T-D: explain the context of scope in JS, define closure theory, show a practical example, discuss trade-offs like memory considerations, and conclude with when to use closures."
+        ),
+        QuestionItemWithHint(
+            interview_question_id=0,
+            text="What is the difference between 'let', 'const', and 'var' in JavaScript? When would you choose one over the other?",
+            topic="Variable Declarations in JavaScript",
+            difficulty=None,
+            category="tech",
+            is_follow_up=False,
+            parent_question_id=None,
+            follow_up_strategy=None,
+            supplement=None,
+            structure_hint="Apply C-T-E-T-D: set context on variable scoping, explain the theory behind each keyword, provide examples of their differences, discuss trade-offs like hoisting and mutability, and decide when to use each."
+        ),
+        QuestionItemWithHint(
+            interview_question_id=0,
+            text="Describe a situation where you had to optimize the performance of a web application. What approach did you take and what was the outcome?",
+            topic="Performance Optimization",
+            difficulty=None,
+            category="behavioral",
+            is_follow_up=False,
+            parent_question_id=None,
+            follow_up_strategy=None,
+            supplement=None,
+            structure_hint="Use STAR: describe the Situation (slow application), specify your Task (optimize performance), detail your Actions (profiling, identifying bottlenecks, implementing fixes), and summarize the Result (measurable improvements)."
+        ),
+        QuestionItemWithHint(
+            interview_question_id=0,
+            text="How does the event loop work in Node.js? Explain with the phases of the event loop.",
+            topic="Node.js Event Loop",
+            difficulty=None,
+            category="tech",
+            is_follow_up=False,
+            parent_question_id=None,
+            follow_up_strategy=None,
+            supplement=None,
+            structure_hint="Follow C-T-E-T-D: provide context on async programming in Node.js, explain event loop theory and its phases, give an example of callback execution order, discuss trade-offs of blocking operations, and conclude on best practices."
+        ),
+        QuestionItemWithHint(
+            interview_question_id=0,
+            text="Tell me about a time when you had to learn a new technology quickly to complete a project. How did you approach the learning process?",
+            topic="Learning and Adaptability",
+            difficulty=None,
+            category="behavioral",
+            is_follow_up=False,
+            parent_question_id=None,
+            follow_up_strategy=None,
+            supplement=None,
+            structure_hint="Use STAR: describe the Situation (new technology requirement), your Task (learn and apply it), your Actions (learning strategy, resources used, practice), and the Result (successful implementation, lessons learned)."
+        ),
+    ]
+    
+    return StructurePracticeQuestionsResponse(
+        interview_id=None,
+        track="Software Development",
+        count=len(cached_items),
+        questions=[item.text for item in cached_items],
+        question_ids=None,
+        items=cached_items,
+        llm_model=None,
+        llm_latency_ms=None,
+        llm_error=None,
+        cached=True,
+    )
+
+
 @router.post(
     path="/interviews/create",
     name="interviews-v2:create",
@@ -301,7 +383,7 @@ async def generate_questions_v2(
     summary="Get interview questions with structure hints for practice",
 )
 async def get_structure_practice_questions(
-    interview_id: int = fastapi.Body(..., embed=True),
+    interview_id: int | None = fastapi.Body(None, embed=True),
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
@@ -309,7 +391,12 @@ async def get_structure_practice_questions(
     """
     Fetch existing interview questions with AI-generated structure hints.
     Questions and supplements are fetched from DB, only hints are newly generated.
+    If interview_id is not provided, returns cached generic practice questions.
     """
+    # Return cached response if no interview_id provided
+    if interview_id is None:
+        return _get_cached_structure_practice_response()
+    
     # Validate interview ownership
     interview = await interview_repo.get_by_id(interview_id=interview_id)
     if interview is None or interview.user_id != current_user.id:
@@ -380,6 +467,7 @@ async def get_structure_practice_questions(
         llm_model=llm_model,
         llm_latency_ms=latency_ms,
         llm_error=llm_error,
+        cached=False,
     )
 
 

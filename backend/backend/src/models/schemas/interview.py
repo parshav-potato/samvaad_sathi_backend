@@ -116,7 +116,7 @@ class GeneratedQuestionsInResponse(BaseSchemaModel):
 
 class StructurePracticeQuestionsResponse(BaseSchemaModel):
     """Response for structure practice mode with hints"""
-    interview_id: int
+    interview_id: int | None = None
     track: str
     count: int
     questions: list[str]
@@ -125,6 +125,7 @@ class StructurePracticeQuestionsResponse(BaseSchemaModel):
     llm_model: str | None = None
     llm_latency_ms: int | None = None
     llm_error: str | None = None
+    cached: bool = False
 
 
 class InterviewItem(BaseSchemaModel):
