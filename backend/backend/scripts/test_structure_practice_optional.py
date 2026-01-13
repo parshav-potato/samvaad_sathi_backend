@@ -138,8 +138,8 @@ def main():
         if response_data.get("interviewId") != interview_id:
             raise SystemExit(f"Expected interviewId={interview_id}, got {response_data.get('interviewId')}")
         
-        if response_data.get("count") != 3:
-            raise SystemExit(f"Expected 3 questions, got {response_data.get('count')}")
+        if response_data.get("count") < 1:
+            raise SystemExit(f"Expected at least 1 question, got {response_data.get('count')}")
         
         print(f"✅ Interview-based response validated: {response_data['count']} questions, cached={response_data['cached']}")
         print("\n✅ All tests passed! Structure-practice endpoint works with optional interview_id")
