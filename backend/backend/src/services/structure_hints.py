@@ -1,33 +1,28 @@
 """Service for generating structure hints for interview questions."""
 
-import json
 import logging
-import time
 from typing import Any
 
-from openai import AsyncOpenAI
-from src.config.manager import settings
+from pydantic import BaseModel
+from src.services.llm import structured_output
 
 logger = logging.getLogger(__name__)
 
-# Lazy client holder
-_client: AsyncOpenAI | None = None
+
+class StructureHint(BaseModel):
+    """Single structure hint for a question."""
+    question_number: int
+    hint: str
 
 
-def _get_client() -> AsyncOpenAI | None:
-    """Get or create OpenAI client."""
-    global _client
-    if _client is not None:
-        return _client
-    api_key = settings.OPENAI_API_KEY
-    if not api_key:
-        return None
-    _client = AsyncOpenAI(
-        api_key=api_key,
-        timeout=float(getattr(settings, "OPENAI_TIMEOUT_SECONDS", 60.0)),
-        max_retries=3,
-    )
-    return _client
+class StructureHintsResponse(BaseModel):
+    """Response containing all structure hints."""
+    hints: list[StructureHint]
+
+
+def _get_client():
+    """Deprecated - using structured_output helper instead."""
+    return None
 
 
 async def generate_structure_hints_for_questions(
@@ -50,11 +45,6 @@ async def generate_structure_hints_for_questions(
         - latency_ms: Time taken for LLM call
         - model: Model name used
     """
-    client = _get_client()
-    if not client:
-        logger.warning("OpenAI client not available, returning fallback hints")
-        return _generate_fallback_hints(questions), None, 0, "fallback"
-    
     if not questions:
         return {}, None, 0, "none"
     
@@ -71,17 +61,34 @@ async def generate_structure_hints_for_questions(
     system_prompt = """You are an expert interview coach helping candidates prepare for technical interviews.
 Your task is to provide brief structure hints (1-2 lines) that guide candidates on how to structure their answers effectively.
 
+Use these proven frameworks based on question type:
+
+**Tech Questions** - Use C-T-E-T-D Framework:
+- Context → Theory → Example → Trade-offs → Decision
+- Example hint: "Start with context, explain the underlying theory, give a concrete example, discuss trade-offs, then justify your decision."
+
+**Tech Allied Questions** - Use G-C-D-I-O Framework:
+- Goal → Constraints → Decision → Implementation → Outcome
+- Example hint: "Outline the goal first, identify constraints, explain your decision rationale, describe implementation, and summarize the outcome."
+
+**Behavioral Questions** - Use S-T-A-R Framework:
+- Situation → Task → Action → Result
+- Example hint: "Use STAR: describe the Situation, clarify your Task, detail the Actions you took, and quantify the Results achieved."
+
 The hints should:
-- Focus on answer structure, NOT content
+- Match the appropriate framework to the question type
 - Be concise (max 2 lines)
-- Help candidates organize their thoughts
-- Suggest frameworks or approaches (e.g., STAR method, problem-solution-result, etc.)
+- Focus on structure, NOT content
+- Guide candidates on organizing their thoughts
 - NOT give away the answer
 
-Examples:
-- "Start with the problem context, explain your approach step-by-step, then discuss the outcome and what you learned."
-- "Use the STAR method: describe the Situation, your Task, Actions taken, and Results achieved."
-- "Break down into: definition, use cases, pros/cons, and when you'd recommend it."
+You must respond with valid JSON matching this schema:
+{
+  "hints": [
+    {"question_number": 1, "hint": "..."},
+    {"question_number": 2, "hint": "..."}
+  ]
+}
 """
 
     user_prompt = f"""Interview Track: {track}
@@ -90,77 +97,30 @@ Difficulty: {difficulty}
 Questions:
 {questions_text}
 
-For each question above, provide a structure hint in the following JSON format:
-{{
-    "hints": [
-        {{"question_number": 1, "hint": "Your structure hint here"}},
-        {{"question_number": 2, "hint": "Your structure hint here"}},
-        ...
-    ]
-}}
+For each question above, provide a structure hint."""
 
-Return ONLY the JSON, no additional text."""
-
-    start_time = time.time()
-    error = None
-    model_name = settings.OPENAI_MODEL or "gpt-4o-mini"
+    # Use the structured_output helper
+    parsed_response, error, latency_ms, model_name = await structured_output(
+        StructureHintsResponse,
+        system_prompt=system_prompt,
+        user_content=user_prompt,
+        temperature=0.7,
+    )
     
-    try:
-        response = await client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.7,
-            max_tokens=1000,
-        )
-        
-        latency_ms = int((time.time() - start_time) * 1000)
-        
-        if not response.choices:
-            logger.warning("No choices in OpenAI response for structure hints")
-            return _generate_fallback_hints(questions), "No response from LLM", latency_ms, model_name
-        
-        content = response.choices[0].message.content
-        if not content:
-            logger.warning("Empty content in OpenAI response for structure hints")
-            return _generate_fallback_hints(questions), "Empty response from LLM", latency_ms, model_name
-        
-        # Parse JSON response
-        try:
-            # Clean up potential markdown code blocks
-            content = content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            elif content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-            
-            parsed = json.loads(content)
-            hints_list = parsed.get("hints", [])
-            
-            # Map hints to questions
-            hints_map = {}
-            for i, q in enumerate(questions, 1):
-                hint_obj = next((h for h in hints_list if h.get("question_number") == i), None)
-                if hint_obj:
-                    hints_map[q.get("text", "")] = hint_obj.get("hint", _get_fallback_hint_for_question(q))
-                else:
-                    hints_map[q.get("text", "")] = _get_fallback_hint_for_question(q)
-            
-            return hints_map, None, latency_ms, model_name
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM response for structure hints: {e}")
-            return _generate_fallback_hints(questions), f"JSON parse error: {str(e)}", latency_ms, model_name
+    if error or not parsed_response:
+        logger.warning(f"Failed to generate structure hints with LLM: {error}")
+        return _generate_fallback_hints(questions), error, latency_ms or 0, model_name
     
-    except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"Error generating structure hints with LLM: {e}")
-        return _generate_fallback_hints(questions), str(e), latency_ms, model_name
+    # Map hints to questions
+    hints_map = {}
+    for i, q in enumerate(questions, 1):
+        hint_obj = next((h for h in parsed_response.hints if h.question_number == i), None)
+        if hint_obj:
+            hints_map[q.get("text", "")] = hint_obj.hint
+        else:
+            hints_map[q.get("text", "")] = _get_fallback_hint_for_question(q)
+    
+    return hints_map, None, latency_ms or 0, model_name
 
 
 def _generate_fallback_hints(questions: list[dict[str, Any]]) -> dict[str, str]:
@@ -176,10 +136,11 @@ def _get_fallback_hint_for_question(question: dict[str, Any]) -> str:
     category = (question.get("category") or "technical").lower()
     
     if "behavioral" in category:
-        return "Use STAR method: Situation, Task, Action, Result. Focus on your specific role and measurable outcomes."
-    elif "system" in category or "design" in category:
-        return "Start with requirements and constraints, then present your high-level architecture before diving into components and trade-offs."
+        return "Use STAR: Situation → Task → Action → Result. Focus on your specific role and measurable outcomes."
+    elif "system" in category or "design" in category or "architecture" in category:
+        return "Apply G-C-D-I-O: Goal → Constraints → Decision → Implementation → Outcome. Start with requirements and constraints."
     elif "algorithm" in category or "coding" in category:
-        return "Clarify assumptions, explain your approach, walk through an example, then discuss time/space complexity and edge cases."
+        return "Follow C-T-E-T-D: Context → Theory → Example → Trade-offs → Decision. Clarify assumptions, explain approach, discuss complexity."
     else:
-        return "Begin with context and definition, explain your reasoning step-by-step, then summarize key takeaways and practical applications."
+        # Default tech question
+        return "Use C-T-E-T-D: Context → Theory → Example → Trade-offs → Decision. Build from fundamentals to practical application."
