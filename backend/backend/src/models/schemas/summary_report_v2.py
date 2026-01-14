@@ -26,13 +26,13 @@ class CandidateInfoLite(BaseSchemaModel):
     name: str | None = pydantic.Field(default=None, description="Candidate name if available")
     interviewDate: str = pydantic.Field(description="ISO date string for interview")
     roleTopic: str = pydantic.Field(description="Interview track/role (e.g., 'Frontend Development')")
-    duration: str = pydantic.Field(description="Duration of the interview (e.g., '25 mins')")
-    durationFeedback: str = pydantic.Field(description="Feedback on time management")
+    duration: str | None = pydantic.Field(default=None, description="Duration of the interview (e.g., '25 mins')")
+    durationFeedback: str | None = pydantic.Field(default=None, description="Feedback on time management")
 
 class QuestionFeedbackLite(BaseSchemaModel):
     """Simplified feedback for a question with single-line strings."""
-    strengths: str = pydantic.Field(description="Single line summary of strengths")
-    areasOfImprovement: str = pydantic.Field(description="Single line summary of areas for improvement")
+    strengths: str | None = pydantic.Field(default=None, description="Single line summary of strengths")
+    areasOfImprovement: str | None = pydantic.Field(default=None, description="Single line summary of areas for improvement")
 
 class QuestionAnalysisItemLite(BaseSchemaModel):
     """Individual question analysis with simplified feedback."""
@@ -70,7 +70,7 @@ class SummaryReportResponseLite(BaseSchemaModel):
     candidateInfo: CandidateInfoLite
     scoreSummary: ScoreSummary
     questionAnalysis: List[QuestionAnalysisItemLite]
-    recommendedPractice: RecommendedPracticeLite
-    speechFluencyFeedback: SpeechFluencyFeedbackLite
-    nextSteps: List[NextStepLite]
-    finalTip: FinalTipLite
+    recommendedPractice: RecommendedPracticeLite | None = pydantic.Field(default=None, description="Recommended practice exercise")
+    speechFluencyFeedback: SpeechFluencyFeedbackLite | None = pydantic.Field(default=None, description="Speech fluency feedback")
+    nextSteps: List[NextStepLite] | None = pydantic.Field(default=None, description="List of next steps")
+    finalTip: FinalTipLite | None = pydantic.Field(default=None, description="Final tip for candidate")
