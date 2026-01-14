@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from typing import Any, Type, List, Dict
+from typing import Any, Type, List, Dict, Literal
 
 import pydantic
 from openai import AsyncOpenAI
@@ -388,7 +388,7 @@ class LLMRecommendedPracticeStrict(pydantic.BaseModel):
 class LLMSpeechFluencyFeedbackStrict(pydantic.BaseModel):
     strengths: str
     areasOfImprovement: str
-    ratingEmoji: str
+    ratingEmoji: Literal['Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor']
     ratingTitle: str
     ratingDescription: str
 
@@ -479,7 +479,7 @@ async def synthesize_summary_sections_lite(
         "3. Base scores on the computed_metrics and analysis data provided for each question\n"
         "4. Each criterion is scored independently on 0-5 scale\n"
         "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
-        "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji should be like 'Slightly-happy', 'Neutral', etc.\n"
+        "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji must be EXACTLY one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'\n"
         "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
         "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
         "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
