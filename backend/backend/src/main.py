@@ -53,6 +53,20 @@ def initialize_backend_application() -> fastapi.FastAPI:
         # Non-fatal if attributes are not available
         pass
 
+    # Add middleware BEFORE including routers (middleware is applied in reverse order)
+    # CORS middleware should be added first to handle preflight requests
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.ALLOWED_ORIGINS,
+        allow_credentials=settings.IS_ALLOWED_CREDENTIALS,
+        allow_methods=settings.ALLOWED_METHODS,
+        allow_headers=settings.ALLOWED_HEADERS,
+    )
+
+    # Enable server-side sessions for OAuth state and userinfo storage
+    # Uses cookie-based signed session via Starlette's SessionMiddleware
+    app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
+
     app.add_event_handler(
         "startup",
         execute_backend_server_event_handler(backend_app=app),
@@ -63,18 +77,6 @@ def initialize_backend_application() -> fastapi.FastAPI:
     )
 
     app.include_router(router=api_endpoint_router, prefix=settings.API_PREFIX)
-
-    # Enable server-side sessions for OAuth state and userinfo storage
-    # Uses cookie-based signed session via Starlette's SessionMiddleware
-    app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=settings.IS_ALLOWED_CREDENTIALS,
-        allow_methods=settings.ALLOWED_METHODS,
-        allow_headers=settings.ALLOWED_HEADERS,
-    )
 
     # Add a root endpoint
     @app.get("/")
