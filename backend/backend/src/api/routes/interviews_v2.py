@@ -1,5 +1,6 @@
 import fastapi
 import logging
+from fastapi import Form, UploadFile, File
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.dependencies.auth import get_current_user
@@ -19,10 +20,23 @@ from src.models.schemas.pronunciation import (
     PronunciationPracticeCreate,
     PronunciationPracticeResponse,
 )
+from src.models.schemas.structure_practice import (
+    StructurePracticeSessionCreate,
+    StructurePracticeSessionResponse,
+    StructurePracticeAnswerSubmitResponse,
+    StructurePracticeAnalysisResponse,
+    FrameworkProgress,
+    FrameworkSection,
+    TimePerSection,
+)
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.repository.crud.pronunciation_practice import PronunciationPracticeCRUDRepository
+from src.repository.crud.structure_practice import (
+    StructurePracticeCRUDRepository,
+    StructurePracticeAnswerCRUDRepository,
+)
 from src.services.llm import generate_interview_questions_with_llm
 from src.services.static_questions import get_static_questions
 from src.services.syllabus_service import syllabus_service
@@ -32,6 +46,9 @@ from src.services.question_supplements import (
 )
 from src.services.structure_hints import generate_structure_hints_for_questions
 from src.services.pronunciation_tts import generate_pronunciation_audio
+from src.services.structure_analysis import analyze_structure_answer
+from src.services.audio_processor import validate_audio_file, save_audio_file, cleanup_temp_audio_file
+from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language
 
 logger = logging.getLogger(__name__)
 FOLLOW_UP_STRATEGY = "llm_transcription_based"
@@ -754,5 +771,336 @@ async def get_pronunciation_audio(
             "Content-Disposition": f'inline; filename="pronunciation_{practice_id}_{question_number}{"_slow" if slow else ""}.ogg"',
             "X-Audio-Latency-Ms": str(latency_ms),
         },
+    )
+
+
+# ==================== Structure Practice Endpoints ====================
+
+
+@router.post(
+    path="/structure-practice/session",
+    name="structure-practice:create-session",
+    response_model=StructurePracticeSessionResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Create a new structure practice session",
+)
+async def create_structure_practice_session(
+    request: StructurePracticeSessionCreate,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    structure_practice_repo: StructurePracticeCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeCRUDRepository)),
+) -> StructurePracticeSessionResponse:
+    """
+    Create a new structure practice session.
+    If interview_id is provided, fetches questions from that interview.
+    Otherwise, creates a session with generic practice questions.
+    """
+    if request.interview_id:
+        # Validate interview ownership
+        interview = await interview_repo.get_by_id(interview_id=request.interview_id)
+        if interview is None or interview.user_id != current_user.id:
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Interview not found"
+            )
+        
+        # Get existing questions
+        questions = await question_repo.list_by_interview(interview_id=interview.id)
+        if not questions:
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+                detail="No questions found for this interview. Generate questions first."
+            )
+        
+        # Prepare questions data
+        questions_data = [
+            {
+                "text": q.text,
+                "topic": q.topic,
+                "category": q.category,
+            }
+            for q in questions
+        ]
+        
+        # Generate structure hints
+        hints_map, _, _, _ = await generate_structure_hints_for_questions(
+            questions=questions_data,
+            track=interview.track,
+            difficulty=interview.difficulty,
+        )
+        
+        # Build questions list with hints
+        questions_list = [
+            {
+                "question_id": q.id,
+                "text": q.text,
+                "structure_hint": hints_map.get(q.text, "Structure your answer clearly with examples."),
+                "index": idx,
+            }
+            for idx, q in enumerate(questions)
+        ]
+        
+        track = interview.track
+    else:
+        # Use cached generic questions
+        cached_response = _get_cached_structure_practice_response()
+        questions_list = [
+            {
+                "question_id": None,
+                "text": item.text,
+                "structure_hint": item.structure_hint or "Structure your answer clearly.",
+                "index": idx,
+            }
+            for idx, item in enumerate(cached_response.items)
+        ]
+        track = cached_response.track
+    
+    # Create practice session
+    practice = await structure_practice_repo.create_practice_session(
+        user_id=current_user.id,
+        interview_id=request.interview_id,
+        track=track,
+        questions=questions_list,
+    )
+    
+    return StructurePracticeSessionResponse(
+        practice_id=practice.id,
+        interview_id=practice.interview_id,
+        track=practice.track,
+        questions=practice.questions,
+        status=practice.status,
+        created_at=practice.created_at,
+    )
+
+
+@router.post(
+    path="/structure-practice/{practice_id}/question/{question_index}/submit",
+    name="structure-practice:submit-answer",
+    response_model=StructurePracticeAnswerSubmitResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Submit an audio answer for a structure practice question",
+)
+async def submit_structure_practice_answer(
+    practice_id: int,
+    question_index: int,
+    file: UploadFile = File(..., description="Audio file with answer. Supported: .mp3, .wav, .m4a, .flac (max 25MB)"),
+    language: str = Form(default="en", description="Language code for transcription"),
+    time_spent_seconds: int = Form(default=None, description="Time spent on the question"),
+    current_user=fastapi.Depends(get_current_user),
+    structure_practice_repo: StructurePracticeCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeCRUDRepository)),
+    answer_repo: StructurePracticeAnswerCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeAnswerCRUDRepository)),
+) -> StructurePracticeAnswerSubmitResponse:
+    """
+    Submit an audio answer for a specific question in a structure practice session.
+    Audio is transcribed using Whisper API, then saved for analysis.
+    """
+    # Validate practice session ownership
+    practice = await structure_practice_repo.get_by_id_and_user(
+        practice_id=practice_id,
+        user_id=current_user.id,
+    )
+    
+    if not practice:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Structure practice session not found",
+        )
+    
+    # Validate question index
+    if question_index < 0 or question_index >= len(practice.questions):
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=f"question_index {question_index} out of range for this practice session",
+        )
+    
+    # Validate and process audio file
+    try:
+        audio_bytes, file_metadata = await validate_audio_file(file)
+    except fastapi.HTTPException:
+        raise
+    except Exception as e:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Audio file validation failed: {str(e)}"
+        )
+    
+    # Validate language
+    validated_language = validate_transcription_language(language)
+    
+    # Transcribe with Whisper API
+    transcription, whisper_error, whisper_latency_ms, whisper_model = await transcribe_audio_with_whisper(
+        audio_bytes=audio_bytes,
+        filename=file_metadata["filename"],
+        language=validated_language
+    )
+    
+    if whisper_error or not transcription:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Transcription failed: {whisper_error or 'Unknown error'}"
+        )
+    
+    # Extract transcription text
+    transcription_text = transcription.get("text", "")
+    if not transcription_text or len(transcription_text.strip()) < 10:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="Transcribed answer is too short. Please provide a more detailed answer."
+        )
+    
+    # Save audio file
+    temp_file_path = ""
+    audio_url = ""
+    try:
+        temp_file_path, audio_url = await save_audio_file(
+            audio_bytes=audio_bytes,
+            filename=file_metadata["filename"],
+            user_id=current_user.id,
+            question_attempt_id=0  # Structure practice doesn't use question attempts
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save audio file: {e}")
+    finally:
+        if temp_file_path:
+            await cleanup_temp_audio_file(temp_file_path)
+    
+    # Create or update answer with transcribed text
+    answer = await answer_repo.create_answer(
+        practice_id=practice_id,
+        question_index=question_index,
+        answer_text=transcription_text,
+        time_spent_seconds=time_spent_seconds,
+    )
+    
+    return StructurePracticeAnswerSubmitResponse(
+        answer_id=answer.id,
+        practice_id=practice_id,
+        question_index=question_index,
+        status="transcribed",
+        message=f"Audio transcribed successfully ({whisper_model}, {whisper_latency_ms}ms). Call analyze endpoint to get feedback.",
+    )
+
+
+@router.post(
+    path="/structure-practice/{practice_id}/question/{question_index}/analyze",
+    name="structure-practice:analyze-answer",
+    response_model=StructurePracticeAnalysisResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Analyze a submitted structure practice answer",
+)
+async def analyze_structure_practice_answer(
+    practice_id: int,
+    question_index: int,
+    current_user=fastapi.Depends(get_current_user),
+    structure_practice_repo: StructurePracticeCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeCRUDRepository)),
+    answer_repo: StructurePracticeAnswerCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeAnswerCRUDRepository)),
+) -> StructurePracticeAnalysisResponse:
+    """
+    Analyze a submitted answer and return detailed framework breakdown.
+    Returns the progress report with completion percentage, time per section, and insights.
+    """
+    # Validate practice session ownership
+    practice = await structure_practice_repo.get_by_id_and_user(
+        practice_id=practice_id,
+        user_id=current_user.id,
+    )
+    
+    if not practice:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Structure practice session not found",
+        )
+    
+    # Validate question index
+    if question_index < 0 or question_index >= len(practice.questions):
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=f"question_index {question_index} out of range",
+        )
+    
+    # Get the answer
+    answer = await answer_repo.get_answer(
+        practice_id=practice_id,
+        question_index=question_index,
+    )
+    
+    if not answer:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Answer not found. Submit an answer first.",
+        )
+    
+    # Get question details
+    question_data = practice.questions[question_index]
+    question_text = question_data.get("text", "")
+    structure_hint = question_data.get("structure_hint", "")
+    
+    # Analyze the answer using LLM
+    analysis_result, error, latency_ms, llm_model = await analyze_structure_answer(
+        question_text=question_text,
+        structure_hint=structure_hint,
+        answer_text=answer.answer_text,
+    )
+    
+    if error or not analysis_result:
+        logger.error(f"Structure analysis error: {error}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze answer: {error or 'Unknown error'}",
+        )
+    
+    # Build framework progress
+    sections = [
+        FrameworkSection(
+            name=section.name,
+            status="completed" if section.quality == "good" else "incomplete",
+            answer_recorded=section.present,
+            time_spent_seconds=section.time_estimate_seconds,
+        )
+        for section in analysis_result.sections
+    ]
+    
+    framework_progress = FrameworkProgress(
+        framework_name=analysis_result.framework_detected,
+        sections=sections,
+        completion_percentage=analysis_result.completion_percentage,
+        sections_complete=sum(1 for s in sections if s.status == "completed"),
+        total_sections=len(sections),
+        progress_message=analysis_result.progress_message,
+    )
+    
+    # Build time per section
+    time_per_section = [
+        TimePerSection(
+            section_name=section.name,
+            seconds=section.time_estimate_seconds,
+        )
+        for section in analysis_result.sections
+    ]
+    
+    # Store analysis result in database
+    import datetime
+    analysis_data = {
+        "framework_progress": framework_progress.model_dump(),
+        "time_per_section": [t.model_dump() for t in time_per_section],
+        "key_insight": analysis_result.key_insight,
+    }
+    
+    await answer_repo.update_analysis(
+        answer_id=answer.id,
+        analysis_result=analysis_data,
+    )
+    
+    return StructurePracticeAnalysisResponse(
+        answer_id=answer.id,
+        practice_id=practice_id,
+        question_index=question_index,
+        framework_progress=framework_progress,
+        time_per_section=time_per_section,
+        key_insight=analysis_result.key_insight,
+        analyzed_at=datetime.datetime.utcnow(),
+        llm_model=llm_model,
+        llm_latency_ms=latency_ms,
     )
 
