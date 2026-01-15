@@ -48,6 +48,11 @@ from src.services.structure_hints import generate_structure_hints_for_questions
 from src.services.pronunciation_tts import generate_pronunciation_audio
 from src.services.structure_analysis import analyze_structure_answer
 from src.services.audio_processor import validate_audio_file, save_audio_file, cleanup_temp_audio_file
+from src.services.progressive_hints import (
+    detect_framework,
+    get_framework_sections,
+    get_initial_hint,
+)
 from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language
 
 logger = logging.getLogger(__name__)
@@ -794,7 +799,7 @@ async def create_structure_practice_session(
     """
     Create a new structure practice session.
     If interview_id is provided, fetches questions from that interview.
-    Otherwise, creates a session with generic practice questions.
+    Otherwise, creates a new interview with generated questions.
     """
     if request.interview_id:
         # Validate interview ownership
@@ -830,31 +835,141 @@ async def create_structure_practice_session(
             difficulty=interview.difficulty,
         )
         
-        # Build questions list with hints
+        # Build questions list with framework info
         questions_list = [
             {
                 "question_id": q.id,
                 "text": q.text,
                 "structure_hint": hints_map.get(q.text, "Structure your answer clearly with examples."),
+                "framework": detect_framework(hints_map.get(q.text, "")),
                 "index": idx,
             }
             for idx, q in enumerate(questions)
         ]
         
+        # Add sections and current_section to each question
+        for q in questions_list:
+            framework = q["framework"]
+            sections = get_framework_sections(framework)
+            initial_hint = get_initial_hint(framework)
+            q["sections"] = sections
+            q["current_section"] = initial_hint["section_name"]
+            q["current_hint"] = initial_hint["hint"]
+        
         track = interview.track
     else:
-        # Use cached generic questions
-        cached_response = _get_cached_structure_practice_response()
+        # Create a new interview with questions for structure practice
+        track = request.track or "JavaScript Developer"
+        difficulty = (request.difficulty or "easy").lower()
+        if difficulty not in ("easy", "medium", "hard", "expert"):
+            difficulty = "easy"
+        
+        # Create interview
+        new_interview = await interview_repo.create_interview(
+            user_id=current_user.id,
+            track=track,
+            difficulty=difficulty
+        )
+        
+        # Generate questions based on difficulty
+        role = syllabus_service._role_manager.derive_role(track)
+        topic_bank = syllabus_service.get_topics_for_role(role=role, difficulty=difficulty)
+        topics = {
+            "tech": topic_bank.tech,
+            "tech_allied": topic_bank.tech_allied,
+            "behavioral": topic_bank.behavioral,
+            "archetypes": topic_bank.archetypes,
+            "depth_guidelines": topic_bank.depth_guidelines,
+        }
+        question_ratio = syllabus_service.compute_question_ratio(
+            years_experience=None,
+            has_resume_text=False,
+            has_skills=False,
+        )
+        ratio = {
+            "tech": question_ratio.tech,
+            "tech_allied": question_ratio.tech_allied,
+            "behavioral": question_ratio.behavioral,
+        }
+        
+        question_count = 5
+        
+        # For easy difficulty, use static questions
+        if difficulty == "easy":
+            from src.services.static_questions import get_static_questions
+            static_items = get_static_questions(role=role, count=question_count, ratio=ratio)
+            questions_data = [
+                {
+                    "text": item["text"],
+                    "topic": item.get("topic"),
+                    "category": item.get("category"),
+                }
+                for item in static_items
+            ]
+        else:
+            # For medium/hard/expert, generate with LLM
+            questions, error, latency_ms, llm_model, structured_items = await generate_interview_questions_with_llm(
+                track=track,
+                context_text=None,
+                count=question_count,
+                difficulty=difficulty,
+                syllabus_topics=topics,
+                ratio=ratio,
+                influence={},
+            )
+            
+            if error or not structured_items:
+                raise fastapi.HTTPException(
+                    status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to generate questions: {error or 'No questions generated'}"
+                )
+            
+            questions_data = [
+                {
+                    "text": item["text"],
+                    "topic": item.get("topic"),
+                    "category": item.get("category"),
+                }
+                for item in structured_items
+            ]
+        
+        # Save questions to database using create_batch
+        db_questions = await question_repo.create_batch(
+            interview_id=new_interview.id,
+            questions_data=questions_data,
+            resume_used=False,
+        )
+        
+        # Generate structure hints
+        hints_map, _, _, _ = await generate_structure_hints_for_questions(
+            questions=questions_data,
+            track=track,
+            difficulty=difficulty,
+        )
+        
+        # Build questions list with framework info
         questions_list = [
             {
-                "question_id": None,
-                "text": item.text,
-                "structure_hint": item.structure_hint or "Structure your answer clearly.",
+                "question_id": q.id,
+                "text": q.text,
+                "structure_hint": hints_map.get(q.text, "Structure your answer clearly with examples."),
+                "framework": detect_framework(hints_map.get(q.text, "")),
                 "index": idx,
             }
-            for idx, item in enumerate(cached_response.items)
+            for idx, q in enumerate(db_questions)
         ]
-        track = cached_response.track
+        
+        # Add sections and current_section to each question
+        for q in questions_list:
+            framework = q["framework"]
+            sections = get_framework_sections(framework)
+            initial_hint = get_initial_hint(framework)
+            q["sections"] = sections
+            q["current_section"] = initial_hint["section_name"]
+            q["current_hint"] = initial_hint["hint"]
+        
+        # Link the interview to the practice session
+        request.interview_id = new_interview.id
     
     # Create practice session
     practice = await structure_practice_repo.create_practice_session(
@@ -875,26 +990,29 @@ async def create_structure_practice_session(
 
 
 @router.post(
-    path="/structure-practice/{practice_id}/question/{question_index}/submit",
-    name="structure-practice:submit-answer",
+    path="/structure-practice/{practice_id}/question/{question_index}/section/{section_name}/submit",
+    name="structure-practice:submit-section",
     response_model=StructurePracticeAnswerSubmitResponse,
     status_code=fastapi.status.HTTP_200_OK,
-    summary="Submit an audio answer for a structure practice question",
+    summary="Submit an audio answer for a specific section of a structure practice question",
 )
-async def submit_structure_practice_answer(
+async def submit_structure_practice_section(
     practice_id: int,
     question_index: int,
-    file: UploadFile = File(..., description="Audio file with answer. Supported: .mp3, .wav, .m4a, .flac (max 25MB)"),
+    section_name: str,
+    file: UploadFile = File(..., description="Audio file with answer for this section. Supported: .mp3, .wav, .m4a, .flac (max 25MB)"),
     language: str = Form(default="en", description="Language code for transcription"),
-    time_spent_seconds: int = Form(default=None, description="Time spent on the question"),
+    time_spent_seconds: int = Form(default=None, description="Time spent on this section"),
     current_user=fastapi.Depends(get_current_user),
     structure_practice_repo: StructurePracticeCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeCRUDRepository)),
     answer_repo: StructurePracticeAnswerCRUDRepository = fastapi.Depends(get_repository(repo_type=StructurePracticeAnswerCRUDRepository)),
 ) -> StructurePracticeAnswerSubmitResponse:
     """
-    Submit an audio answer for a specific question in a structure practice session.
-    Audio is transcribed using Whisper API, then saved for analysis.
+    Submit an audio answer for a specific section of a question in a structure practice session.
+    Audio is transcribed using Whisper API. Returns hint for the next section.
     """
+    from src.services.progressive_hints import get_next_section_hint, get_completion_message
+    
     # Validate practice session ownership
     practice = await structure_practice_repo.get_by_id_and_user(
         practice_id=practice_id,
@@ -912,6 +1030,17 @@ async def submit_structure_practice_answer(
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_400_BAD_REQUEST,
             detail=f"question_index {question_index} out of range for this practice session",
+        )
+    
+    # Get question and validate section
+    question = practice.questions[question_index]
+    framework = question.get("framework", "C-T-E-T-D")
+    sections = question.get("sections", [])
+    
+    if section_name not in sections:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid section_name '{section_name}' for framework {framework}. Valid sections: {sections}",
         )
     
     # Validate and process audio file
@@ -943,15 +1072,14 @@ async def submit_structure_practice_answer(
     
     # Extract transcription text
     transcription_text = transcription.get("text", "")
-    if not transcription_text or len(transcription_text.strip()) < 10:
+    if not transcription_text or len(transcription_text.strip()) < 5:
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_400_BAD_REQUEST,
             detail="Transcribed answer is too short. Please provide a more detailed answer."
         )
     
-    # Save audio file
+    # Save audio file (optional, for record keeping)
     temp_file_path = ""
-    audio_url = ""
     try:
         temp_file_path, audio_url = await save_audio_file(
             audio_bytes=audio_bytes,
@@ -965,21 +1093,57 @@ async def submit_structure_practice_answer(
         if temp_file_path:
             await cleanup_temp_audio_file(temp_file_path)
     
-    # Create or update answer with transcribed text
+    # Create answer for this section
     answer = await answer_repo.create_answer(
         practice_id=practice_id,
         question_index=question_index,
+        section_name=section_name,
         answer_text=transcription_text,
         time_spent_seconds=time_spent_seconds,
     )
     
-    return StructurePracticeAnswerSubmitResponse(
-        answer_id=answer.id,
+    # Get all submitted sections for this question
+    all_answers = await answer_repo.list_by_practice_and_question(
         practice_id=practice_id,
         question_index=question_index,
-        status="transcribed",
-        message=f"Audio transcribed successfully ({whisper_model}, {whisper_latency_ms}ms). Call analyze endpoint to get feedback.",
     )
+    
+    # Count completed sections
+    completed_sections = {a.section_name for a in all_answers}
+    sections_complete = len(completed_sections)
+    total_sections = len(sections)
+    
+    # Get next section hint
+    next_info = get_next_section_hint(framework, section_name, transcription_text)
+    
+    if next_info is None:
+        # All sections complete
+        return StructurePracticeAnswerSubmitResponse(
+            answer_id=answer.id,
+            practice_id=practice_id,
+            question_index=question_index,
+            section_name=section_name,
+            sections_complete=sections_complete,
+            total_sections=total_sections,
+            next_section=None,
+            next_section_hint=None,
+            is_complete=True,
+            message=get_completion_message(framework),
+        )
+    else:
+        # More sections to go
+        return StructurePracticeAnswerSubmitResponse(
+            answer_id=answer.id,
+            practice_id=practice_id,
+            question_index=question_index,
+            section_name=section_name,
+            sections_complete=sections_complete,
+            total_sections=total_sections,
+            next_section=next_info["section_name"],
+            next_section_hint=next_info["hint"],
+            is_complete=False,
+            message=f"Section '{section_name}' recorded successfully ({whisper_model}, {whisper_latency_ms}ms). Continue to {next_info['section_name']}.",
+        )
 
 
 @router.post(
@@ -1019,28 +1183,51 @@ async def analyze_structure_practice_answer(
             detail=f"question_index {question_index} out of range",
         )
     
-    # Get the answer
-    answer = await answer_repo.get_answer(
+    # Get all section answers for this question
+    section_answers = await answer_repo.list_by_practice_and_question(
         practice_id=practice_id,
         question_index=question_index,
     )
     
-    if not answer:
+    if not section_answers:
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_404_NOT_FOUND,
-            detail="Answer not found. Submit an answer first.",
+            detail="No sections submitted yet. Submit at least one section first.",
         )
     
     # Get question details
     question_data = practice.questions[question_index]
     question_text = question_data.get("text", "")
     structure_hint = question_data.get("structure_hint", "")
+    framework = question_data.get("framework", "STAR")
+    expected_sections = question_data.get("sections", [])
+    
+    # Combine all section answers into structured format
+    # Build a map of section_name -> answer data
+    sections_data = {
+        ans.section_name: {
+            "answer_text": ans.answer_text,
+            "time_spent_seconds": ans.time_spent_seconds or 0,
+            "submitted": True,
+        }
+        for ans in section_answers
+    }
+    
+    # Combine all answer texts in section order
+    combined_answer = "\n\n".join([
+        f"[{section}]\n{sections_data[section]['answer_text']}"
+        for section in expected_sections
+        if section in sections_data
+    ])
     
     # Analyze the answer using LLM
     analysis_result, error, latency_ms, llm_model = await analyze_structure_answer(
         question_text=question_text,
         structure_hint=structure_hint,
-        answer_text=answer.answer_text,
+        answer_text=combined_answer,
+        framework=framework,
+        submitted_sections=sections_data,
+        expected_sections=expected_sections,
     )
     
     if error or not analysis_result:
@@ -1050,13 +1237,15 @@ async def analyze_structure_practice_answer(
             detail=f"Failed to analyze answer: {error or 'Unknown error'}",
         )
     
-    # Build framework progress
+    # Build framework progress using actual section data
     sections = [
         FrameworkSection(
             name=section.name,
-            status="completed" if section.quality == "good" else "incomplete",
+            status="complete" if section.present and section.quality == "good" else (
+                "partial" if section.present else "missing"
+            ),
             answer_recorded=section.present,
-            time_spent_seconds=section.time_estimate_seconds,
+            time_spent_seconds=sections_data.get(section.name, {}).get("time_spent_seconds", section.time_estimate_seconds),
         )
         for section in analysis_result.sections
     ]
@@ -1065,16 +1254,16 @@ async def analyze_structure_practice_answer(
         framework_name=analysis_result.framework_detected,
         sections=sections,
         completion_percentage=analysis_result.completion_percentage,
-        sections_complete=sum(1 for s in sections if s.status == "completed"),
-        total_sections=len(sections),
+        sections_complete=len(sections_data),  # Count actually submitted sections
+        total_sections=len(expected_sections),
         progress_message=analysis_result.progress_message,
     )
     
-    # Build time per section
+    # Build time per section using actual recorded times
     time_per_section = [
         TimePerSection(
             section_name=section.name,
-            seconds=section.time_estimate_seconds,
+            seconds=sections_data.get(section.name, {}).get("time_spent_seconds", 0),
         )
         for section in analysis_result.sections
     ]
@@ -1087,13 +1276,15 @@ async def analyze_structure_practice_answer(
         "key_insight": analysis_result.key_insight,
     }
     
+    # Store analysis on the most recent section answer
+    latest_answer = section_answers[-1]  # Last submitted section
     await answer_repo.update_analysis(
-        answer_id=answer.id,
+        answer_id=latest_answer.id,
         analysis_result=analysis_data,
     )
     
     return StructurePracticeAnalysisResponse(
-        answer_id=answer.id,
+        answer_id=latest_answer.id,
         practice_id=practice_id,
         question_index=question_index,
         framework_progress=framework_progress,

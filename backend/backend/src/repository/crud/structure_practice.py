@@ -105,57 +105,37 @@ class StructurePracticeAnswerCRUDRepository(BaseCRUDRepository):
         *,
         practice_id: int,
         question_index: int,
+        section_name: str,
         answer_text: str,
         time_spent_seconds: int | None = None,
     ) -> StructurePracticeAnswer:
         """
-        Create or update an answer for a practice question.
+        Create an answer for a specific section of a practice question.
         
         Args:
             practice_id: The structure practice session ID
             question_index: Index of the question in the practice session
-            answer_text: The user's answer
-            time_spent_seconds: Time spent on the question
+            section_name: Name of the framework section (e.g., "Context", "Theory")
+            answer_text: The user's answer for this section
+            time_spent_seconds: Time spent on this section
         
         Returns:
-            Created/updated StructurePracticeAnswer instance
+            Created StructurePracticeAnswer instance
         """
-        # Check if answer already exists
-        existing_answer = await self.get_answer(
+        # Create new answer for this section
+        answer = StructurePracticeAnswer(
             practice_id=practice_id,
-            question_index=question_index
+            question_index=question_index,
+            section_name=section_name,
+            answer_text=answer_text,
+            time_spent_seconds=time_spent_seconds,
         )
         
-        if existing_answer:
-            # Update existing answer
-            stmt = (
-                sqlalchemy.update(StructurePracticeAnswer)
-                .where(StructurePracticeAnswer.id == existing_answer.id)
-                .values(
-                    answer_text=answer_text,
-                    time_spent_seconds=time_spent_seconds,
-                    analysis_result=None,  # Reset analysis when answer changes
-                    analyzed_at=None,
-                )
-                .returning(StructurePracticeAnswer)
-            )
-            query = await self.async_session.execute(statement=stmt)
-            await self.async_session.commit()
-            return query.scalar_one()
-        else:
-            # Create new answer
-            answer = StructurePracticeAnswer(
-                practice_id=practice_id,
-                question_index=question_index,
-                answer_text=answer_text,
-                time_spent_seconds=time_spent_seconds,
-            )
-            
-            self.async_session.add(answer)
-            await self.async_session.commit()
-            await self.async_session.refresh(answer)
-            
-            return answer
+        self.async_session.add(answer)
+        await self.async_session.commit()
+        await self.async_session.refresh(answer)
+        
+        return answer
     
     async def get_answer(
         self,
@@ -181,7 +161,23 @@ class StructurePracticeAnswerCRUDRepository(BaseCRUDRepository):
         stmt = (
             sqlalchemy.select(StructurePracticeAnswer)
             .where(StructurePracticeAnswer.practice_id == practice_id)
-            .order_by(StructurePracticeAnswer.question_index)
+            .order_by(StructurePracticeAnswer.question_index, StructurePracticeAnswer.created_at)
+        )
+        query = await self.async_session.execute(statement=stmt)
+        return list(query.scalars().all())
+    
+    async def list_by_practice_and_question(
+        self,
+        *,
+        practice_id: int,
+        question_index: int,
+    ) -> list[StructurePracticeAnswer]:
+        """List all section answers for a specific question in a practice session."""
+        stmt = (
+            sqlalchemy.select(StructurePracticeAnswer)
+            .where(StructurePracticeAnswer.practice_id == practice_id)
+            .where(StructurePracticeAnswer.question_index == question_index)
+            .order_by(StructurePracticeAnswer.created_at)
         )
         query = await self.async_session.execute(statement=stmt)
         return list(query.scalars().all())

@@ -9,7 +9,15 @@ class StructurePracticeSessionCreate(BaseSchemaModel):
     """Request to create a structure practice session."""
     interview_id: int | None = pydantic.Field(
         default=None,
-        description="Optional interview ID to practice with existing questions. If not provided, uses generic questions."
+        description="Optional interview ID to practice with existing questions. If not provided, creates a new interview."
+    )
+    track: str | None = pydantic.Field(
+        default=None,
+        description="Track for the practice (used only when interview_id is not provided). Defaults to 'JavaScript Developer'."
+    )
+    difficulty: str | None = pydantic.Field(
+        default=None,
+        description="Difficulty level (used only when interview_id is not provided). Defaults to 'easy'."
     )
 
 
@@ -18,18 +26,23 @@ class StructurePracticeSessionResponse(BaseSchemaModel):
     practice_id: int
     interview_id: int | None
     track: str
-    questions: list[dict]  # List of question objects with text, hint, index
+    questions: list[dict]  # List of question objects with text, framework, sections, current_section
     status: str
     created_at: datetime.datetime
 
 
 class StructurePracticeAnswerSubmitResponse(BaseSchemaModel):
-    """Response after submitting an answer."""
+    """Response after submitting a section answer."""
     answer_id: int
     practice_id: int
     question_index: int
-    status: str = "submitted"
-    message: str = "Answer submitted successfully. Call analyze endpoint to get feedback."
+    section_name: str  # Section that was just submitted
+    sections_complete: int
+    total_sections: int
+    next_section: str | None  # Next section to record, None if all complete
+    next_section_hint: str | None  # Dynamic hint for next section
+    is_complete: bool  # True if all sections submitted
+    message: str
 
 
 class FrameworkSection(BaseSchemaModel):

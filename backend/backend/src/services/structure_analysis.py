@@ -29,6 +29,9 @@ async def analyze_structure_answer(
     question_text: str,
     structure_hint: str,
     answer_text: str,
+    framework: str = None,
+    submitted_sections: dict = None,
+    expected_sections: list[str] = None,
 ) -> tuple[StructureAnalysisResult | None, str | None, int, str | None]:
     """
     Analyze a structure practice answer using LLM.
@@ -36,17 +39,34 @@ async def analyze_structure_answer(
     Args:
         question_text: The question being answered
         structure_hint: The structure hint provided to the user
-        answer_text: The user's answer to analyze
+        answer_text: The user's answer to analyze (combined from sections)
+        framework: Framework type (STAR, C-T-E-T-D, GCDIO)
+        submitted_sections: Dict mapping section_name -> {answer_text, time_spent_seconds, submitted}
+        expected_sections: List of expected section names for this framework
     
     Returns:
         Tuple of (analysis_result, error_message, latency_ms, llm_model)
     """
-    # Determine framework from hint
-    framework = "C-T-E-T-D"  # Default
-    if "STAR" in structure_hint.upper():
-        framework = "STAR"
-    elif "C-T-E-T-D" in structure_hint.upper():
-        framework = "C-T-E-T-D"
+    # Determine framework from parameter or hint
+    if not framework:
+        framework = "C-T-E-T-D"  # Default
+        if "STAR" in structure_hint.upper():
+            framework = "STAR"
+        elif "C-T-E-T-D" in structure_hint.upper():
+            framework = "C-T-E-T-D"
+        elif "GCDIO" in structure_hint.upper() or "G-C-D-I-O" in structure_hint.upper():
+            framework = "GCDIO"
+    
+    # Build section information for prompt
+    sections_info = ""
+    if submitted_sections and expected_sections:
+        sections_info = "\n\nSections submitted by user:\n"
+        for section in expected_sections:
+            if section in submitted_sections:
+                time_spent = submitted_sections[section].get('time_spent_seconds', 0)
+                sections_info += f"- {section}: SUBMITTED ({time_spent}s)\n"
+            else:
+                sections_info += f"- {section}: NOT SUBMITTED\n"
     
     # Build analysis prompt
     system_prompt = f"""You are an expert interview coach analyzing structured answers.
@@ -65,18 +85,29 @@ For STAR:
 - Action: Steps taken
 - Result: Outcome and impact
 
-Analyze if each section is:
-- "good": Well-developed, clear, specific
-- "partial": Present but underdeveloped or rushed
-- "missing": Not addressed
+For GCDIO:
+- Goal: Objective or problem statement
+- Constraints: Limitations or requirements
+- Decision: Chosen approach or solution
+- Implementation: How it was executed
+- Outcome: Results and impact
 
-Estimate time spent on each section (in seconds, max 300 per section) based on depth and detail.
-Provide a key insight about what the candidate should improve.
-Calculate completion percentage (0-100) based on sections present and their quality.
+The user submitted answers section-by-section. Each section is marked with [Section Name].{sections_info}
+
+Analyze each section that was submitted:
+- "good": Well-developed, clear, specific, addresses the section requirements
+- "partial": Present but underdeveloped, rushed, or incomplete
+- "missing": Not submitted or not addressed
+
+For submitted sections, use their actual recorded time. For missing sections, estimate 0.
+Provide a key insight about what the candidate did well and what could be improved.
+Calculate completion percentage (0-100) based on:
+- How many sections were submitted (weight: 50%)
+- Quality of submitted sections (weight: 50%)
 
 Return ONLY valid JSON matching this structure:
 {{
-  "framework_detected": "C-T-E-T-D" or "STAR",
+  "framework_detected": "{framework}",
   "sections": [
     {{
       "name": "section name",
@@ -95,12 +126,16 @@ Return ONLY valid JSON matching this structure:
         "structure_hint": structure_hint,
         "answer": answer_text,
         "framework": framework,
+        "sections_submitted": len(submitted_sections) if submitted_sections else 0,
+        "expected_sections": expected_sections or [],
         "instructions": [
             f"Analyze based on {framework} framework sections",
-            "Assess each section for presence and quality",
-            "Estimate realistic time spent per section (max 300s each)",
-            "Calculate overall completion percentage",
-            "Provide specific, actionable insight based on what's missing"
+            "User submitted answers section-by-section, each marked with [Section Name]",
+            "Assess each SUBMITTED section for quality (good/partial)",
+            "Mark non-submitted sections as 'missing' with quality='missing'",
+            "Use actual recorded time for submitted sections",
+            "Calculate completion percentage: 50% for sections submitted, 50% for quality",
+            "Provide specific insight on what was done well and what needs improvement"
         ]
     }
 

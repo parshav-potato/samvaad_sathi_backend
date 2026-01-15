@@ -39,7 +39,7 @@ class StructurePractice(Base):  # type: ignore
 
 
 class StructurePracticeAnswer(Base):  # type: ignore
-    """Model for structure practice answers submitted by users."""
+    """Model for structure practice answers submitted by users (per section)."""
     __tablename__ = "structure_practice_answer"
 
     id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(primary_key=True, autoincrement="auto")
@@ -49,6 +49,12 @@ class StructurePracticeAnswer(Base):  # type: ignore
     question_index: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(
         sqlalchemy.Integer, nullable=False, index=True
     )
+    section_name: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=32), nullable=False
+    )
+    # section_name: e.g., "Context", "Theory", "Example", "Trade-offs", "Decision" (for C-T-E-T-D)
+    # or "Situation", "Task", "Action", "Result" (for STAR)
+    # or "Goal", "Constraints", "Decision", "Implementation", "Outcome" (for GCDIO)
     answer_text: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(
         sqlalchemy.Text, nullable=False
     )
@@ -56,7 +62,7 @@ class StructurePracticeAnswer(Base):  # type: ignore
         sqlalchemy.Integer, nullable=True
     )
     analysis_result: SQLAlchemyMapped[dict | None] = sqlalchemy_mapped_column(JSONB, nullable=True)
-    # analysis_result format: {"framework_progress": {...}, "time_per_section": {...}, "key_insight": "..."}
+    # analysis_result format: per-section analysis or final aggregated analysis
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )
