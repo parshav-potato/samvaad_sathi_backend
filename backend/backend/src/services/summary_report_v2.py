@@ -371,12 +371,10 @@ class SummaryReportServiceV2:
                 "roleTopic": track.title(),
             }
             
-            # Build questionAnalysis with no feedback for unattempted questions
+            # Build questionAnalysis with "Not attempted" feedback for unattempted questions
             question_analysis = []
+            
             for idx, iq in enumerate(all_questions):
-                if iq.id not in actually_attempted_question_ids:
-                    continue
-                    
                 category_map = {
                     "tech": "Technical question",
                     "tech_allied": "Technical Allied question", 
@@ -384,12 +382,24 @@ class SummaryReportServiceV2:
                 }
                 question_type = category_map.get(iq.category, "Technical question")
                 
+                # Check if attempted
+                if iq.id not in actually_attempted_question_ids:
+                    feedback = {
+                        "knowledgeRelated": {
+                            "strengths": [],
+                            "areasOfImprovement": ["Not attempted"],
+                            "actionableInsights": []
+                        }
+                    }
+                else:
+                    feedback = None
+                
                 question_analysis.append({
                     "id": idx + 1,
                     "totalQuestions": total_questions,
                     "type": question_type,
                     "question": iq.text,
-                    "feedback": None,
+                    "feedback": feedback,
                 })
             
             # Return early with all zeros
@@ -562,6 +572,7 @@ class SummaryReportServiceV2:
                     }
         
         question_analysis = []
+        
         for idx, iq in enumerate(all_questions):
             # Map question category to type string
             category_map = {
@@ -582,16 +593,28 @@ class SummaryReportServiceV2:
                 has_analysis = bool(attempt.analysis_json and isinstance(attempt.analysis_json, dict))
                 has_valid_attempt = has_transcription or has_analysis
             
-            # Get feedback from LLM if available for this question (only exists for valid attempts)
-            feedback = feedback_by_question_id.get(iq.id) if has_valid_attempt else None
+            # Get feedback from LLM if available for this question
+            feedback = feedback_by_question_id.get(iq.id)
+            
+            # If not attempted, provide "Not attempted" feedback
+            if not has_valid_attempt:
+                feedback = {
+                    "knowledgeRelated": {
+                        "strengths": [],
+                        "areasOfImprovement": ["Not attempted"],
+                        "actionableInsights": []
+                    }
+                }
             
             question_analysis.append({
-                "id": idx + 1,  # 1-indexed for display
-                "totalQuestions": total_questions,
+                "id": idx + 1,  # Sequential numbering for all questions
+                "totalQuestions": total_questions,  # Show total question count
                 "type": question_type,
                 "question": iq.text,
                 "feedback": feedback,
             })
+            
+            display_index += 1
         
         # Ensure overallFeedback has proper structure with all required fields
         overall_feedback_raw = llm_data.get("overallFeedback", {})
@@ -775,11 +798,10 @@ class SummaryReportServiceV2:
                 ),
             )
         
-        # Question analysis
+        # Question analysis - only show attempted questions in sequential order
         question_analysis: List[QuestionAnalysisItem] = []
-        total_questions = len(all_questions)
         
-        for interview_question in all_questions:
+        for idx, interview_question in enumerate(all_questions):
             qa = attempts_map.get(interview_question.id)
             
             # Map category
@@ -789,41 +811,72 @@ class SummaryReportServiceV2:
             elif interview_question.category == "behavioral":
                 q_type = "Behavioral question"
             
+            # Check if attempted
             if qa is None:
                 # Not attempted
                 question_analysis.append(QuestionAnalysisItem(
-                    id=interview_question.id,
-                    totalQuestions=total_questions,
-                    type=q_type,
-                    question=interview_question.text,
-                    feedback=None,
-                ))
-            else:
-                # Attempted - extract feedback from analysis
-                analysis = getattr(qa, "analysis_json", None) or {}
-                d = analysis.get("domain") or {}
-                
-                strengths = _as_list_str(d.get("strengths"))[:3]
-                improvements = _as_list_str(d.get("improvements"))[:3]
-                
-                question_analysis.append(QuestionAnalysisItem(
-                    id=interview_question.id,
+                    id=idx + 1,
                     totalQuestions=total_questions,
                     type=q_type,
                     question=interview_question.text,
                     feedback=QuestionFeedback(
                         knowledgeRelated=QuestionFeedbackSubsection(
-                            strengths=strengths,
-                            areasOfImprovement=improvements,
-                            actionableInsights=[
-                                ActionableStep(
-                                    title="Deepen Understanding",
-                                    description="Review core concepts related to this question and practice explaining them clearly.",
-                                ),
-                            ],
+                            strengths=[],
+                            areasOfImprovement=["Not attempted"],
+                            actionableInsights=[],
                         ),
                     ),
                 ))
+                continue
+            
+            # Double-check for valid content
+            has_transcription = bool(
+                qa.transcription and isinstance(qa.transcription, dict) and qa.transcription.get("text")
+            )
+            has_analysis = bool(qa.analysis_json and isinstance(qa.analysis_json, dict))
+            
+            if not (has_transcription or has_analysis):
+                # No valid content
+                question_analysis.append(QuestionAnalysisItem(
+                    id=idx + 1,
+                    totalQuestions=total_questions,
+                    type=q_type,
+                    question=interview_question.text,
+                    feedback=QuestionFeedback(
+                        knowledgeRelated=QuestionFeedbackSubsection(
+                            strengths=[],
+                            areasOfImprovement=["Not attempted"],
+                            actionableInsights=[],
+                        ),
+                    ),
+                ))
+                continue
+            
+            # Attempted - extract feedback from analysis
+            analysis = getattr(qa, "analysis_json", None) or {}
+            d = analysis.get("domain") or {}
+            
+            strengths = _as_list_str(d.get("strengths"))[:3]
+            improvements = _as_list_str(d.get("improvements"))[:3]
+            
+            question_analysis.append(QuestionAnalysisItem(
+                id=idx + 1,
+                totalQuestions=total_questions,
+                type=q_type,
+                question=interview_question.text,
+                feedback=QuestionFeedback(
+                    knowledgeRelated=QuestionFeedbackSubsection(
+                        strengths=strengths,
+                        areasOfImprovement=improvements,
+                        actionableInsights=[
+                            ActionableStep(
+                                title="Deepen Understanding",
+                                description="Review core concepts related to this question and practice explaining them clearly.",
+                            ),
+                        ],
+                    ),
+                ),
+            ))
         
         # Build final response
         report = SummaryReportResponse(
@@ -1164,20 +1217,26 @@ class SummaryReportServiceV2:
         feedback_idx = 0
         
         for idx, iq in enumerate(all_questions):
-            if iq.id not in actually_attempted_question_ids:
-                continue
-                
             category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
             question_type = category_map.get(iq.category, "Technical question")
             
-            feedback_item = None
-            if feedback_idx < len(per_question_feedback):
-                fb_data = per_question_feedback[feedback_idx]
+            # Check if attempted
+            if iq.id not in actually_attempted_question_ids:
+                # Not attempted
                 feedback_item = {
-                    "strengths": fb_data.get("strengths", ""),
-                    "areasOfImprovement": fb_data.get("areasOfImprovement", "")
+                    "strengths": "",
+                    "areasOfImprovement": "Not attempted"
                 }
-                feedback_idx += 1
+            else:
+                # Attempted - get feedback from LLM
+                feedback_item = None
+                if feedback_idx < len(per_question_feedback):
+                    fb_data = per_question_feedback[feedback_idx]
+                    feedback_item = {
+                        "strengths": fb_data.get("strengths", ""),
+                        "areasOfImprovement": fb_data.get("areasOfImprovement", "")
+                    }
+                    feedback_idx += 1
             
             question_analysis.append({
                 "id": idx + 1,
