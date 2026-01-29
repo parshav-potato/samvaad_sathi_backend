@@ -89,6 +89,42 @@ class SummaryReportServiceV2:
     def __init__(self, db: SQLAlchemyAsyncSession) -> None:
         self._db = db
 
+    def _order_questions_with_followups(self, questions: List[InterviewQuestion]) -> List[InterviewQuestion]:
+        """Reorder questions so follow-ups appear immediately after their parent question.
+        
+        For example, if Q4 has a follow-up that was created as Q6:
+        - Original order: Q1, Q2, Q3, Q4, Q5, Q6(follow-up to Q4)
+        - Reordered: Q1, Q2, Q3, Q4, Q6(follow-up to Q4), Q5
+        
+        This ensures the report shows questions in logical order with follow-ups
+        grouped with their parent questions.
+        """
+        # Separate into base questions and follow-ups
+        base_questions: List[InterviewQuestion] = []
+        follow_ups_by_parent: Dict[int, List[InterviewQuestion]] = {}
+        
+        for q in questions:
+            if q.is_follow_up and q.parent_question_id is not None:
+                if q.parent_question_id not in follow_ups_by_parent:
+                    follow_ups_by_parent[q.parent_question_id] = []
+                follow_ups_by_parent[q.parent_question_id].append(q)
+            else:
+                base_questions.append(q)
+        
+        # Sort follow-ups for each parent by their order (in case of multiple follow-ups)
+        for parent_id in follow_ups_by_parent:
+            follow_ups_by_parent[parent_id].sort(key=lambda x: x.order)
+        
+        # Build final list: insert follow-ups after their parent
+        result: List[InterviewQuestion] = []
+        for q in base_questions:
+            result.append(q)
+            # Add any follow-ups for this question immediately after
+            if q.id in follow_ups_by_parent:
+                result.extend(follow_ups_by_parent[q.id])
+        
+        return result
+
     async def generate_for_interview(
         self,
         interview_id: int,
@@ -106,7 +142,11 @@ class SummaryReportServiceV2:
             InterviewQuestion.interview_id == interview_id
         ).order_by(InterviewQuestion.order.asc())
         result = await self._db.execute(stmt)
-        all_interview_questions = list(result.scalars().all())
+        fetched_questions = list(result.scalars().all())
+        
+        # Reorder questions so follow-ups appear immediately after their parent question
+        # This ensures Q4's follow-up appears as Q4.1 (after Q4) rather than at the end
+        all_interview_questions = self._order_questions_with_followups(fetched_questions)
         
         # Build a map of question_id -> QuestionAttempt
         # When there are multiple attempts for the same question (re-attempts),

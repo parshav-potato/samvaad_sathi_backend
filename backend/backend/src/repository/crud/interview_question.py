@@ -1,8 +1,45 @@
 import sqlalchemy
-from typing import Any
+from typing import Any, List, Dict
 
 from src.models.db.interview_question import InterviewQuestion
 from src.repository.crud.base import BaseCRUDRepository
+
+
+def _order_questions_with_followups(questions: List[InterviewQuestion]) -> List[InterviewQuestion]:
+    """Reorder questions so follow-ups appear immediately after their parent question.
+    
+    For example, if Q4 has a follow-up that was created as Q6:
+    - Original order: Q1, Q2, Q3, Q4, Q5, Q6(follow-up to Q4)
+    - Reordered: Q1, Q2, Q3, Q4, Q6(follow-up to Q4), Q5
+    
+    This ensures questions are shown in logical order with follow-ups
+    grouped with their parent questions.
+    """
+    # Separate into base questions and follow-ups
+    base_questions: List[InterviewQuestion] = []
+    follow_ups_by_parent: Dict[int, List[InterviewQuestion]] = {}
+    
+    for q in questions:
+        if q.is_follow_up and q.parent_question_id is not None:
+            if q.parent_question_id not in follow_ups_by_parent:
+                follow_ups_by_parent[q.parent_question_id] = []
+            follow_ups_by_parent[q.parent_question_id].append(q)
+        else:
+            base_questions.append(q)
+    
+    # Sort follow-ups for each parent by their order (in case of multiple follow-ups)
+    for parent_id in follow_ups_by_parent:
+        follow_ups_by_parent[parent_id].sort(key=lambda x: x.order)
+    
+    # Build final list: insert follow-ups after their parent
+    result: List[InterviewQuestion] = []
+    for q in base_questions:
+        result.append(q)
+        # Add any follow-ups for this question immediately after
+        if q.id in follow_ups_by_parent:
+            result.extend(follow_ups_by_parent[q.id])
+    
+    return result
 
 
 class InterviewQuestionCRUDRepository(BaseCRUDRepository):
@@ -31,33 +68,60 @@ class InterviewQuestionCRUDRepository(BaseCRUDRepository):
         return created
 
     async def list_by_interview(self, *, interview_id: int) -> list[InterviewQuestion]:
-        """Get all questions for an interview ordered by order field"""
+        """Get all questions for an interview, ordered with follow-ups after their parents.
+        
+        Questions are first ordered by their 'order' field, then reordered so that
+        follow-up questions appear immediately after their parent question.
+        """
         stmt = (
             sqlalchemy.select(InterviewQuestion)
             .where(InterviewQuestion.interview_id == interview_id)
             .order_by(InterviewQuestion.order.asc())
         )
         query = await self.async_session.execute(statement=stmt)
-        rows = query.scalars().all()
-        return list(rows)
+        rows = list(query.scalars().all())
+        # Reorder so follow-ups appear after their parent questions
+        return _order_questions_with_followups(rows)
 
     async def list_by_interview_cursor(
         self, *, interview_id: int, limit: int, cursor_id: int | None
     ) -> tuple[list[InterviewQuestion], int | None]:
-        """Get questions for an interview with cursor pagination, ordered by order field"""
-        stmt = sqlalchemy.select(InterviewQuestion).where(InterviewQuestion.interview_id == interview_id)
-        if cursor_id is not None:
-            stmt = stmt.where(InterviewQuestion.id > cursor_id)
-        stmt = stmt.order_by(InterviewQuestion.order.asc(), InterviewQuestion.id.asc()).limit(limit + 1)
+        """Get questions for an interview with cursor pagination.
         
+        Questions are ordered with follow-ups appearing after their parent question.
+        Note: For simplicity, we fetch all questions and apply follow-up ordering,
+        then paginate the result. This works well for typical interview sizes (5-10 questions).
+        """
+        # Fetch all questions first to apply proper follow-up ordering
+        stmt = (
+            sqlalchemy.select(InterviewQuestion)
+            .where(InterviewQuestion.interview_id == interview_id)
+            .order_by(InterviewQuestion.order.asc())
+        )
         query = await self.async_session.execute(statement=stmt)
-        rows = list(query.scalars().all())
+        all_rows = list(query.scalars().all())
         
+        # Reorder so follow-ups appear after their parent questions
+        ordered_rows = _order_questions_with_followups(all_rows)
+        
+        # Apply cursor pagination on the ordered list
+        if cursor_id is not None:
+            # Find the index after the cursor
+            cursor_index = -1
+            for i, q in enumerate(ordered_rows):
+                if q.id == cursor_id:
+                    cursor_index = i
+                    break
+            if cursor_index >= 0:
+                ordered_rows = ordered_rows[cursor_index + 1:]
+        
+        # Apply limit
         next_cursor: int | None = None
-        if len(rows) > limit:
-            next_cursor = rows[-1].id
-            rows = rows[:limit]
-        return rows, next_cursor
+        if len(ordered_rows) > limit:
+            next_cursor = ordered_rows[limit - 1].id
+            ordered_rows = ordered_rows[:limit]
+        
+        return ordered_rows, next_cursor
 
     async def get_by_id(self, *, question_id: int) -> InterviewQuestion | None:
         """Get a question by ID"""
