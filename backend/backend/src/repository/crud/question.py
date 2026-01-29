@@ -2,6 +2,7 @@ import sqlalchemy
 from typing import Any
 
 from src.models.db.question_attempt import QuestionAttempt
+from src.models.db.interview_question import InterviewQuestion
 from src.repository.crud.base import BaseCRUDRepository
 
 
@@ -32,20 +33,70 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         return created
 
     async def list_by_interview(self, *, interview_id: int) -> list[QuestionAttempt]:
+        """Get the latest attempt for each question in an interview, ordered by question order.
+        
+        When a question has multiple attempts (reattempts), only the latest attempt
+        (highest attempt id) is returned. This ensures:
+        1. Questions appear in their original order (by InterviewQuestion.order)
+        2. Only one attempt per question is returned (the most recent one)
+        """
+        # Subquery to get the max attempt id for each question
+        latest_attempt_subq = (
+            sqlalchemy.select(
+                QuestionAttempt.question_id,
+                sqlalchemy.func.max(QuestionAttempt.id).label("max_id")
+            )
+            .where(QuestionAttempt.interview_id == interview_id)
+            .group_by(QuestionAttempt.question_id)
+            .subquery()
+        )
+        
+        # Main query: join with subquery to get only the latest attempt per question
         stmt = (
             sqlalchemy.select(QuestionAttempt)
+            .join(latest_attempt_subq, QuestionAttempt.id == latest_attempt_subq.c.max_id)
+            .join(InterviewQuestion, QuestionAttempt.question_id == InterviewQuestion.id)
             .where(QuestionAttempt.interview_id == interview_id)
-            .order_by(QuestionAttempt.id.asc())
+            .order_by(InterviewQuestion.order.asc())
         )
         query = await self.async_session.execute(statement=stmt)
         rows = query.scalars().all()
         return list(rows)
 
     async def list_by_interview_cursor(self, *, interview_id: int, limit: int, cursor_id: int | None) -> tuple[list[QuestionAttempt], int | None]:
-        stmt = sqlalchemy.select(QuestionAttempt).where(QuestionAttempt.interview_id == interview_id)
+        """Get the latest attempt for each question with cursor pagination, ordered by question order.
+        
+        When a question has multiple attempts (reattempts), only the latest attempt
+        (highest attempt id) is returned. Cursor is based on InterviewQuestion.order for stable pagination.
+        """
+        # Subquery to get the max attempt id for each question
+        latest_attempt_subq = (
+            sqlalchemy.select(
+                QuestionAttempt.question_id,
+                sqlalchemy.func.max(QuestionAttempt.id).label("max_id")
+            )
+            .where(QuestionAttempt.interview_id == interview_id)
+            .group_by(QuestionAttempt.question_id)
+            .subquery()
+        )
+        
+        # Main query: join with subquery to get only the latest attempt per question
+        stmt = (
+            sqlalchemy.select(QuestionAttempt)
+            .join(latest_attempt_subq, QuestionAttempt.id == latest_attempt_subq.c.max_id)
+            .join(InterviewQuestion, QuestionAttempt.question_id == InterviewQuestion.id)
+            .where(QuestionAttempt.interview_id == interview_id)
+        )
         if cursor_id is not None:
-            stmt = stmt.where(QuestionAttempt.id > cursor_id)  # ascending id cursor
-        stmt = stmt.order_by(QuestionAttempt.id.asc()).limit(limit + 1)
+            # Use question order for cursor, not attempt id (more stable for pagination)
+            cursor_order_subq = (
+                sqlalchemy.select(InterviewQuestion.order)
+                .join(QuestionAttempt, QuestionAttempt.question_id == InterviewQuestion.id)
+                .where(QuestionAttempt.id == cursor_id)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(InterviewQuestion.order > cursor_order_subq)
+        stmt = stmt.order_by(InterviewQuestion.order.asc()).limit(limit + 1)
         query = await self.async_session.execute(statement=stmt)
         rows = list(query.scalars().all())
         next_cursor: int | None = None
