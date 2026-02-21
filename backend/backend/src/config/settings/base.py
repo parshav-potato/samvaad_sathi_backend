@@ -102,6 +102,10 @@ class BackendBaseSettings(BaseSettings):
     # LLM/ OpenAI client timeout in seconds (request-level). Increase for longer prompts/outputs.
     OPENAI_TIMEOUT_SECONDS: float = decouple.config("OPENAI_TIMEOUT_SECONDS", cast=float, default=150.0)  # type: ignore
 
+    # ElevenLabs TTS
+    ELEVENLABS_API_KEY: str = decouple.config("ELEVENLABS_API_KEY", cast=str, default="")  # type: ignore
+    ELEVENLABS_VOICE_ID: str = decouple.config("ELEVENLABS_VOICE_ID", cast=str, default="hpp4J3VqNfWAUOO0d1Us")  # type: ignore
+
     model_config = pydantic.ConfigDict(
         case_sensitive=True,
         env_file=f"{str(ROOT_DIR)}/.env",

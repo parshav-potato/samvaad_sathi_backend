@@ -25,6 +25,9 @@ argon2_cffi
 # OpenAI integration for audio transcription
 openai>=1.100.0
 
+# ElevenLabs text-to-speech
+elevenlabs>=1.0.0
+
 # Environment and configuration
 python-dotenv
 python-decouple
