@@ -22,6 +22,9 @@ def main() -> None:
     # Run security
     import scripts.smoke_security as sec
     sec.main()
+    # Run pacing practice
+    import scripts.smoke_pacing_practice as pacing
+    pacing.main()
 
 
 if __name__ == "__main__":

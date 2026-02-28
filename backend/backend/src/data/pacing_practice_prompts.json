@@ -1,0 +1,51 @@
+{
+  "1": {
+    "name": "Level 1 - Sentence Control",
+    "description": "Master basic sentence delivery and pacing",
+    "target_wpm": [120, 150],
+    "target_pause_interval": [8, 12],
+    "prompts": [
+      "I approach complex problems by breaking them into smaller, manageable steps and solving them systematically.",
+      "My greatest strength is my ability to collaborate effectively with cross-functional teams to achieve shared goals.",
+      "I am passionate about continuous learning and consistently seek opportunities to improve my technical skills.",
+      "In my previous role, I successfully led a project that improved system performance by thirty percent.",
+      "I believe clear communication is the foundation of any successful team and strive to practice it daily.",
+      "When facing tight deadlines, I prioritize tasks based on impact and delegate responsibilities where appropriate.",
+      "I thrive in fast-paced environments where I can apply creative problem-solving to real business challenges.",
+      "My background in software engineering helps me bridge the gap between technical details and business objectives.",
+      "I am comfortable with ambiguity and use data-driven thinking to make informed decisions under uncertainty.",
+      "I take ownership of my work and hold myself accountable for both successes and areas of improvement.",
+      "Adaptability is one of my core strengths, allowing me to quickly adjust to new tools, teams, and processes.",
+      "I consistently seek feedback from peers and managers to identify blind spots and accelerate my growth."
+    ]
+  },
+  "2": {
+    "name": "Level 2 - Paragraph Fluency",
+    "description": "Build confidence with longer responses",
+    "target_wpm": [120, 150],
+    "target_pause_interval": [8, 12],
+    "prompts": [
+      "In my last role I was responsible for redesigning our data pipeline. I identified bottlenecks through profiling, proposed a new architecture to the team, and implemented it over two sprints. As a result we reduced processing time by forty percent and cut infrastructure costs significantly. The key lesson I took away was the importance of validating assumptions with data before committing to a solution.",
+      "When I encounter conflict within a team I start by listening to all perspectives without judgment. I then try to identify the root cause rather than focusing on surface-level disagreements. From there I facilitate a structured conversation where everyone agrees on shared goals. This approach has consistently helped me resolve conflicts while preserving working relationships and team morale.",
+      "I would describe my leadership style as collaborative and outcome-focused. I set clear expectations and make sure every team member understands how their work connects to broader goals. I check in regularly to unblock obstacles but avoid micromanaging because I believe autonomy drives creativity. I also invest time in mentoring junior colleagues because their growth directly strengthens the team.",
+      "My approach to learning a new technology starts with building a small working prototype. This forced immersion helps me quickly identify gaps in my understanding. I then fill those gaps through documentation, community forums, and peer discussions. Within a few weeks I am typically confident enough to contribute meaningfully in production environments and share knowledge with teammates.",
+      "During a critical product launch our main database went down two hours before release. I immediately assembled the on-call team, delegated investigation tasks, and established a communication channel for stakeholders. Within ninety minutes we identified a misconfigured connection pool, applied a fix, and completed final staging tests. We launched only twenty minutes late with no user impact, which reinforced the value of calm, structured incident response.",
+      "I measure success not just by output but by the quality and sustainability of the work. I make sure code is well-tested, documented, and easy for others to maintain. I also track outcome metrics after shipping features to verify that our work actually moved business goals. This end-to-end ownership mindset has helped me build a reputation for delivering reliable, impactful solutions.",
+      "When prioritizing a backlog I use a combination of business impact, technical debt cost, and user feedback signals. I work closely with product managers to score items against these dimensions and sequence them accordingly. I also leave buffer in each sprint for unplanned urgent work so that the team is never caught off guard. This balance keeps us moving fast without compromising long-term code health.",
+      "My communication style adapts to the audience. With engineers I dive into technical specifics and tradeoffs. With executives I focus on business outcomes, risks, and timelines. With customers I use plain language and concrete examples. Developing this range of communication has made me a more effective contributor at every level of the organization and improved cross-team alignment significantly."
+    ]
+  },
+  "3": {
+    "name": "Level 3 - Interview Mastery",
+    "description": "Handle complex questions with confidence",
+    "target_wpm": [120, 150],
+    "target_pause_interval": [8, 12],
+    "prompts": [
+      "Tell me about a time you had to make a high-stakes decision with incomplete information. In my second year as a senior engineer our team had to decide whether to migrate our authentication service to a third-party provider or rebuild it in-house. We had two weeks before a compliance deadline and limited data on the long-term costs of either path. I structured the decision by listing the assumptions underlying each option and then stress-tested each one with quick spikes. We found that the in-house estimate relied on an optimistic timeline that collapsed under scrutiny. I presented a risk-adjusted comparison to leadership and recommended the third-party provider. The migration completed on time, met compliance requirements, and freed the team from ongoing maintenance overhead. The experience taught me that when data is scarce, making assumptions explicit is the single most valuable thing you can do.",
+      "Describe a situation where you drove organizational change that faced significant resistance. When I proposed moving our team from a monolithic deploy pipeline to trunk-based development, several senior engineers pushed back strongly. They were concerned about stability and argued our test coverage was insufficient for continuous integration. Rather than forcing the change, I ran a four-week pilot with one service, instrumenting everything so we had objective data on build stability, deployment frequency, and rollback rates. The results showed a forty percent increase in deployment frequency with no increase in incidents. I presented this to skeptics alongside a concrete remediation plan for the low-coverage areas they had flagged. Over the next quarter the entire team adopted the new workflow. This taught me that the fastest path through resistance is usually evidence, not authority.",
+      "Walk me through how you would design a notification system that needs to handle one million events per day reliably. I would start by clarifying requirements: what types of notifications, what delivery channels, what latency guarantees, and what happens if a notification fails. With those defined I would design around a message queue like SQS or Kafka as the backbone to decouple producers from consumers and provide durability. Each channel would have a dedicated worker pool with retry logic and exponential backoff. I would use idempotency keys to prevent duplicates on retry. Dead-letter queues would capture persistent failures for alerting and manual review. For monitoring I would track delivery rate, end-to-end latency, error rate by channel, and queue depth as leading indicators of saturation. I would also build an admin interface for support teams to inspect and replay failed notifications. The design prioritizes reliability and observability because in notification systems silent failures are the most damaging.",
+      "How do you ensure the quality of your team's work while maintaining a healthy development pace? Quality and pace are not actually in tension when the right practices are in place. I start by making sure definitions of done include automated tests, code review, and monitoring setup, not just feature completion. I advocate for a test pyramid where unit tests cover the majority of logic, integration tests validate critical paths, and end-to-end tests cover the most important user journeys. I also hold regular architecture reviews to surface technical debt early before it compounds. On the human side I cultivate a culture where raising quality concerns is celebrated rather than seen as blocking progress. When the team owns quality as a shared value rather than treating it as a gating step imposed from outside, pace actually improves because rework and incident response time drop significantly.",
+      "Describe the most technically complex project you have worked on and what made it challenging. The most complex project I have worked on was rebuilding a real-time fraud detection system that processed financial transactions at peak throughput of five thousand per second. The challenges operated at multiple levels simultaneously. At the infrastructure level we needed sub-fifty-millisecond decision latency, which required co-locating the model inference service within the same data center as the payment processor. At the modeling level the fraud patterns shifted weekly, so we needed an automated retraining pipeline that could deploy updated models without taking the system offline. At the operational level a false positive that incorrectly blocked a legitimate transaction had direct revenue consequences, so model rollouts required rigorous shadow-mode validation before going live. Coordinating these constraints across three teams over nine months taught me that complexity at scale is mostly a coordination problem, not a technical one, and that clear ownership boundaries and shared metrics are the most powerful tools for managing it."
+    ]
+  }
+}
