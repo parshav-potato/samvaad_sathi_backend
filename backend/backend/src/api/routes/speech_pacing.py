@@ -19,6 +19,8 @@ from src.models.schemas.pacing_practice import (
     PacingLevelStatus,
     PacingLevelsResponse,
     PacingAnalysisMetric,
+    PauseDistributionMetric,
+    FillerWordsMetric,
     PacingPracticeSessionCreateRequest,
     PacingPracticeSessionDetailResponse,
     PacingPracticeSessionResponse,
@@ -107,21 +109,6 @@ async def create_pacing_session(
     ),
 ) -> PacingPracticeSessionResponse:
     level = payload.level
-
-    # --- Enforce level unlock rules ---
-    if level > 1:
-        level_bests = await session_repo.get_level_bests(user_id=current_user.id)
-        required_level = level - 1
-        gating_score = level_bests.get(required_level) or 0
-        if gating_score < 90:
-            raise fastapi.HTTPException(
-                status_code=fastapi.status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Level {level} is locked. Complete Level {required_level} "
-                    f"with a score of 90 or above to unlock it "
-                    f"(current best: {gating_score})."
-                ),
-            )
 
     # --- Pick a prompt ---
     try:
@@ -222,23 +209,27 @@ async def submit_pacing_session(
         )
 
     # --- Compute metrics ---
-    metrics = build_pacing_metrics(words)
+    transcript_text = transcription.get("text", "")
+    metrics = build_pacing_metrics(words, db_session.prompt_text, transcript_text)
 
-    score = metrics["score"]
-    wpm = metrics["wpm"]
-    pause_interval = metrics["pause_words_interval"]
+    score         = metrics["score"]
+    wpm           = metrics["wpm"]
+    pause_data    = metrics["pause"]
+    filler_data   = metrics["filler"]
+    pause_interval = pause_data["pause_words_interval"]
 
     # --- Persist results ---
     analysis_result = {
         "wpm": wpm,
         "pause_words_interval": pause_interval,
         "wpm_status": metrics["wpm_status"],
-        "pause_status": metrics["pause_status"],
+        "pause": pause_data,
+        "filler": filler_data,
         "pace_raw": metrics.get("pace_raw"),
     }
     await session_repo.update_with_analysis(
         session_id=session_id,
-        transcript=transcription.get("text", ""),
+        transcript=transcript_text,
         words_data={"words": words},
         score=score,
         wpm=wpm,
@@ -250,12 +241,9 @@ async def submit_pacing_session(
     level_unlocked: int | None = None
     next_level = db_session.level + 1
     if next_level <= 3 and score >= 90:
-        # Confirm this score actually unlocks the next level for the first time
         prev_best = await session_repo.get_best_score_by_level(
             user_id=current_user.id, level=db_session.level
         )
-        # prev_best is the DB value *before* our update committed; if nil or < 90
-        # then this is the first qualifying attempt.
         if prev_best is None or prev_best < 90:
             level_unlocked = next_level
 
@@ -266,12 +254,8 @@ async def submit_pacing_session(
         status=metrics["wpm_status"],
         feedback=metrics["wpm_feedback"],
     )
-    pause_distribution = PacingAnalysisMetric(
-        value=round(pause_interval, 1),
-        ideal_range="8-12 words",
-        status=metrics["pause_status"],
-        feedback=metrics["pause_feedback"],
-    )
+    pause_distribution = PauseDistributionMetric(**pause_data)
+    filler_words = FillerWordsMetric(**filler_data)
 
     return PacingPracticeSubmitResponse(
         session_id=session_id,
@@ -280,6 +264,7 @@ async def submit_pacing_session(
         score_label=score_label(score),
         speech_speed=speech_speed,
         pause_distribution=pause_distribution,
+        filler_words=filler_words,
         level_unlocked=level_unlocked,
     )
 
@@ -315,7 +300,8 @@ async def get_pacing_session(
 
     # Reconstruct metric objects from persisted analysis_result if present
     speech_speed: PacingAnalysisMetric | None = None
-    pause_distribution: PacingAnalysisMetric | None = None
+    pause_distribution: PauseDistributionMetric | None = None
+    filler_words: FillerWordsMetric | None = None
 
     if db_session.analysis_result and db_session.wpm is not None:
         ar = db_session.analysis_result
@@ -325,13 +311,17 @@ async def get_pacing_session(
             status=ar.get("wpm_status", ""),
             feedback="",
         )
-        if db_session.pause_words_interval is not None:
-            pause_distribution = PacingAnalysisMetric(
-                value=round(db_session.pause_words_interval, 1),
-                ideal_range="8-12 words",
-                status=ar.get("pause_status", ""),
-                feedback="",
-            )
+        # New format stores full dicts — with graceful fallback for old sessions
+        if ar.get("pause"):
+            try:
+                pause_distribution = PauseDistributionMetric(**ar["pause"])
+            except Exception:
+                pass
+        if ar.get("filler"):
+            try:
+                filler_words = FillerWordsMetric(**ar["filler"])
+            except Exception:
+                pass
 
     return PacingPracticeSessionDetailResponse(
         session_id=db_session.id,
@@ -343,6 +333,7 @@ async def get_pacing_session(
         score=db_session.score,
         speech_speed=speech_speed,
         pause_distribution=pause_distribution,
+        filler_words=filler_words,
         analysis_result=db_session.analysis_result,
         created_at=db_session.created_at,
         updated_at=db_session.updated_at,

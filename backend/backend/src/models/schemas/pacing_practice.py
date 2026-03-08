@@ -35,6 +35,35 @@ class PacingAnalysisMetric(BaseSchemaModel):
     feedback: str
 
 
+class PauseDistributionMetric(BaseSchemaModel):
+    """Rich pause distribution data from the linguistic 4-component scorer."""
+    score: int                       # 0-100 pause-specific score
+    status: str                      # "Good" | "Average" | "Needs Adjustment"
+    feedback: str
+    avg_words_per_pause: float
+    total_pauses: int
+    expected_pauses: float
+    mandatory_pause_count: int
+    mandatory_pauses_hit: int
+    mandatory_pauses_missed: int
+    comma_pauses_missed: int
+    mandatory_covered: bool
+    placement_accuracy: float        # % component score
+    mandatory_compliance: float      # % component score
+    segment_accuracy: float          # % component score
+    penalty_pct: float               # % penalty applied
+
+
+class FillerWordsMetric(BaseSchemaModel):
+    """Filler word detection results."""
+    count: int
+    total_words: int
+    filler_ratio: float
+    status: str                      # "Good" | "Average" | "Needs Adjustment"
+    suggestion: str
+    fillers_found: list[str]
+
+
 class PacingPracticeSubmitResponse(BaseSchemaModel):
     """Response returned after audio is submitted and analysed."""
     session_id: int
@@ -42,7 +71,8 @@ class PacingPracticeSubmitResponse(BaseSchemaModel):
     score: int           # 0-100
     score_label: str     # e.g. "Good Progress! Keep Practicing"
     speech_speed: PacingAnalysisMetric
-    pause_distribution: PacingAnalysisMetric
+    pause_distribution: PauseDistributionMetric
+    filler_words: FillerWordsMetric
     level_unlocked: Optional[int] = None   # 2 or 3 if this attempt unlocked a new level
 
 
@@ -73,7 +103,8 @@ class PacingPracticeSessionDetailResponse(BaseSchemaModel):
     transcript: Optional[str] = None
     score: Optional[int] = None
     speech_speed: Optional[PacingAnalysisMetric] = None
-    pause_distribution: Optional[PacingAnalysisMetric] = None
+    pause_distribution: Optional[PauseDistributionMetric] = None
+    filler_words: Optional[FillerWordsMetric] = None
     analysis_result: Optional[dict] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
