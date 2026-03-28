@@ -22,6 +22,10 @@ class Interview(Base):  # type: ignore
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )
+    completed_at: SQLAlchemyMapped[datetime.datetime | None] = sqlalchemy_mapped_column(
+        sqlalchemy.DateTime(timezone=True), nullable=True, index=True
+    )
+    duration_seconds: SQLAlchemyMapped[int | None] = sqlalchemy_mapped_column(sqlalchemy.Integer, nullable=True)
 
     user = relationship("User", back_populates="interviews")
     questions = relationship(

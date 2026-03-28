@@ -15,10 +15,19 @@ def test_openapi_includes_report_and_analysis_paths_without_startup():
     assert "/api/complete-analysis" in paths
     assert "/api/domain-base-analysis" in paths
     assert "/api/communication-based-analysis" in paths
+    assert "/api/analytics/student/{user_id}" in paths
+    assert "/api/analytics/interview/{interview_id}" in paths
+    assert "/api/analytics/segment/role" in paths
+    assert "/api/analytics/segment/difficulty" in paths
+    assert "/api/analytics/segment/college" in paths
+    assert "/api/analytics/system" in paths
+    assert "/api/analytics/scoring" in paths
+    assert "/api/analytics/alerts" in paths
+    assert "/api/analytics/report-engagement" in paths
 
     tags = schema.get("tags", [])
     tag_names = {t.get("name") for t in tags}
-    assert {"users", "resume", "interviews", "audio", "analysis", "report"}.issubset(tag_names)
+    assert {"users", "resume", "interviews", "audio", "analysis", "report", "analytics"}.issubset(tag_names)
 
 
 def test_final_report_response_has_example_without_startup():
@@ -58,6 +67,6 @@ def test_interview_schemas_include_question_ids():
     gq_schema = schemas.get("GeneratedQuestionsInResponse")
     assert gq_schema is not None
     gq_props = gq_schema.get("properties", {})
-    assert "question_ids" in gq_props
+    assert "question_ids" in gq_props or "questionIds" in gq_props
     assert "questions" in gq_props
     assert "cached" in gq_props

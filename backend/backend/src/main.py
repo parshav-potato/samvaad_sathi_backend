@@ -40,6 +40,10 @@ def initialize_backend_application() -> fastapi.FastAPI:
             "name": "report",
             "description": "Session-level final report generation and retrieval.",
         },
+        {
+            "name": "analytics",
+            "description": "Dashboard-focused analytics across student, interview, segment, system, scoring, and alerts views.",
+        },
     ]
     # Attach tag descriptions to OpenAPI
     app.openapi_tags = tags_metadata  # type: ignore[attr-defined]

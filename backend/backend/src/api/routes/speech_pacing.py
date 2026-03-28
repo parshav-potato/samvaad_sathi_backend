@@ -39,6 +39,7 @@ from src.services.pacing_practice_service import (
     score_label,
 )
 from src.services.whisper import transcribe_audio_with_whisper
+from src.services.analytics_events import track_analytics_event
 
 router = fastapi.APIRouter(prefix="/pacing-practice", tags=["speech-pacing"])
 logger = logging.getLogger(__name__)
@@ -145,6 +146,12 @@ async def create_pacing_session(
         level=level,
         prompt_text=prompt_text,
         prompt_index=prompt_index,
+    )
+    await track_analytics_event(
+        session_repo.async_session,
+        event_type="practice_started",
+        user_id=current_user.id,
+        event_data={"practice_type": "pacing", "level": level, "session_id": db_session.id},
     )
 
     return PacingPracticeSessionResponse(
@@ -263,6 +270,17 @@ async def submit_pacing_session(
         wpm=wpm,
         pause_words_interval=pause_interval,
         analysis_result=analysis_result,
+    )
+    await track_analytics_event(
+        session_repo.async_session,
+        event_type="practice_completed",
+        user_id=current_user.id,
+        event_data={
+            "practice_type": "pacing",
+            "session_id": session_id,
+            "level": db_session.level,
+            "score": score,
+        },
     )
 
     # --- Check if a new level is unlocked ---

@@ -18,6 +18,7 @@ from src.services.question_supplements import (
     QuestionSupplementService,
     serialize_question_supplement,
 )
+from src.services.analytics_events import track_analytics_event
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,20 @@ async def create_or_resume_interview(
     if difficulty not in ("easy", "medium", "hard", "expert"):
         difficulty = "medium"
     interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty)
+    await track_analytics_event(
+        interview_repo.async_session,
+        event_type="interview_started",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"track": interview.track, "difficulty": interview.difficulty, "api": "interviews.create"},
+    )
+    await track_analytics_event(
+        interview_repo.async_session,
+        event_type="role_selected",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"track": interview.track, "source": "interviews.create"},
+    )
     return InterviewInResponse(
         interview_id=interview.id,
         track=interview.track,
@@ -319,6 +334,19 @@ async def complete_interview(
     if interview.status != "active":
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Only active interviews can be completed")
     updated = await interview_repo.mark_completed(interview_id=interview.id)
+    if updated is not None:
+        await track_analytics_event(
+            interview_repo.async_session,
+            event_type="interview_completed",
+            user_id=current_user.id,
+            interview_id=updated.id,
+            event_data={
+                "track": updated.track,
+                "difficulty": updated.difficulty,
+                "duration_seconds": updated.duration_seconds,
+                "api": "interviews.complete",
+            },
+        )
     return {
         "id": updated.id if updated else None,
         "status": updated.status if updated else None,

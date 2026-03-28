@@ -54,6 +54,7 @@ from src.services.progressive_hints import (
     get_initial_hint,
 )
 from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language
+from src.services.analytics_events import track_analytics_event
 
 logger = logging.getLogger(__name__)
 FOLLOW_UP_STRATEGY = "llm_transcription_based"
@@ -171,6 +172,20 @@ async def create_or_resume_interview_v2(
     if difficulty not in ("easy", "medium", "hard", "expert"):
         difficulty = "medium"
     interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty)
+    await track_analytics_event(
+        interview_repo.async_session,
+        event_type="interview_started",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"track": interview.track, "difficulty": interview.difficulty, "api": "interviews_v2.create"},
+    )
+    await track_analytics_event(
+        interview_repo.async_session,
+        event_type="role_selected",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"track": interview.track, "source": "interviews_v2.create"},
+    )
     return InterviewInResponse(
         interview_id=interview.id,
         track=interview.track,
@@ -650,6 +665,12 @@ async def create_pronunciation_practice(
             user_id=current_user.id,
             difficulty=payload.difficulty,
         )
+        await track_analytics_event(
+            pronunciation_repo.async_session,
+            event_type="practice_started",
+            user_id=current_user.id,
+            event_data={"practice_type": "pronunciation", "difficulty": payload.difficulty},
+        )
         
         # Convert words array to response format with indices
         from src.models.schemas.pronunciation import PronunciationWord
@@ -978,6 +999,13 @@ async def create_structure_practice_session(
         track=track,
         questions=questions_list,
     )
+    await track_analytics_event(
+        structure_practice_repo.async_session,
+        event_type="practice_started",
+        user_id=current_user.id,
+        interview_id=practice.interview_id,
+        event_data={"practice_type": "structure", "track": track},
+    )
     
     return StructurePracticeSessionResponse(
         practice_id=practice.id,
@@ -1281,6 +1309,19 @@ async def analyze_structure_practice_answer(
     await answer_repo.update_analysis(
         answer_id=latest_answer.id,
         analysis_result=analysis_data,
+    )
+
+    await track_analytics_event(
+        answer_repo.async_session,
+        event_type="practice_completed",
+        user_id=current_user.id,
+        interview_id=practice.interview_id,
+        event_data={
+            "practice_type": "structure",
+            "practice_id": practice_id,
+            "question_index": question_index,
+            "completion_percentage": analysis_result.completion_percentage,
+        },
     )
     
     return StructurePracticeAnalysisResponse(

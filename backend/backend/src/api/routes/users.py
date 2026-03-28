@@ -20,6 +20,7 @@ from src.utilities.exceptions.password import PasswordDoesNotMatch
 from src.utilities.exceptions.http.exc_400 import http_exc_400_credentials_bad_signin_request
 
 from src.models.db.user import TargetPositionEnum
+from src.services.analytics_events import track_analytics_event
 
 
 router = fastapi.APIRouter(prefix="", tags=["users"])
@@ -43,6 +44,12 @@ async def register_user(
 
     token = jwt_generator.generate_access_token_for_user(user=user)
     refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    await track_analytics_event(
+        session_repo.async_session,
+        event_type="user_signup",
+        user_id=user.id,
+        event_data={"source": "users.register"},
+    )
 
     return UserInResponse(
         user_id=user.id,
@@ -145,6 +152,7 @@ async def update_profile(
     current_user=fastapi.Depends(get_current_user),
     user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
 ) -> UserProfileOut:
+    previous_target_position = getattr(current_user, "target_position", None)
     # Persist updates via repository
     updated = await user_repo.update_user_profile(
         user_id=current_user.id,
@@ -158,6 +166,17 @@ async def update_profile(
     if hasattr(updated, 'is_onboarded') and not updated.is_onboarded:
         await user_repo.set_onboarded(user_id=updated.id, value=True)
         updated = await user_repo.get_user_by_id(user_id=updated.id)
+
+    if profile_update.target_position and profile_update.target_position != previous_target_position:
+        await track_analytics_event(
+            user_repo.async_session,
+            event_type="role_selected",
+            user_id=updated.id,
+            event_data={
+                "target_position": profile_update.target_position,
+                "source": "users.profile",
+            },
+        )
 
     return UserProfileOut(
         user_id=updated.id,
