@@ -18,16 +18,18 @@ from src.api.dependencies.repository import get_repository
 from src.models.schemas.pacing_practice import (
     PacingLevelStatus,
     PacingLevelsResponse,
+    PacingPracticeStatusResponse,
     PacingAnalysisMetric,
     PauseDistributionMetric,
     FillerWordsMetric,
+    Level3PacingReport,
     PacingPracticeSessionCreateRequest,
     PacingPracticeSessionDetailResponse,
     PacingPracticeSessionResponse,
     PacingPracticeSubmitResponse,
 )
 from src.repository.crud.pacing_practice import PacingPracticeSessionCRUDRepository
-from src.services.audio_processor import validate_audio_file
+from src.services.audio_processor import validate_audio_file, extract_audio_energy_features
 from src.services.pacing_practice_service import (
     LEVEL_META,
     build_pacing_metrics,
@@ -40,6 +42,24 @@ from src.services.whisper import transcribe_audio_with_whisper
 
 router = fastapi.APIRouter(prefix="/pacing-practice", tags=["speech-pacing"])
 logger = logging.getLogger(__name__)
+
+
+@router.get(
+    path="/has-practiced",
+    name="pacing-practice:has-practiced",
+    response_model=PacingPracticeStatusResponse,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Check if user has completed pacing practice",
+    description="Returns true if the authenticated user has completed at least one pacing practice session.",
+)
+async def has_practiced_pacing(
+    current_user=fastapi.Depends(get_current_user),
+    session_repo: PacingPracticeSessionCRUDRepository = fastapi.Depends(
+        get_repository(repo_type=PacingPracticeSessionCRUDRepository)
+    ),
+) -> PacingPracticeStatusResponse:
+    has_practiced = await session_repo.has_completed_practice(user_id=current_user.id)
+    return PacingPracticeStatusResponse(has_practiced=has_practiced)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +230,14 @@ async def submit_pacing_session(
 
     # --- Compute metrics ---
     transcript_text = transcription.get("text", "")
-    metrics = build_pacing_metrics(words, db_session.prompt_text, transcript_text)
+    audio_features = extract_audio_energy_features(audio_bytes, file_metadata.get("content_type", ""))
+    metrics = build_pacing_metrics(
+        words,
+        db_session.prompt_text,
+        transcript_text,
+        level=db_session.level,
+        audio_features=audio_features,
+    )
 
     score         = metrics["score"]
     wpm           = metrics["wpm"]
@@ -225,6 +252,7 @@ async def submit_pacing_session(
         "wpm_status": metrics["wpm_status"],
         "pause": pause_data,
         "filler": filler_data,
+        "level3_report": metrics.get("level3_report"),
         "pace_raw": metrics.get("pace_raw"),
     }
     await session_repo.update_with_analysis(
@@ -256,6 +284,12 @@ async def submit_pacing_session(
     )
     pause_distribution = PauseDistributionMetric(**pause_data)
     filler_words = FillerWordsMetric(**filler_data)
+    level3_report = None
+    if metrics.get("level3_report"):
+        try:
+            level3_report = Level3PacingReport(**metrics["level3_report"])
+        except Exception:
+            level3_report = None
 
     return PacingPracticeSubmitResponse(
         session_id=session_id,
@@ -265,6 +299,7 @@ async def submit_pacing_session(
         speech_speed=speech_speed,
         pause_distribution=pause_distribution,
         filler_words=filler_words,
+        level3_report=level3_report,
         level_unlocked=level_unlocked,
     )
 
@@ -302,6 +337,7 @@ async def get_pacing_session(
     speech_speed: PacingAnalysisMetric | None = None
     pause_distribution: PauseDistributionMetric | None = None
     filler_words: FillerWordsMetric | None = None
+    level3_report: Level3PacingReport | None = None
 
     if db_session.analysis_result and db_session.wpm is not None:
         ar = db_session.analysis_result
@@ -322,6 +358,11 @@ async def get_pacing_session(
                 filler_words = FillerWordsMetric(**ar["filler"])
             except Exception:
                 pass
+        if ar.get("level3_report"):
+            try:
+                level3_report = Level3PacingReport(**ar["level3_report"])
+            except Exception:
+                pass
 
     return PacingPracticeSessionDetailResponse(
         session_id=db_session.id,
@@ -334,6 +375,7 @@ async def get_pacing_session(
         speech_speed=speech_speed,
         pause_distribution=pause_distribution,
         filler_words=filler_words,
+        level3_report=level3_report,
         analysis_result=db_session.analysis_result,
         created_at=db_session.created_at,
         updated_at=db_session.updated_at,

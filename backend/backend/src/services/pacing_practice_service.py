@@ -11,6 +11,7 @@ Responsibilities
 import json
 import re
 import random
+import statistics
 from pathlib import Path
 from typing import Optional
 
@@ -391,7 +392,372 @@ def calculate_pacing_score(wpm: float, pause_score: float, filler_ratio: float) 
 # Metric building
 # ---------------------------------------------------------------------------
 
-def build_pacing_metrics(words: list[dict], prompt_text: str, transcript: str) -> dict:
+def _badge_from_score(score: int) -> str:
+    if score >= 80:
+        return "Good"
+    if score >= 65:
+        return "Average"
+    if score >= 50:
+        return "Acceptable"
+    return "Needs Adjustment"
+
+
+def _safe_duration(words: list[dict]) -> float:
+    if not words:
+        return 0.0
+    start = words[0].get("start", 0.0)
+    end = words[-1].get("end", 0.0)
+    return max(0.0, end - start)
+
+
+def _score_wpm_level3(wpm: float) -> tuple[int, str]:
+    if 110 <= wpm <= 165:
+        return 100, "Your pace is within interview-ready range."
+    if (100 <= wpm < 110) or (165 < wpm <= 175):
+        return 80, "Your pace is slightly off ideal range but still understandable."
+    if (90 <= wpm < 100) or (175 < wpm <= 185):
+        return 60, "Your speed is noticeably outside ideal interview pacing."
+    if wpm < 90:
+        return 40, "You are speaking too slowly, which can sound unsure."
+    return 40, "You are speaking too fast, which can sound rushed."
+
+
+def _slice_wpm(words: list[dict], start_t: float, end_t: float) -> float:
+    if end_t <= start_t:
+        return 0.0
+    count = sum(1 for w in words if w.get("start", 0.0) >= start_t and w.get("end", 0.0) <= end_t)
+    return (count / (end_t - start_t)) * 60 if count > 0 else 0.0
+
+
+def _score_speed_consistency(words: list[dict]) -> dict:
+    duration = _safe_duration(words)
+    if duration <= 0:
+        return {
+            "score": 40,
+            "status": "Needs Adjustment",
+            "variance_wpm": 0.0,
+            "start_wpm": 0.0,
+            "middle_wpm": 0.0,
+            "end_wpm": 0.0,
+            "feedback": "Could not compute pace consistency from the recording.",
+        }
+    start_t = words[0].get("start", 0.0)
+    one_third = duration / 3.0
+    s1 = _slice_wpm(words, start_t, start_t + one_third)
+    s2 = _slice_wpm(words, start_t + one_third, start_t + 2 * one_third)
+    s3 = _slice_wpm(words, start_t + 2 * one_third, start_t + duration)
+    variance = max(s1, s2, s3) - min(s1, s2, s3)
+
+    if variance <= 10:
+        score = 100
+    elif variance <= 20:
+        score = 85
+    elif variance <= 30:
+        score = 65
+    else:
+        score = 40
+
+    trend = ""
+    if s3 < s1 - 10:
+        trend = " Your pace slowed toward the end of the response."
+    elif s3 > s1 + 10:
+        trend = " Your pace increased toward the end of the response."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "variance_wpm": round(variance, 1),
+        "start_wpm": round(s1, 1),
+        "middle_wpm": round(s2, 1),
+        "end_wpm": round(s3, 1),
+        "feedback": f"Pace variance across segments is {round(variance,1)} WPM.{trend}".strip(),
+    }
+
+
+def _score_pause_distribution_level3(words: list[dict]) -> dict:
+    pauses: list[float] = []
+    for i in range(len(words) - 1):
+        gap = words[i + 1].get("start", 0.0) - words[i].get("end", 0.0)
+        if gap > 0.3:
+            pauses.append(gap)
+
+    total = len(pauses)
+    if total == 0:
+        return {
+            "score": 40,
+            "status": "Needs Adjustment",
+            "total_pauses": 0,
+            "micro_pause_pct": 0.0,
+            "thinking_pause_pct": 0.0,
+            "long_pause_pct": 0.0,
+            "feedback": "No meaningful pauses were detected in your response.",
+        }
+
+    micro = sum(1 for p in pauses if 0.3 <= p < 0.7)
+    thinking = sum(1 for p in pauses if 0.7 <= p <= 1.5)
+    long = sum(1 for p in pauses if p > 1.5)
+
+    micro_pct = (micro / total) * 100
+    thinking_pct = (thinking / total) * 100
+    long_pct = (long / total) * 100
+
+    if long_pct < 5:
+        score = 100
+    elif long_pct <= 10:
+        score = 85
+    elif long_pct <= 15:
+        score = 65
+    else:
+        score = 40
+
+    feedback = "Your pause balance supports clear thinking structure."
+    if long_pct > 10:
+        feedback = "Multiple long pauses suggest hesitation."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "total_pauses": total,
+        "micro_pause_pct": round(micro_pct, 1),
+        "thinking_pause_pct": round(thinking_pct, 1),
+        "long_pause_pct": round(long_pct, 1),
+        "feedback": feedback,
+    }
+
+
+def _score_sentence_variation(transcript: str) -> dict:
+    sentences = [s.strip() for s in re.split(r"[.!?]+", transcript) if s.strip()]
+    lengths = [len([w for w in s.split() if w.strip()]) for s in sentences if s.strip()]
+    if len(lengths) < 2:
+        std_dev = 0.0
+    else:
+        std_dev = statistics.pstdev(lengths)
+
+    if std_dev >= 6:
+        score = 100
+        level = "High variation"
+        feedback = "Good sentence length variation improves natural flow."
+    elif std_dev >= 4:
+        score = 80
+        level = "Moderate"
+        feedback = "Try mixing short and long sentences. Break long ideas into smaller parts, and combine shorter ones to sound more natural."
+    elif std_dev >= 2:
+        score = 60
+        level = "Low"
+        feedback = "Try mixing short and long sentences. Break long ideas into smaller parts, and combine shorter ones to sound more natural."
+    else:
+        score = 40
+        level = "Very repetitive"
+        feedback = "Most of your sentences are similar in length. This makes your response sound robotic. Vary your sentence length to improve flow."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "sentence_count": len(lengths),
+        "std_dev_words": round(std_dev, 2),
+        "variation_level": level,
+        "feedback": feedback,
+    }
+
+
+def _expected_duration_from_prompt(prompt_text: str) -> tuple[float, float]:
+    words_count = len([w for w in prompt_text.split() if w.strip()])
+    expected_center = (words_count / 140.0) * 60.0
+    min_s = max(30.0, expected_center * 0.7)
+    max_s = max(min_s + 20.0, expected_center * 1.3)
+    return round(min_s, 1), round(max_s, 1)
+
+
+def _score_duration(actual_seconds: float, expected_min: float, expected_max: float) -> dict:
+    if expected_min <= actual_seconds <= expected_max:
+        score = 100
+    else:
+        center = (expected_min + expected_max) / 2.0
+        if center <= 0:
+            deviation_pct = 100.0
+        else:
+            deviation_pct = abs(actual_seconds - center) / center * 100
+        if deviation_pct <= 20:
+            score = 85
+        elif deviation_pct <= 35:
+            score = 65
+        else:
+            score = 40
+
+    feedback = "Your answer is well-paced and fits within the ideal range."
+    if score < 80:
+        feedback = "Your answer length is not aligned with the ideal response window for this prompt."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "actual_seconds": round(actual_seconds, 1),
+        "expected_min_seconds": expected_min,
+        "expected_max_seconds": expected_max,
+        "feedback": feedback,
+    }
+
+
+def _score_energy(audio_features: dict | None, words: list[dict]) -> dict:
+    if not audio_features:
+        audio_features = {}
+
+    pitch_var = float(audio_features.get("pitch_variation", 0.0))
+    vol_var = float(audio_features.get("volume_variation", 0.0))
+    source = audio_features.get("source", "fallback")
+
+    if source == "fallback":
+        durations = [max(0.01, w.get("end", 0.0) - w.get("start", 0.0)) for w in words]
+        gaps = [max(0.0, words[i + 1].get("start", 0.0) - words[i].get("end", 0.0)) for i in range(len(words) - 1)]
+        pitch_var = min(1.0, statistics.pstdev(durations) / max(0.01, statistics.fmean(durations))) if len(durations) > 1 else 0.0
+        vol_var = min(1.0, statistics.pstdev(gaps) / max(0.01, statistics.fmean(gaps))) if len(gaps) > 1 else 0.0
+
+    energy_idx = (pitch_var + vol_var) / 2.0
+    if energy_idx >= 0.35:
+        score = 100
+    elif energy_idx >= 0.22:
+        score = 80
+    elif energy_idx >= 0.12:
+        score = 60
+    else:
+        score = 40
+
+    feedback = "Your vocal energy feels engaging and varied."
+    if score < 80:
+        feedback = "Your voice remained mostly flat."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "pitch_variation": round(pitch_var, 4),
+        "volume_variation": round(vol_var, 4),
+        "feedback": feedback,
+    }
+
+
+def _score_consistency(speed_consistency: dict, filler: dict, pause_l3: dict) -> dict:
+    pace_penalty = min(40.0, float(speed_consistency.get("variance_wpm", 0.0)) * 1.2)
+    filler_density = float(filler.get("filler_ratio", 0.0)) * 100
+    filler_penalty = min(30.0, filler_density * 3)
+    long_pause_penalty = min(30.0, float(pause_l3.get("long_pause_pct", 0.0)) * 2)
+    fluctuation_index = pace_penalty + filler_penalty + long_pause_penalty
+    score = int(round(max(40.0, 100.0 - fluctuation_index)))
+
+    feedback = "Your delivery is mostly stable with minor fluctuations."
+    if score < 65:
+        feedback = "Try keeping a more even rhythm to reduce noticeable delivery fluctuations."
+
+    return {
+        "score": score,
+        "status": _badge_from_score(score),
+        "fluctuation_index": round(fluctuation_index, 1),
+        "feedback": feedback,
+    }
+
+
+def build_level3_report(words: list[dict], prompt_text: str, transcript: str, audio_features: dict | None) -> dict:
+    pace_raw = calculate_pace_metrics(words) or {"avg_wpm": 0.0}
+    wpm = float(pace_raw.get("avg_wpm", 0.0))
+
+    wpm_score, wpm_feedback = _score_wpm_level3(wpm)
+    speech_speed = {
+        "score": wpm_score,
+        "status": _badge_from_score(wpm_score),
+        "wpm": round(wpm, 1),
+        "ideal_range": "120-160",
+        "feedback": wpm_feedback,
+    }
+
+    speech_consistency = _score_speed_consistency(words)
+    pause_distribution = _score_pause_distribution_level3(words)
+    filler = detect_filler_words(transcript, words)
+    sentence_variation = _score_sentence_variation(transcript)
+
+    actual_duration = _safe_duration(words)
+    exp_min, exp_max = _expected_duration_from_prompt(prompt_text)
+    response_duration = _score_duration(actual_duration, exp_min, exp_max)
+    energy_level = _score_energy(audio_features, words)
+    consistency = _score_consistency(speech_consistency, filler, pause_distribution)
+
+    fluency_score = 100 if float(filler.get("filler_ratio", 0.0)) < 0.02 else 80 if float(filler.get("filler_ratio", 0.0)) < 0.04 else 60 if float(filler.get("filler_ratio", 0.0)) < 0.07 else 40
+    filler["status"] = _badge_from_score(fluency_score)
+    filler["score"] = fluency_score
+
+    delivery_score = int(round((speech_speed["score"] + speech_consistency["score"]) / 2))
+    clarity_score = int(round((pause_distribution["score"] + sentence_variation["score"]) / 2))
+    fluency_group_score = fluency_score
+    interview_quality_score = int(round((response_duration["score"] + energy_level["score"] + consistency["score"]) / 3))
+
+    overall_score = int(round((delivery_score + clarity_score + fluency_group_score + interview_quality_score) / 4))
+
+    level3_report = {
+        "overall_score": overall_score,
+        "overall_status": _badge_from_score(overall_score),
+        "delivery_control": {
+            "score": delivery_score,
+            "status": _badge_from_score(delivery_score),
+            "speech_speed": speech_speed,
+            "speech_consistency": speech_consistency,
+        },
+        "clarity": {
+            "score": clarity_score,
+            "status": _badge_from_score(clarity_score),
+            "pause_distribution": pause_distribution,
+            "sentence_variation": sentence_variation,
+        },
+        "fluency": {
+            "score": fluency_group_score,
+            "status": _badge_from_score(fluency_group_score),
+            "filler_words": filler,
+        },
+        "interview_quality": {
+            "score": interview_quality_score,
+            "status": _badge_from_score(interview_quality_score),
+            "response_duration": response_duration,
+            "energy_level": energy_level,
+            "consistency": consistency,
+        },
+    }
+
+    return {
+        "wpm": wpm,
+        "wpm_status": speech_speed["status"],
+        "wpm_feedback": speech_speed["feedback"],
+        "pause": {
+            "score": pause_distribution["score"],
+            "status": pause_distribution["status"],
+            "feedback": pause_distribution["feedback"],
+            "avg_words_per_pause": round((len(words) / max(1, pause_distribution["total_pauses"])), 1),
+            "total_pauses": pause_distribution["total_pauses"],
+            "expected_pauses": 0.0,
+            "mandatory_pause_count": 0,
+            "mandatory_pauses_hit": 0,
+            "mandatory_pauses_missed": 0,
+            "comma_pauses_missed": 0,
+            "mandatory_covered": True,
+            "placement_accuracy": 0.0,
+            "mandatory_compliance": 0.0,
+            "segment_accuracy": 0.0,
+            "penalty_pct": 0.0,
+            "pause_words_interval": round((len(words) / max(1, pause_distribution["total_pauses"])), 2),
+        },
+        "filler": filler,
+        "score": overall_score,
+        "pace_raw": pace_raw,
+        "pause_words_interval": round((len(words) / max(1, pause_distribution["total_pauses"])), 2),
+        "pause_status": pause_distribution["status"],
+        "pause_feedback": pause_distribution["feedback"],
+        "level3_report": level3_report,
+    }
+
+
+def build_pacing_metrics(
+    words: list[dict],
+    prompt_text: str,
+    transcript: str,
+    level: int | None = None,
+    audio_features: dict | None = None,
+) -> dict:
     """Compute all pacing metrics from Whisper word-timestamp objects.
 
     Parameters
@@ -409,6 +775,9 @@ def build_pacing_metrics(words: list[dict], prompt_text: str, transcript: str) -
     dict with keys: wpm, wpm_status, wpm_feedback, pause (dict), filler (dict),
                     score, pace_raw, pause_words_interval (backward-compat alias)
     """
+    if level == 3:
+        return build_level3_report(words, prompt_text, transcript, audio_features)
+
     # --- WPM via existing service ---
     pace_raw = calculate_pace_metrics(words)
     if pace_raw is None:

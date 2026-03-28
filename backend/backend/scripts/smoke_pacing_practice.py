@@ -146,6 +146,10 @@ def main() -> None:
         print_result("POST /api/pacing-practice/session (level 3)", r, err)
         if not r or r.status_code != 201:
             raise SystemExit(f"[Test 4] Expected 201 for level 3 session, got {r.status_code if r else 'no response'}")
+        level3_data = safe_json(r)
+        level3_session_id = level3_data.get("sessionId")
+        if not level3_session_id:
+            raise SystemExit("[Test 4] Missing sessionId for level 3 session")
         print("✓ [Test 4] Level 3 session created (no gating on session creation)")
 
         # ------------------------------------------------------------------ #
@@ -215,6 +219,42 @@ def main() -> None:
             print(f"  Speech speed: {speech_speed['status']} – {speech_speed['feedback']}")
             print(f"  Pause dist:   {pause_dist['status']} – {pause_dist['feedback']}")
             print(f"  Filler words: {filler_words['status']} – count={filler_words['count']}/{filler_words['totalWords']}")
+
+            # -------------------------------------------------------------- #
+            # Test 5b: POST /session/{id}/submit (level 3 report shape)     #
+            # -------------------------------------------------------------- #
+            with open(audio_path, "rb") as af:
+                files = {"file": ("answer.mp3", af, "audio/mpeg")}
+                r3, err3 = safe_call(
+                    client,
+                    "POST",
+                    f"{PACING_API}/session/{level3_session_id}/submit",
+                    headers=headers_a,
+                    files=files,
+                )
+            print_result(f"POST /api/pacing-practice/session/{level3_session_id}/submit (level 3)", r3, err3)
+            if not r3 or r3.status_code != 200:
+                raise SystemExit(f"[Test 5b] Expected 200 for level 3 submit, got {r3.status_code if r3 else 'no response'}")
+
+            level3_submit = safe_json(r3)
+            level3_report = level3_submit.get("level3Report")
+            if level3_report is None:
+                raise SystemExit("[Test 5b] Missing level3Report in level 3 submit response")
+
+            for key in ("overallScore", "overallStatus", "deliveryControl", "clarity", "fluency", "interviewQuality"):
+                if key not in level3_report:
+                    raise SystemExit(f"[Test 5b] Missing '{key}' in level3Report")
+
+            delivery = level3_report.get("deliveryControl", {})
+            if "speechSpeed" not in delivery or "speechConsistency" not in delivery:
+                raise SystemExit("[Test 5b] deliveryControl missing speechSpeed/speechConsistency")
+
+            interview_q = level3_report.get("interviewQuality", {})
+            for key in ("responseDuration", "energyLevel", "consistency"):
+                if key not in interview_q:
+                    raise SystemExit(f"[Test 5b] interviewQuality missing '{key}'")
+
+            print("✓ [Test 5b] Level-3 grouped report structure validated")
         else:
             print("⚠  [Test 5] Skipped – no audio file available")
             score = None

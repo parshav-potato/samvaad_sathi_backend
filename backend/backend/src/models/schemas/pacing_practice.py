@@ -64,6 +64,104 @@ class FillerWordsMetric(BaseSchemaModel):
     fillers_found: list[str]
 
 
+class Level3SpeechSpeedMetric(BaseSchemaModel):
+    score: int
+    status: str
+    wpm: float
+    ideal_range: str
+    feedback: str
+
+
+class Level3SpeechConsistencyMetric(BaseSchemaModel):
+    score: int
+    status: str
+    variance_wpm: float
+    start_wpm: float
+    middle_wpm: float
+    end_wpm: float
+    feedback: str
+
+
+class Level3PauseDistributionMetric(BaseSchemaModel):
+    score: int
+    status: str
+    total_pauses: int
+    micro_pause_pct: float
+    thinking_pause_pct: float
+    long_pause_pct: float
+    feedback: str
+
+
+class Level3SentenceVariationMetric(BaseSchemaModel):
+    score: int
+    status: str
+    sentence_count: int
+    std_dev_words: float
+    variation_level: str
+    feedback: str
+
+
+class Level3DurationMetric(BaseSchemaModel):
+    score: int
+    status: str
+    actual_seconds: float
+    expected_min_seconds: float
+    expected_max_seconds: float
+    feedback: str
+
+
+class Level3EnergyMetric(BaseSchemaModel):
+    score: int
+    status: str
+    pitch_variation: float
+    volume_variation: float
+    feedback: str
+
+
+class Level3ConsistencyMetric(BaseSchemaModel):
+    score: int
+    status: str
+    fluctuation_index: float
+    feedback: str
+
+
+class Level3DeliveryControlGroup(BaseSchemaModel):
+    score: int
+    status: str
+    speech_speed: Level3SpeechSpeedMetric
+    speech_consistency: Level3SpeechConsistencyMetric
+
+
+class Level3ClarityGroup(BaseSchemaModel):
+    score: int
+    status: str
+    pause_distribution: Level3PauseDistributionMetric
+    sentence_variation: Level3SentenceVariationMetric
+
+
+class Level3FluencyGroup(BaseSchemaModel):
+    score: int
+    status: str
+    filler_words: FillerWordsMetric
+
+
+class Level3InterviewQualityGroup(BaseSchemaModel):
+    score: int
+    status: str
+    response_duration: Level3DurationMetric
+    energy_level: Level3EnergyMetric
+    consistency: Level3ConsistencyMetric
+
+
+class Level3PacingReport(BaseSchemaModel):
+    overall_score: int
+    overall_status: str
+    delivery_control: Level3DeliveryControlGroup
+    clarity: Level3ClarityGroup
+    fluency: Level3FluencyGroup
+    interview_quality: Level3InterviewQualityGroup
+
+
 class PacingPracticeSubmitResponse(BaseSchemaModel):
     """Response returned after audio is submitted and analysed."""
     session_id: int
@@ -73,6 +171,7 @@ class PacingPracticeSubmitResponse(BaseSchemaModel):
     speech_speed: PacingAnalysisMetric
     pause_distribution: PauseDistributionMetric
     filler_words: FillerWordsMetric
+    level3_report: Optional[Level3PacingReport] = None
     level_unlocked: Optional[int] = None   # 2 or 3 if this attempt unlocked a new level
 
 
@@ -93,6 +192,11 @@ class PacingLevelsResponse(BaseSchemaModel):
     overall_readiness: int   # 0-100 percentage
 
 
+class PacingPracticeStatusResponse(BaseSchemaModel):
+    """Quick status indicating if user has completed pacing practice before."""
+    has_practiced: bool
+
+
 class PacingPracticeSessionDetailResponse(BaseSchemaModel):
     """Full details of a completed pacing practice session."""
     session_id: int
@@ -105,6 +209,7 @@ class PacingPracticeSessionDetailResponse(BaseSchemaModel):
     speech_speed: Optional[PacingAnalysisMetric] = None
     pause_distribution: Optional[PauseDistributionMetric] = None
     filler_words: Optional[FillerWordsMetric] = None
+    level3_report: Optional[Level3PacingReport] = None
     analysis_result: Optional[dict] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime

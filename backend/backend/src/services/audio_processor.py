@@ -1,7 +1,11 @@
 import asyncio
+import audioop
+import io
 import os
 import hashlib
+import statistics
 import tempfile
+import wave
 from pathlib import Path
 from typing import Tuple
 
@@ -245,3 +249,66 @@ def get_audio_duration_estimate(audio_bytes: bytes, content_type: str) -> float 
         return None
     except Exception:
         return None
+
+
+def extract_audio_energy_features(audio_bytes: bytes, content_type: str) -> dict:
+    """Extract simple prosody features for energy analysis.
+
+    Returns
+    -------
+    dict with keys:
+      - pitch_variation: float (0-1 scaled variance proxy)
+      - volume_variation: float (0-1 scaled variance proxy)
+      - source: str ("waveform" | "fallback")
+    """
+    wav_types = {"audio/wav", "audio/x-wav", "audio/wave"}
+    if content_type not in wav_types:
+        return {
+            "pitch_variation": 0.0,
+            "volume_variation": 0.0,
+            "source": "fallback",
+        }
+
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+            sample_rate = wf.getframerate()
+            sample_width = wf.getsampwidth()
+            frame_count = wf.getnframes()
+            if sample_rate <= 0 or sample_width <= 0 or frame_count <= 0:
+                raise ValueError("Invalid WAV metadata")
+
+            window_ms = 50
+            frames_per_window = max(1, int(sample_rate * (window_ms / 1000.0)))
+            rms_values: list[float] = []
+            zcr_values: list[float] = []
+
+            while True:
+                chunk = wf.readframes(frames_per_window)
+                if not chunk:
+                    break
+                if len(chunk) < sample_width:
+                    continue
+
+                rms = float(audioop.rms(chunk, sample_width))
+                crosses = float(audioop.cross(chunk, sample_width))
+                zcr = crosses / max(1.0, len(chunk) / sample_width)
+                rms_values.append(rms)
+                zcr_values.append(zcr)
+
+            if len(rms_values) < 2 or len(zcr_values) < 2:
+                raise ValueError("Insufficient audio windows")
+
+            volume_variation = statistics.pstdev(rms_values) / max(1.0, statistics.fmean(rms_values))
+            pitch_variation = statistics.pstdev(zcr_values) / max(1.0, statistics.fmean(zcr_values))
+
+            return {
+                "pitch_variation": round(min(1.0, max(0.0, pitch_variation)), 4),
+                "volume_variation": round(min(1.0, max(0.0, volume_variation)), 4),
+                "source": "waveform",
+            }
+    except Exception:
+        return {
+            "pitch_variation": 0.0,
+            "volume_variation": 0.0,
+            "source": "fallback",
+        }
