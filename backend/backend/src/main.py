@@ -71,14 +71,14 @@ def initialize_backend_application() -> fastapi.FastAPI:
     # Uses cookie-based signed session via Starlette's SessionMiddleware
     app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
 
-    app.add_event_handler(
-        "startup",
-        execute_backend_server_event_handler(backend_app=app),
-    )
-    app.add_event_handler(
-        "shutdown",
-        terminate_backend_server_event_handler(backend_app=app),
-    )
+    startup_handler = execute_backend_server_event_handler(backend_app=app)
+    shutdown_handler = terminate_backend_server_event_handler(backend_app=app)
+    if hasattr(app, "add_event_handler"):
+        app.add_event_handler("startup", startup_handler)
+        app.add_event_handler("shutdown", shutdown_handler)
+    else:
+        app.on_event("startup")(startup_handler)
+        app.on_event("shutdown")(shutdown_handler)
 
     app.include_router(router=api_endpoint_router, prefix=settings.API_PREFIX)
 

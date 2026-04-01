@@ -4,7 +4,8 @@ asgi_lifespan
 asyncio
 asyncpg
 psycopg2-binary
-fastapi>=0.100.0
+fastapi==0.128.0
+starlette==0.50.0
 uvicorn
 python-multipart>=0.0.20
 
