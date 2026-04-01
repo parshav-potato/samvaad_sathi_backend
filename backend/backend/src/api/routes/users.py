@@ -42,23 +42,29 @@ async def register_user(
     except EntityAlreadyExists:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Email already exists")
 
+    user_id = user.id
+    user_email = user.email
+    user_name = user.name
+    user_created_at = user.created_at
+    user_is_onboarded = user.is_onboarded if hasattr(user, "is_onboarded") else False
+
     token = jwt_generator.generate_access_token_for_user(user=user)
-    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    refresh = await session_repo.create_session(user_id=user_id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
     await track_analytics_event(
         session_repo.async_session,
         event_type="user_signup",
-        user_id=user.id,
+        user_id=user_id,
         event_data={"source": "users.register"},
     )
 
     return UserInResponse(
-        user_id=user.id,
+        user_id=user_id,
         authorized_user=UserWithToken(token=token, 
                                     refresh_token=refresh.token,
-                                    email=user.email, 
-                                    name=user.name, 
-                                    created_at=user.created_at,
-                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
+                                    email=user_email,
+                                    name=user_name,
+                                    created_at=user_created_at,
+                                    is_onboarded=user_is_onboarded,
                                     degree=None,
                                     university=None,
                                     target_position=None,
@@ -84,17 +90,23 @@ async def login_user(
     except (EntityDoesNotExist, PasswordDoesNotMatch):
         raise await http_exc_400_credentials_bad_signin_request()
 
+    user_id = user.id
+    user_email = user.email
+    user_name = user.name
+    user_created_at = user.created_at
+    user_is_onboarded = user.is_onboarded if hasattr(user, "is_onboarded") else False
+
     token = jwt_generator.generate_access_token_for_user(user=user)
-    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    refresh = await session_repo.create_session(user_id=user_id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
 
     return UserInResponse(
-        user_id=user.id,
+        user_id=user_id,
         authorized_user=UserWithToken(token=token, 
                                     refresh_token=refresh.token,
-                                    email=user.email, 
-                                    name=user.name, 
-                                    created_at=user.created_at,
-                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
+                                    email=user_email,
+                                    name=user_name,
+                                    created_at=user_created_at,
+                                    is_onboarded=user_is_onboarded,
                                     degree=None,
                                     university=None,
                                     target_position=None,

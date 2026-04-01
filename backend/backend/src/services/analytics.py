@@ -486,6 +486,7 @@ class AnalyticsService:
     ) -> dict[str, Any]:
         interviews = await self._list_interviews_all(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college)
         interview_ids = [i.id for i in interviews]
+        scoped_user_ids = {i.user_id for i in interviews}
         reports = await self._reports_by_interview(interview_ids)
         users_stmt = sqlalchemy.select(User)
         users = list((await self._db.execute(users_stmt)).scalars().all())
@@ -543,8 +544,15 @@ class AnalyticsService:
             "report_to_practice_dropoff": _dropoff(funnel["view_report"], funnel["do_practice"]),
         }
 
-        practice_effectiveness = await self._practice_effectiveness()
-        retry_behavior = await self._system_retry_behavior()
+        try:
+            practice_effectiveness = await self._practice_effectiveness(user_ids=scoped_user_ids)
+        except TypeError:
+            practice_effectiveness = await self._practice_effectiveness()
+
+        try:
+            retry_behavior = await self._system_retry_behavior(interview_ids=interview_ids)
+        except TypeError:
+            retry_behavior = await self._system_retry_behavior()
         question_effectiveness = await self._question_effectiveness(interview_ids)
 
         report_engagement_events = [e for e in events if e.event_type == "report_engagement"]
@@ -560,7 +568,7 @@ class AnalyticsService:
                 "total_users": len(users),
                 "active_users_30d": len(active_user_ids),
                 "avg_score": round(_avg_non_null(avg_scores_clean), 2) if avg_scores_clean else None,
-                "improvement_percent": round(await self._global_improvement_percent(), 2),
+                "improvement_percent": round(_improvement_percent_from_interviews(interviews, reports), 2),
             },
             "funnel": funnel,
             "funnel_dropoff": funnel_drop_off,
@@ -629,45 +637,15 @@ class AnalyticsService:
         start_date: datetime.date | None = None,
         end_date: datetime.date | None = None,
     ) -> dict[str, Any]:
-        student_alerts: list[dict[str, Any]] = []
         system_alerts: list[dict[str, Any]] = []
 
         users = await self._candidate_users(user_id=user_id)
-        for user in users:
-            student_data = await self.get_student_level_analytics(user_id=user.id, start_date=start_date, end_date=end_date)
-            perf = student_data.get("performance", {})
-            attempts = student_data.get("attempt_behavior", {})
-            weak_tags = set(student_data.get("weak_area_tags", []))
-
-            score_history = perf.get("score_history", [])
-            if len(score_history) >= 3 and (perf.get("improvement_rate") is None or perf.get("improvement_rate") <= 0):
-                student_alerts.append(
-                    {
-                        "type": "NO_IMPROVEMENT_AFTER_3_ATTEMPTS",
-                        "user_id": user.id,
-                        "message": "No improvement after at least 3 interviews.",
-                    }
-                )
-
-            if "high_filler_usage" in weak_tags and "low_energy" in weak_tags:
-                student_alerts.append(
-                    {
-                        "type": "HIGH_FILLER_LOW_ENERGY",
-                        "user_id": user.id,
-                        "message": "High filler usage and low energy detected.",
-                    }
-                )
-
-            retry_ratio = ((attempts.get("reattempt_frequency") or {}).get("reattempt_ratio") or 0.0)
-            improvement = perf.get("improvement_rate")
-            if retry_ratio >= 0.4 and (improvement is None or improvement <= 0):
-                student_alerts.append(
-                    {
-                        "type": "TOO_MANY_RETRIES_WITHOUT_PROGRESS",
-                        "user_id": user.id,
-                        "message": "High reattempt frequency without measurable score improvement.",
-                    }
-                )
+        candidate_user_ids = [u.id for u in users]
+        student_alerts = await self._student_alerts_batched(
+            user_ids=candidate_user_ids,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         # System-level alerts
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -690,27 +668,45 @@ class AnalyticsService:
                 }
             )
 
-        role_analytics = await self.get_role_segment_analytics()
-        for item in role_analytics:
-            if item.get("interviews", 0) >= 10 and (item.get("drop_off_rate") or 0) > 60:
+        interviews_all = await self._list_interviews_all()
+        reports_all = await self._reports_by_interview([i.id for i in interviews_all])
+        user_university_map = await self._user_university_map()
+
+        role_groups: dict[str, list[Interview]] = defaultdict(list)
+        for interview in interviews_all:
+            role_groups[(interview.track or "unknown").strip() or "unknown"].append(interview)
+        for role_name, role_interviews in role_groups.items():
+            total = len(role_interviews)
+            completed = len([item for item in role_interviews if item.status == "completed"])
+            drop_off_rate = ((total - completed) / total * 100.0) if total else 0.0
+            if total >= 10 and drop_off_rate > 60:
                 system_alerts.append(
                     {
                         "type": "HIGH_FAILURE_RATE_ROLE",
-                        "role": item.get("role"),
+                        "role": role_name,
                         "message": "High drop-off/failure rate detected for role.",
-                        "drop_off_rate": item.get("drop_off_rate"),
+                        "drop_off_rate": round(drop_off_rate, 2),
                     }
                 )
 
-        college_analytics = await self.get_college_segment_analytics()
-        for item in college_analytics:
-            if item.get("interviews", 0) >= 10 and item.get("avg_score") is not None and item["avg_score"] < 40:
+        college_score_groups: dict[str, list[float]] = defaultdict(list)
+        college_interview_counts: dict[str, int] = defaultdict(int)
+        for interview in interviews_all:
+            college_name = (user_university_map.get(interview.user_id) or "unknown").strip() or "unknown"
+            college_interview_counts[college_name] += 1
+            score = _extract_overall_score(reports_all.get(interview.id), None)
+            if score is not None:
+                college_score_groups[college_name].append(score)
+
+        for college_name, total in college_interview_counts.items():
+            avg_score = _avg_non_null(college_score_groups.get(college_name, []))
+            if total >= 10 and avg_score is not None and avg_score < 40:
                 system_alerts.append(
                     {
                         "type": "COLLEGE_PERFORMING_LOW",
-                        "college": item.get("college"),
+                        "college": college_name,
                         "message": "College segment average score is critically low.",
-                        "avg_score": item.get("avg_score"),
+                        "avg_score": round(avg_score, 2),
                     }
                 )
 
@@ -960,33 +956,238 @@ class AnalyticsService:
             user_ids.update(int(r[0]) for r in rows if r and r[0] is not None)
         return user_ids
 
-    async def _practice_effectiveness(self) -> dict[str, Any]:
-        users = list((await self._db.execute(sqlalchemy.select(User.id))).all())
-        candidate_user_ids = [int(r[0]) for r in users if r and r[0] is not None]
+    async def _practice_effectiveness(self, *, user_ids: set[int] | None = None) -> dict[str, Any]:
+        if user_ids is not None:
+            candidate_user_ids = [int(uid) for uid in user_ids if uid is not None]
+        else:
+            users = list((await self._db.execute(sqlalchemy.select(User.id))).all())
+            candidate_user_ids = [int(r[0]) for r in users if r and r[0] is not None]
+
+        if not candidate_user_ids:
+            return {
+                "users_with_measurable_practice_effect": 0,
+                "avg_score_delta_after_practice": None,
+                "positive_improvement_rate": None,
+            }
+
+        earliest_practice = await self._earliest_practice_by_users(candidate_user_ids)
+        if not earliest_practice:
+            return {
+                "users_with_measurable_practice_effect": 0,
+                "avg_score_delta_after_practice": None,
+                "positive_improvement_rate": None,
+            }
+
+        interview_stmt = sqlalchemy.select(Interview).where(Interview.user_id.in_(candidate_user_ids))
+        interviews = list((await self._db.execute(interview_stmt)).scalars().all())
+        reports = await self._reports_by_interview([i.id for i in interviews])
+
+        pre_scores_by_user: dict[int, list[float]] = defaultdict(list)
+        post_scores_by_user: dict[int, list[float]] = defaultdict(list)
+        for interview in interviews:
+            practice_ts = earliest_practice.get(interview.user_id)
+            if practice_ts is None:
+                continue
+            score = _extract_overall_score(reports.get(interview.id), None)
+            if score is None:
+                continue
+            if interview.created_at and interview.created_at < practice_ts:
+                pre_scores_by_user[interview.user_id].append(score)
+            else:
+                post_scores_by_user[interview.user_id].append(score)
+
         deltas: list[float] = []
         contributing_users = 0
         for uid in candidate_user_ids:
-            stats = await self._improvement_after_practice(uid)
-            if stats.get("available") and stats.get("delta") is not None:
-                deltas.append(float(stats["delta"]))
-                contributing_users += 1
+            pre_scores = pre_scores_by_user.get(uid, [])
+            post_scores = post_scores_by_user.get(uid, [])
+            if not pre_scores or not post_scores:
+                continue
+            delta = _avg_non_null(post_scores) - _avg_non_null(pre_scores)
+            deltas.append(float(delta))
+            contributing_users += 1
+
         return {
             "users_with_measurable_practice_effect": contributing_users,
             "avg_score_delta_after_practice": round(_avg_non_null(deltas), 2) if deltas else None,
             "positive_improvement_rate": round((len([d for d in deltas if d > 0]) / len(deltas)) * 100.0, 2) if deltas else None,
         }
 
-    async def _system_retry_behavior(self) -> dict[str, Any]:
+    async def _system_retry_behavior(self, *, interview_ids: list[int] | None = None) -> dict[str, Any]:
         stmt = (
             sqlalchemy.select(QuestionAttempt.interview_id, QuestionAttempt.question_id, sqlalchemy.func.count(QuestionAttempt.id).label("attempt_count"))
             .group_by(QuestionAttempt.interview_id, QuestionAttempt.question_id)
         )
+        if interview_ids is not None:
+            if not interview_ids:
+                return {
+                    "avg_retries_before_completion": 0.0,
+                    "high_retry_questions": 0,
+                }
+            stmt = stmt.where(QuestionAttempt.interview_id.in_(interview_ids))
         rows = list((await self._db.execute(stmt)).all())
         retries = [int(r.attempt_count) - 1 for r in rows if int(r.attempt_count) > 1]
         return {
             "avg_retries_before_completion": round(_avg_non_null(retries), 2) if retries else 0.0,
             "high_retry_questions": len([x for x in retries if x >= 2]),
         }
+
+    async def _earliest_practice_by_users(self, user_ids: list[int]) -> dict[int, datetime.datetime]:
+        if not user_ids:
+            return {}
+
+        result_map: dict[int, datetime.datetime] = {}
+        for model in (PronunciationPractice, PacingPracticeSession, StructurePractice):
+            stmt = (
+                sqlalchemy.select(model.user_id, sqlalchemy.func.min(model.created_at))
+                .where(model.user_id.in_(user_ids))
+                .group_by(model.user_id)
+            )
+            rows = list((await self._db.execute(stmt)).all())
+            for row in rows:
+                uid = int(row[0])
+                ts = row[1]
+                if ts is None:
+                    continue
+                existing = result_map.get(uid)
+                if existing is None or ts < existing:
+                    result_map[uid] = ts
+
+        return result_map
+
+    async def _user_university_map(self) -> dict[int, str | None]:
+        rows = list((await self._db.execute(sqlalchemy.select(User.id, User.university))).all())
+        return {int(row[0]): row[1] for row in rows if row and row[0] is not None}
+
+    async def _student_alerts_batched(
+        self,
+        *,
+        user_ids: list[int],
+        start_date: datetime.date | None,
+        end_date: datetime.date | None,
+    ) -> list[dict[str, Any]]:
+        if not user_ids:
+            return []
+
+        interview_stmt = sqlalchemy.select(Interview).where(Interview.user_id.in_(user_ids))
+        if start_date is not None:
+            interview_stmt = interview_stmt.where(Interview.created_at >= datetime.datetime.combine(start_date, datetime.time.min, tzinfo=datetime.timezone.utc))
+        if end_date is not None:
+            interview_stmt = interview_stmt.where(Interview.created_at <= datetime.datetime.combine(end_date, datetime.time.max, tzinfo=datetime.timezone.utc))
+        interviews = list((await self._db.execute(interview_stmt)).scalars().all())
+        interviews_by_user: dict[int, list[Interview]] = defaultdict(list)
+        for interview in interviews:
+            interviews_by_user[interview.user_id].append(interview)
+
+        reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
+
+        improvement_by_user: dict[int, float | None] = {}
+        scored_count_by_user: dict[int, int] = defaultdict(int)
+        for uid, user_interviews in interviews_by_user.items():
+            scored: list[tuple[datetime.datetime, float]] = []
+            for interview in user_interviews:
+                score = _extract_overall_score(reports.get(interview.id), summaries.get(interview.id))
+                if score is None:
+                    continue
+                scored.append((interview.created_at or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), score))
+            scored.sort(key=lambda x: x[0])
+            scored_count_by_user[uid] = len(scored)
+            if len(scored) >= 2:
+                improvement_by_user[uid] = scored[-1][1] - scored[0][1]
+            else:
+                improvement_by_user[uid] = None
+
+        retry_stmt = (
+            sqlalchemy.select(
+                Interview.user_id,
+                QuestionAttempt.question_id,
+                sqlalchemy.func.count(QuestionAttempt.id).label("attempt_count"),
+            )
+            .join(Interview, Interview.id == QuestionAttempt.interview_id)
+            .where(Interview.user_id.in_(user_ids))
+            .group_by(Interview.user_id, QuestionAttempt.question_id)
+        )
+        if start_date is not None:
+            retry_stmt = retry_stmt.where(Interview.created_at >= datetime.datetime.combine(start_date, datetime.time.min, tzinfo=datetime.timezone.utc))
+        if end_date is not None:
+            retry_stmt = retry_stmt.where(Interview.created_at <= datetime.datetime.combine(end_date, datetime.time.max, tzinfo=datetime.timezone.utc))
+
+        retry_rows = list((await self._db.execute(retry_stmt)).all())
+        total_questions_by_user: dict[int, int] = defaultdict(int)
+        reattempted_by_user: dict[int, int] = defaultdict(int)
+        for row in retry_rows:
+            uid = int(row.user_id)
+            total_questions_by_user[uid] += 1
+            if int(row.attempt_count) > 1:
+                reattempted_by_user[uid] += 1
+
+        weak_stmt = (
+            sqlalchemy.select(Interview.user_id, QuestionAttempt.analysis_json)
+            .join(Interview, Interview.id == QuestionAttempt.interview_id)
+            .where(Interview.user_id.in_(user_ids))
+        )
+        if start_date is not None:
+            weak_stmt = weak_stmt.where(Interview.created_at >= datetime.datetime.combine(start_date, datetime.time.min, tzinfo=datetime.timezone.utc))
+        if end_date is not None:
+            weak_stmt = weak_stmt.where(Interview.created_at <= datetime.datetime.combine(end_date, datetime.time.max, tzinfo=datetime.timezone.utc))
+        weak_rows = list((await self._db.execute(weak_stmt)).all())
+
+        filler_values_by_user: dict[int, list[float]] = defaultdict(list)
+        energy_values_by_user: dict[int, list[float]] = defaultdict(list)
+        for row in weak_rows:
+            uid = int(row.user_id)
+            analysis = row.analysis_json or {}
+            if not isinstance(analysis, dict):
+                continue
+            communication = analysis.get("communication") or {}
+            filler_density = _to_float(
+                communication.get("filler_density")
+                or communication.get("filler_rate")
+                or communication.get("filler_percentage")
+            )
+            energy = _normalize_score(_to_float(communication.get("energy") or communication.get("energy_score")))
+            if filler_density is not None:
+                filler_values_by_user[uid].append(filler_density)
+            if energy is not None:
+                energy_values_by_user[uid].append(energy)
+
+        student_alerts: list[dict[str, Any]] = []
+        for uid in user_ids:
+            improvement = improvement_by_user.get(uid)
+            score_history_len = int(scored_count_by_user.get(uid, 0))
+            if score_history_len >= 3 and (improvement is None or improvement <= 0):
+                student_alerts.append(
+                    {
+                        "type": "NO_IMPROVEMENT_AFTER_3_ATTEMPTS",
+                        "user_id": uid,
+                        "message": "No improvement after at least 3 interviews.",
+                    }
+                )
+
+            avg_filler = _avg_non_null(filler_values_by_user.get(uid, []))
+            avg_energy = _avg_non_null(energy_values_by_user.get(uid, []))
+            if avg_filler is not None and avg_energy is not None and avg_filler > 0.08 and avg_energy < 45:
+                student_alerts.append(
+                    {
+                        "type": "HIGH_FILLER_LOW_ENERGY",
+                        "user_id": uid,
+                        "message": "High filler usage and low energy detected.",
+                    }
+                )
+
+            total_questions = int(total_questions_by_user.get(uid, 0))
+            retry_ratio = (reattempted_by_user.get(uid, 0) / total_questions) if total_questions else 0.0
+            if retry_ratio >= 0.4 and (improvement is None or improvement <= 0):
+                student_alerts.append(
+                    {
+                        "type": "TOO_MANY_RETRIES_WITHOUT_PROGRESS",
+                        "user_id": uid,
+                        "message": "High reattempt frequency without measurable score improvement.",
+                    }
+                )
+
+        return student_alerts
 
     async def _question_effectiveness(self, interview_ids: list[int]) -> dict[str, Any]:
         if not interview_ids:
@@ -1120,6 +1321,27 @@ def _extract_overall_score(report: Report | None, summary_report: SummaryReport 
         speech_pct = _to_float(((score_summary.get("speechAndStructure") or {}).get("percentage")))
         return _avg_non_null([knowledge_pct, speech_pct])
     return None
+
+
+def _improvement_percent_from_interviews(interviews: list[Interview], reports: dict[int, Report]) -> float:
+    by_user: dict[int, list[tuple[datetime.datetime, float]]] = defaultdict(list)
+    for interview in interviews:
+        score = _extract_overall_score(reports.get(interview.id), None)
+        if score is None:
+            continue
+        created_at = interview.created_at or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+        by_user[interview.user_id].append((created_at, score))
+
+    improvements: list[float] = []
+    for items in by_user.values():
+        if len(items) < 2:
+            continue
+        items.sort(key=lambda x: x[0])
+        first_score = items[0][1]
+        latest_score = items[-1][1]
+        improvements.append(latest_score - first_score)
+
+    return _avg_non_null(improvements) if improvements else 0.0
 
 
 def _extract_speech_score(report: Report | None, summary_report: SummaryReport | None) -> float | None:
