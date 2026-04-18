@@ -13,6 +13,7 @@ from src.api.routes.summary_report_v2 import router as summary_report_v2_router
 from src.api.routes.tts import router as tts_router
 from src.api.routes.speech_pacing import router as speech_pacing_router
 from src.api.routes.analytics import router as analytics_router
+from src.api.routes.analytics_v2 import router as analytics_v2_router
 
 router = fastapi.APIRouter()
 
@@ -34,3 +35,4 @@ router.include_router(router=cognito_router)
 router.include_router(router=tts_router)
 router.include_router(router=speech_pacing_router)
 router.include_router(router=analytics_router)
+router.include_router(router=analytics_v2_router)

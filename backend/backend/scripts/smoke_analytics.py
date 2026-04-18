@@ -124,6 +124,143 @@ def main() -> None:
         r, err = safe_call(client, "GET", f"{API}/analytics/alerts", headers=headers)
         print_result("GET /api/analytics/alerts", r, err)
 
+        # Analytics v2 endpoints (Phase 1)
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dashboard/overview", headers=headers)
+        print_result("GET /api/v2/analytics/dashboard/overview", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dashboard/interviews-per-day", headers=headers)
+        print_result("GET /api/v2/analytics/dashboard/interviews-per-day", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dashboard/active-users-trend", headers=headers)
+        print_result("GET /api/v2/analytics/dashboard/active-users-trend", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dashboard/score-distribution", headers=headers)
+        print_result("GET /api/v2/analytics/dashboard/score-distribution", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/summary", headers=headers)
+        print_result("GET /api/v2/analytics/students/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students", headers=headers)
+        print_result("GET /api/v2/analytics/students", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/search?q=analytics", headers=headers)
+        print_result("GET /api/v2/analytics/students/search", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/filters/colleges", headers=headers)
+        print_result("GET /api/v2/analytics/students/filters/colleges", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/profile", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/profile", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/summary", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/score-history", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/score-history", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/speech-vs-knowledge-history", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/speech-vs-knowledge-history", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/skill-averages", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/skill-averages", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/practice-completion", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/practice-completion", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/interviews", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/interviews", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/students/{user_id}/latest-feedback", headers=headers)
+        print_result("GET /api/v2/analytics/students/{id}/latest-feedback", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/summary", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges", headers=headers)
+        print_result("GET /api/v2/analytics/colleges", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/summary", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/student-growth", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/student-growth", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/score-trend", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/score-trend", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/practice-metrics", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/practice-metrics", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/weak-skills", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/weak-skills", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/colleges/Analytics Test College/students", headers=headers)
+        print_result("GET /api/v2/analytics/colleges/{name}/students", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews/summary", headers=headers)
+        print_result("GET /api/v2/analytics/interviews/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews", headers=headers)
+        print_result("GET /api/v2/analytics/interviews", r, err)
+
+        if interview_id:
+            r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews/{interview_id}/summary", headers=headers)
+            print_result("GET /api/v2/analytics/interviews/{id}/summary", r, err)
+
+            r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews/{interview_id}/question-scores", headers=headers)
+            print_result("GET /api/v2/analytics/interviews/{id}/question-scores", r, err)
+
+            r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews/{interview_id}/speech-metrics-timeline", headers=headers)
+            print_result("GET /api/v2/analytics/interviews/{id}/speech-metrics-timeline", r, err)
+
+            r, err = safe_call(client, "GET", f"{API}/v2/analytics/interviews/{interview_id}/question-type-breakdown", headers=headers)
+            print_result("GET /api/v2/analytics/interviews/{id}/question-type-breakdown", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/rankings/summary", headers=headers)
+        print_result("GET /api/v2/analytics/rankings/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/rankings/top-performers", headers=headers)
+        print_result("GET /api/v2/analytics/rankings/top-performers", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/rankings/struggling", headers=headers)
+        print_result("GET /api/v2/analytics/rankings/struggling", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/rankings/most-improved", headers=headers)
+        print_result("GET /api/v2/analytics/rankings/most-improved", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/roles/summary", headers=headers)
+        print_result("GET /api/v2/analytics/roles/summary", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/roles/performance", headers=headers)
+        print_result("GET /api/v2/analytics/roles/performance", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/roles/weak-skills", headers=headers)
+        print_result("GET /api/v2/analytics/roles/weak-skills", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/roles/backend_development", headers=headers)
+        print_result("GET /api/v2/analytics/roles/{id}", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/difficulty/metrics", headers=headers)
+        print_result("GET /api/v2/analytics/difficulty/metrics", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/questions/analytics", headers=headers)
+        print_result("GET /api/v2/analytics/questions/analytics", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dropoffs/funnel", headers=headers)
+        print_result("GET /api/v2/analytics/dropoffs/funnel", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/insights/predictive-alerts", headers=headers)
+        print_result("GET /api/v2/analytics/insights/predictive-alerts", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/insights/benchmarking", headers=headers)
+        print_result("GET /api/v2/analytics/insights/benchmarking", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/insights/forecasting", headers=headers)
+        print_result("GET /api/v2/analytics/insights/forecasting", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/search?q=backend", headers=headers)
+        print_result("GET /api/v2/analytics/search", r, err)
+
         # Report engagement event endpoint
         engagement_payload = {
             "interviewId": interview_id,
@@ -139,6 +276,9 @@ def main() -> None:
         # Negative auth check
         r, err = safe_call(client, "GET", f"{API}/analytics/system")
         print_result("GET /api/analytics/system (no auth)", r, err)
+
+        r, err = safe_call(client, "GET", f"{API}/v2/analytics/dashboard/overview")
+        print_result("GET /api/v2/analytics/dashboard/overview (no auth)", r, err)
 
 
 if __name__ == "__main__":

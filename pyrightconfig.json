@@ -1,6 +1,8 @@
 {
   "include": [
-    "backend/backend/src"
+    "backend/backend/src",
+    "backend/backend/tests",
+    "backend/backend/scripts"
   ],
   "exclude": [
     "**/node_modules",
@@ -11,20 +13,22 @@
     "**/.pytest_cache",
     "**/.venv/**"
   ],
-  "venvPath": "/home/parshav-potato/projects/samvaad_sathi_backend/backend/backend",
+  "venvPath": "/home/parshav-potato/projects/samvaad_sathi_backend",
   "venv": "venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
   "executionEnvironments": [
     {
-      "root": "backend/backend/src"
+      "root": "backend/backend",
+      "extraPaths": [
+        "backend/backend"
+      ]
     }
   ],
   "typeCheckingMode": "off",
   "useLibraryCodeForTypes": true,
   "reportAttributeAccessIssue": "none",
   "extraPaths": [
-    "backend/backend",
-    "backend/backend/venv/lib/python3.13/site-packages"
+    "backend/backend"
   ]
 }
