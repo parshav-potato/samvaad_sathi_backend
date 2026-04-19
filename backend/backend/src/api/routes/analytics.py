@@ -27,6 +27,13 @@ from src.services.analytics_events import track_analytics_event
 router = fastapi.APIRouter(prefix="/analytics", tags=["analytics"])
 
 
+_DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2, "expert": 3}
+
+
+def _sort_difficulty_items(items: list[dict]) -> list[dict]:
+    return sorted(items, key=lambda row: _DIFFICULTY_ORDER.get(str(row.get("difficulty", "")).lower(), 999))
+
+
 def _zero_fill_metric_nulls(payload):
     metric_hints = (
         "score",
@@ -170,6 +177,7 @@ async def get_difficulty_segment_analytics(
         difficulty=difficulty,
         college=college,
     )
+    items = _sort_difficulty_items(items)
     return SegmentAnalyticsResponse(
         segment="difficulty",
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),

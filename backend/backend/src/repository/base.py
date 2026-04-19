@@ -5,4 +5,5 @@ from src.models.db.question_attempt import QuestionAttempt
 from src.models.db.report import Report
 from src.models.db.summary_report import SummaryReport
 from src.models.db.question_supplement import QuestionSupplement
+from src.models.db.job_profile import JobProfile
 from src.repository.table import Base

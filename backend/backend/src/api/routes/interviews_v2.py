@@ -1,5 +1,6 @@
 import fastapi
 import logging
+import re
 from fastapi import Form, UploadFile, File
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -11,6 +12,7 @@ from src.models.schemas.interview import (
     GeneratedQuestionsInResponse,
     StructurePracticeQuestionsResponse,
     GenerateQuestionsRequest,
+    GenerateNonTechQuestionsRequest,
     QuestionItem,
     QuestionItemWithHint,
     QuestionSupplementOut,
@@ -32,6 +34,7 @@ from src.models.schemas.structure_practice import (
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
+from src.repository.crud.job_profile import JobProfileCRUDRepository
 from src.repository.crud.pronunciation_practice import PronunciationPracticeCRUDRepository
 from src.repository.crud.structure_practice import (
     StructurePracticeCRUDRepository,
@@ -61,6 +64,14 @@ FOLLOW_UP_STRATEGY = "llm_transcription_based"
 
 
 router = fastapi.APIRouter(prefix="/v2", tags=["interviews-v2"])
+
+
+def _normalize_non_tech_job_name(job_name: str | None) -> str:
+    raw = (job_name or "").strip()
+    if not raw:
+        return "General Role"
+    collapsed = re.sub(r"\s+", " ", raw)
+    return collapsed.title()
 
 
 def _get_cached_structure_practice_response() -> StructurePracticeQuestionsResponse:
@@ -405,6 +416,245 @@ async def generate_questions_v2(
             follow_up_strategy=item.get("followUpStrategy"),
             supplement=item.get("supplement"),
         ) for item in qs.get("items", [])],
+        cached=cached,
+        llm_model=qs.get("llm_model"),
+        llm_latency_ms=qs.get("latency_ms"),
+        llm_error=qs.get("llm_error"),
+    )
+
+
+@router.post(
+    path="/interviews/non-tech/generate-questions",
+    name="interviews-v2:generate-non-tech-questions",
+    response_model=GeneratedQuestionsInResponse,
+    status_code=fastapi.status.HTTP_201_CREATED,
+    summary="Generate non-tech interview questions from selected job profile",
+)
+async def generate_non_tech_questions_v2(
+    payload: GenerateNonTechQuestionsRequest,
+    current_user=fastapi.Depends(get_current_user),
+    interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
+    question_attempt_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
+    job_profile_repo: JobProfileCRUDRepository = fastapi.Depends(get_repository(repo_type=JobProfileCRUDRepository)),
+) -> GeneratedQuestionsInResponse:
+    supplement_service = QuestionSupplementService(async_session=question_repo.async_session)
+    try:
+        job_profile = await job_profile_repo.get_by_id(job_profile_id=payload.job_profile_id)
+    except SQLAlchemyError as exc:
+        msg = str(exc).lower()
+        if "job_profile" in msg and ("does not exist" in msg or "undefinedtable" in msg):
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Non-tech interview feature unavailable until migration 'job_profile_001' is applied",
+            )
+        raise
+    if job_profile is None:
+        raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Job profile not found")
+
+    difficulty = (payload.difficulty or "medium").lower()
+    if difficulty not in ("easy", "medium", "hard", "expert"):
+        difficulty = "medium"
+
+    normalized_job_name = _normalize_non_tech_job_name(job_profile.job_name)
+    track = f"Non-Tech: {normalized_job_name}"
+    interview = await interview_repo.get_active_by_user(user_id=current_user.id)
+    if interview is None or interview.track != track:
+        interview = await interview_repo.create_interview(
+            user_id=current_user.id,
+            track=track,
+            difficulty=difficulty,
+        )
+        await track_analytics_event(
+            interview_repo.async_session,
+            event_type="non_tech_interview_started",
+            user_id=current_user.id,
+            interview_id=interview.id,
+            event_data={
+                "track": track,
+                "normalized_job_name": normalized_job_name,
+                "difficulty": difficulty,
+                "job_profile_id": job_profile.id,
+                "api": "interviews_v2.generate_non_tech_questions",
+            },
+        )
+
+    existing = await question_repo.list_by_interview(interview_id=interview.id)
+    persisted = existing
+    cached = bool(existing)
+
+    if not existing:
+        resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
+        profile_segments = [
+            f"Job Name: {normalized_job_name}",
+            f"Company: {job_profile.company_name}" if job_profile.company_name else "",
+            f"Experience Level: {job_profile.experience_level}" if job_profile.experience_level else "",
+            f"Job Description: {job_profile.job_description}",
+            f"Skills: {', '.join(job_profile.skills)}" if isinstance(job_profile.skills, list) and job_profile.skills else "",
+            f"Additional Context: {job_profile.additional_context}" if job_profile.additional_context else "",
+        ]
+        if isinstance(resume_context, str) and resume_context.strip():
+            profile_segments.append(f"Resume Context: {resume_context}")
+
+        context_text = "\n".join([seg for seg in profile_segments if seg]).strip()
+        ratio = {"tech": 0, "tech_allied": 1, "behavioral": 4}
+        topics = {
+            "tech": [],
+            "tech_allied": [normalized_job_name],
+            "behavioral": [
+                "stakeholder management",
+                "conflict resolution",
+                "decision making",
+                "communication clarity",
+                "ownership and accountability",
+                "team collaboration",
+                "adaptability under ambiguity",
+                "prioritization",
+                "problem solving under constraints",
+            ],
+            "archetypes": ["scenario", "trade-off", "stakeholder", "reflection"],
+            "depth_guidelines": [
+                "Ask for concrete examples and measurable outcomes",
+                "Probe rationale, trade-offs, and communication choices",
+                "Prefer role-relevant, situational non-technical prompts",
+            ],
+        }
+        influence = {
+            "interview_type": "non_technical",
+            "target_role": normalized_job_name,
+            "difficulty": difficulty,
+            "experience_level": job_profile.experience_level,
+            "company_name": job_profile.company_name,
+            "skills": job_profile.skills or [],
+            "job_profile_id": job_profile.id,
+        }
+
+        question_count = 5
+        questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
+            track=normalized_job_name,
+            context_text=context_text,
+            count=question_count,
+            difficulty=difficulty,
+            syllabus_topics=topics,
+            ratio=ratio,
+            influence=influence,
+        )
+
+        if not questions:
+            questions = [
+                f"Tell me about a difficult stakeholder situation relevant to this {normalized_job_name} role and how you handled it.",
+                "Describe a time you had to make a decision with incomplete information. What trade-offs did you consider?",
+                "Give an example of how you resolved conflict within a team while keeping delivery on track.",
+                "Share a situation where you had to influence others without direct authority.",
+                "Describe one failure from your past work and what changed in your approach afterward.",
+            ]
+
+        questions_data: list[dict[str, object]] = []
+        if items:
+            for item in items:
+                questions_data.append(
+                    {
+                        "text": item.get("text", ""),
+                        "topic": item.get("topic") or "non-technical",
+                        "category": item.get("category") or "behavioral",
+                    }
+                )
+        else:
+            for question in questions:
+                questions_data.append({"text": question, "topic": "non-technical", "category": "behavioral"})
+
+        for idx in range(min(2, len(questions_data))):
+            questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
+
+        persisted = await question_repo.create_batch(
+            interview_id=interview.id,
+            questions_data=questions_data,
+            resume_used=payload.use_resume,
+        )
+
+        supplements_map = await _get_supplement_map(
+            interview_id=interview.id,
+            supplement_service=supplement_service,
+            ensure_generate=True,
+        )
+        _validate_supplements_response(items=supplements_map, source="generate-non-tech-questions")
+        response_items: list[dict[str, object]] = []
+        for idx, question_obj in enumerate(persisted):
+            structured = items[idx] if items and idx < len(items) else None
+            response_items.append(
+                {
+                    "interviewQuestionId": question_obj.id,
+                    "text": (structured or {}).get("text") or question_obj.text,
+                    "topic": (structured or {}).get("topic") or question_obj.topic,
+                    "difficulty": (structured or {}).get("difficulty") or difficulty,
+                    "category": (structured or {}).get("category") or question_obj.category,
+                    "isFollowUp": question_obj.is_follow_up,
+                    "parentQuestionId": question_obj.parent_question_id,
+                    "followUpStrategy": question_obj.follow_up_strategy,
+                    "supplement": supplements_map.get(question_obj.id),
+                }
+            )
+        qs = {
+            "questions": [q["text"] for q in questions_data],
+            "llm_error": llm_error,
+            "latency_ms": latency_ms,
+            "llm_model": llm_model,
+            "items": response_items,
+        }
+    else:
+        await _backfill_follow_up_parents(
+            questions=existing,
+            question_repo=question_repo,
+            question_attempt_repo=question_attempt_repo,
+        )
+        supplements_map = await _get_supplement_map(
+            interview_id=interview.id,
+            supplement_service=supplement_service,
+            ensure_generate=True,
+        )
+        _validate_supplements_response(items=supplements_map, source="generate-non-tech-questions-cached")
+        response_items = [
+            {
+                "interviewQuestionId": q.id,
+                "text": q.text,
+                "topic": q.topic,
+                "difficulty": difficulty,
+                "category": q.category,
+                "isFollowUp": q.is_follow_up,
+                "parentQuestionId": q.parent_question_id,
+                "followUpStrategy": q.follow_up_strategy,
+                "supplement": supplements_map.get(q.id),
+            }
+            for q in existing
+        ]
+        qs = {
+            "questions": [q.text for q in existing],
+            "llm_error": None,
+            "latency_ms": None,
+            "llm_model": None,
+            "items": response_items,
+        }
+
+    return GeneratedQuestionsInResponse(
+        interview_id=interview.id,
+        track=interview.track,
+        count=len(persisted),
+        questions=[q.text for q in persisted],
+        question_ids=[q.id for q in persisted],
+        items=[
+            QuestionItem(
+                interview_question_id=item.get("interviewQuestionId"),
+                text=item.get("text", ""),
+                topic=item.get("topic"),
+                difficulty=item.get("difficulty"),
+                category=item.get("category"),
+                is_follow_up=item.get("isFollowUp", False),
+                parent_question_id=item.get("parentQuestionId"),
+                follow_up_strategy=item.get("followUpStrategy"),
+                supplement=item.get("supplement"),
+            )
+            for item in qs.get("items", [])
+        ],
         cached=cached,
         llm_model=qs.get("llm_model"),
         llm_latency_ms=qs.get("latency_ms"),

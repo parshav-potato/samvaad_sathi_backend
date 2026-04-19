@@ -1,0 +1,36 @@
+import datetime
+
+import pydantic
+
+from src.models.schemas.base import BaseSchemaModel
+
+
+class JobProfileCreate(BaseSchemaModel):
+    job_name: str = pydantic.Field(min_length=2, max_length=160)
+    job_description: str = pydantic.Field(min_length=20)
+    company_name: str | None = pydantic.Field(default=None, max_length=256)
+    experience_level: str | None = pydantic.Field(default=None, max_length=64)
+    skills: list[str] | None = None
+    additional_context: str | None = None
+
+
+class JobProfileOut(BaseSchemaModel):
+    job_profile_id: int
+    job_name: str
+    job_description: str
+    company_name: str | None = None
+    experience_level: str | None = None
+    skills: list[str] | None = None
+    additional_context: str | None = None
+    created_by: int | None = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class JobProfilesListResponse(BaseSchemaModel):
+    items: list[JobProfileOut]
+
+
+class JobProfileDeleteResponse(BaseSchemaModel):
+    deleted: bool
+    job_profile_id: int

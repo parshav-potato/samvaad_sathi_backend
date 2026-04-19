@@ -58,6 +58,9 @@ COMMON_ERROR_RESPONSES = {
 router = fastapi.APIRouter(prefix="/v2/analytics", tags=["analytics-v2"], responses=COMMON_ERROR_RESPONSES)
 
 
+_DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2, "expert": 3}
+
+
 def _apply_interview_filters(
     stmt: sqlalchemy.sql.Select,
     *,
@@ -145,6 +148,10 @@ def _zero_fill_metric_nulls(payload: Any) -> Any:
             normalized[key] = cleaned_value
         return normalized
     return payload
+
+
+def _sort_difficulty_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(items, key=lambda row: _DIFFICULTY_ORDER.get(str(row.get("difficulty", "")).lower(), 999))
 
 
 def _to_date(value: datetime.date | datetime.datetime | None) -> datetime.date | None:
@@ -1550,6 +1557,7 @@ async def get_difficulty_metrics(
     del current_user
     service = AnalyticsService(session)
     items = await service.get_difficulty_segment_analytics(start_date=start_date, end_date=end_date)
+    items = _sort_difficulty_items(items)
     normalized_items = _zero_fill_metric_nulls(items)
     return TablePageResponse(table_type="difficulty_metrics", items=normalized_items, page=1, limit=len(items) or 1, total=len(items))
 

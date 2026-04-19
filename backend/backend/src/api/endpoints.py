@@ -14,6 +14,7 @@ from src.api.routes.tts import router as tts_router
 from src.api.routes.speech_pacing import router as speech_pacing_router
 from src.api.routes.analytics import router as analytics_router
 from src.api.routes.analytics_v2 import router as analytics_v2_router
+from src.api.routes.job_profiles import router as job_profiles_router
 
 router = fastapi.APIRouter()
 
@@ -36,3 +37,4 @@ router.include_router(router=tts_router)
 router.include_router(router=speech_pacing_router)
 router.include_router(router=analytics_router)
 router.include_router(router=analytics_v2_router)
+router.include_router(router=job_profiles_router)
