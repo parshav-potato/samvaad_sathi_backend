@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 
 import fastapi
 from fastapi import Depends
@@ -24,6 +25,37 @@ from src.services.analytics_events import track_analytics_event
 
 
 router = fastapi.APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def _zero_fill_metric_nulls(payload):
+    metric_hints = (
+        "score",
+        "duration",
+        "time",
+        "percent",
+        "rate",
+        "count",
+        "avg",
+        "average",
+        "delta",
+        "completion",
+        "retry",
+        "wpm",
+        "value",
+    )
+    if isinstance(payload, list):
+        return [_zero_fill_metric_nulls(item) for item in payload]
+    if isinstance(payload, float) and not math.isfinite(payload):
+        return 0
+    if isinstance(payload, dict):
+        normalized = {}
+        for key, value in payload.items():
+            cleaned = _zero_fill_metric_nulls(value)
+            if cleaned is None and any(hint in key.lower() for hint in metric_hints):
+                cleaned = 0
+            normalized[key] = cleaned
+        return normalized
+    return payload
 
 
 def _filter_payload(
@@ -62,7 +94,7 @@ async def get_student_analytics(
     return StudentAnalyticsResponse(
         user_id=user_id,
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=None, difficulty=None, college=None),
-        metrics=metrics,
+        metrics=_zero_fill_metric_nulls(metrics),
     )
 
 
@@ -82,7 +114,7 @@ async def get_interview_analytics(
     metrics = await service.get_interview_level_analytics(interview_id=interview_id)
     if metrics is None:
         raise fastapi.HTTPException(status_code=404, detail="Interview not found")
-    return InterviewAnalyticsResponse(interview_id=interview_id, metrics=metrics)
+    return InterviewAnalyticsResponse(interview_id=interview_id, metrics=_zero_fill_metric_nulls(metrics))
 
 
 @router.get(
@@ -111,7 +143,7 @@ async def get_role_segment_analytics(
     return SegmentAnalyticsResponse(
         segment="role",
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),
-        items=items,
+        items=_zero_fill_metric_nulls(items),
     )
 
 
@@ -141,7 +173,7 @@ async def get_difficulty_segment_analytics(
     return SegmentAnalyticsResponse(
         segment="difficulty",
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),
-        items=items,
+        items=_zero_fill_metric_nulls(items),
     )
 
 
@@ -171,7 +203,7 @@ async def get_college_segment_analytics(
     return SegmentAnalyticsResponse(
         segment="college",
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),
-        items=items,
+        items=_zero_fill_metric_nulls(items),
     )
 
 
@@ -200,7 +232,7 @@ async def get_system_analytics(
     )
     return SystemAnalyticsResponse(
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),
-        metrics=metrics,
+        metrics=_zero_fill_metric_nulls(metrics),
     )
 
 
@@ -229,7 +261,7 @@ async def get_scoring_analytics(
     )
     return ScoringAnalyticsResponse(
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college),
-        metrics=metrics,
+        metrics=_zero_fill_metric_nulls(metrics),
     )
 
 
@@ -250,8 +282,8 @@ async def get_analytics_alerts(
     alerts = await service.get_alerts(user_id=user_id, start_date=start_date, end_date=end_date)
     return AlertsAnalyticsResponse(
         filters=_filter_payload(start_date=start_date, end_date=end_date, role=None, difficulty=None, college=None),
-        student_alerts=alerts["student_alerts"],
-        system_alerts=alerts["system_alerts"],
+        student_alerts=_zero_fill_metric_nulls(alerts["student_alerts"]),
+        system_alerts=_zero_fill_metric_nulls(alerts["system_alerts"]),
     )
 
 

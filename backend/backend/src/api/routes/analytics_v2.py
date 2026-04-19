@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 from collections import defaultdict
 from typing import Any
 
@@ -101,8 +102,49 @@ def _extract_distribution_buckets(raw_distribution: list[dict[str, Any]]) -> lis
 def _safe_avg(values: list[float | int | None]) -> float | None:
     clean = [float(v) for v in values if isinstance(v, (float, int))]
     if not clean:
-        return None
+        return 0.0
     return round(sum(clean) / len(clean), 2)
+
+
+def _metric_or_zero(value: Any, *, digits: int | None = None) -> int | float:
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return 0
+        if digits is not None:
+            return round(float(value), digits)
+        return float(value)
+    return 0
+
+
+def _zero_fill_metric_nulls(payload: Any) -> Any:
+    metric_hints = (
+        "score",
+        "duration",
+        "time",
+        "percent",
+        "rate",
+        "count",
+        "avg",
+        "average",
+        "delta",
+        "completion",
+        "retry",
+        "wpm",
+        "value",
+    )
+    if isinstance(payload, list):
+        return [_zero_fill_metric_nulls(item) for item in payload]
+    if isinstance(payload, float) and not math.isfinite(payload):
+        return 0
+    if isinstance(payload, dict):
+        normalized: dict[str, Any] = {}
+        for key, value in payload.items():
+            cleaned_value = _zero_fill_metric_nulls(value)
+            if cleaned_value is None and any(hint in key.lower() for hint in metric_hints):
+                cleaned_value = 0
+            normalized[key] = cleaned_value
+        return normalized
+    return payload
 
 
 def _to_date(value: datetime.date | datetime.datetime | None) -> datetime.date | None:
@@ -255,7 +297,7 @@ async def get_dashboard_top_roles(
         difficulty=difficulty,
         college=college,
     )
-    return DashboardTopListResponse(table_type="top_roles", items=items[:limit])
+    return DashboardTopListResponse(table_type="top_roles", items=_zero_fill_metric_nulls(items[:limit]))
 
 
 @router.get(
@@ -285,7 +327,7 @@ async def get_dashboard_top_colleges(
         difficulty=difficulty,
         college=college,
     )
-    return DashboardTopListResponse(table_type="top_colleges", items=items[:limit])
+    return DashboardTopListResponse(table_type="top_colleges", items=_zero_fill_metric_nulls(items[:limit]))
 
 
 @router.get(
@@ -347,8 +389,8 @@ async def get_dashboard_recent_interviews(
             "college": university,
             "role": interview.track,
             "difficulty": interview.difficulty,
-            "score": round(overall_score, 2) if isinstance(overall_score, (int, float)) else None,
-            "duration_seconds": interview.duration_seconds,
+            "score": _metric_or_zero(overall_score, digits=2),
+            "duration_seconds": _metric_or_zero(interview.duration_seconds),
             "date": interview.created_at,
             "status": interview.status,
         }
@@ -492,15 +534,15 @@ async def get_students_table(
     for user in users:
         user_interviews = interviews_by_user.get(user.id, [])
         scores = [reports_map.get(interview.id) for interview in user_interviews if reports_map.get(interview.id) is not None]
-        avg_score = round(sum(scores) / len(scores), 2) if scores else None
+        avg_score = round(sum(scores) / len(scores), 2) if scores else 0
 
-        latest_score = None
+        latest_score = 0
         if user_interviews:
             latest_interview = sorted(user_interviews, key=lambda interview: interview.created_at or datetime.datetime.min)[-1]
             score_value = reports_map.get(latest_interview.id)
-            latest_score = round(score_value, 2) if isinstance(score_value, (float, int)) else None
+            latest_score = round(score_value, 2) if isinstance(score_value, (float, int)) else 0
 
-        improvement_percent = None
+        improvement_percent = 0
         if user_interviews and len(scores) >= 2:
             first_score = next((reports_map.get(interview.id) for interview in user_interviews if reports_map.get(interview.id) is not None), None)
             last_score = next((reports_map.get(interview.id) for interview in reversed(user_interviews) if reports_map.get(interview.id) is not None), None)
@@ -606,12 +648,12 @@ async def get_student_summary(
     practice = metrics.get("practice_compliance", {})
     kpis = [
         KpiCard(key="total_interviews", label="Total Interviews", value=attempts.get("interviews_attempted", 0)),
-        KpiCard(key="average_score", label="Average Score", value=performance.get("average_last_3")),
-        KpiCard(key="improvement_percent", label="Improvement %", value=performance.get("improvement_rate"), unit="percent"),
+        KpiCard(key="average_score", label="Average Score", value=_metric_or_zero(performance.get("average_last_3"), digits=2)),
+        KpiCard(key="improvement_percent", label="Improvement %", value=_metric_or_zero(performance.get("improvement_rate"), digits=2), unit="percent"),
         KpiCard(key="last_active_date", label="Last Active Date", value=(performance.get("score_history", [])[-1].get("created_at") if performance.get("score_history") else None)),
-        KpiCard(key="practice_completion_rate", label="Practice Completion Rate", value=practice.get("completion_ratio"), unit="ratio"),
-        KpiCard(key="speech_score", label="Speech Score", value=(performance.get("score_history", [])[-1].get("speech_score") if performance.get("score_history") else None)),
-        KpiCard(key="knowledge_score", label="Knowledge Score", value=(performance.get("score_history", [])[-1].get("knowledge_score") if performance.get("score_history") else None)),
+        KpiCard(key="practice_completion_rate", label="Practice Completion Rate", value=_metric_or_zero(practice.get("completion_ratio"), digits=2), unit="ratio"),
+        KpiCard(key="speech_score", label="Speech Score", value=_metric_or_zero((performance.get("score_history", [])[-1].get("speech_score") if performance.get("score_history") else None), digits=2)),
+        KpiCard(key="knowledge_score", label="Knowledge Score", value=_metric_or_zero((performance.get("score_history", [])[-1].get("knowledge_score") if performance.get("score_history") else None), digits=2)),
     ]
     return StudentSummaryResponse(student_id=student_id, kpis=kpis)
 
@@ -647,8 +689,8 @@ async def get_student_speech_vs_knowledge_history(
         {
             "interview_id": item.get("interview_id"),
             "created_at": item.get("created_at"),
-            "speech_score": item.get("speech_score"),
-            "knowledge_score": item.get("knowledge_score"),
+            "speech_score": _metric_or_zero(item.get("speech_score"), digits=2),
+            "knowledge_score": _metric_or_zero(item.get("knowledge_score"), digits=2),
         }
         for item in history
     ]
@@ -672,12 +714,12 @@ async def get_student_skill_averages(
     items: list[dict[str, Any]] = []
     for metric_key, entries in {**speech_metrics, **knowledge_metrics}.items():
         numeric_values = [entry.get("value") for entry in entries if isinstance(entry.get("value"), (int, float))]
-        avg_value = round(sum(numeric_values) / len(numeric_values), 2) if numeric_values else None
+        avg_value = round(sum(numeric_values) / len(numeric_values), 2) if numeric_values else 0
         items.append({"metric": metric_key, "value": avg_value})
 
     weak_area_tags = metrics.get("weak_area_tags", [])
     for tag in weak_area_tags:
-        items.append({"metric": tag, "value": None})
+        items.append({"metric": tag, "value": 0})
 
     return StudentSkillAveragesResponse(student_id=student_id, chart_type="radar", items=items)
 
@@ -695,13 +737,13 @@ async def get_student_practice_completion(
     metrics = await service.get_student_level_analytics(user_id=student_id, start_date=start_date, end_date=end_date)
     practice = metrics.get("practice_compliance", {})
     kpis = [
-        KpiCard(key="recommended_exercises", label="Recommended Exercises", value=practice.get("recommended_exercises")),
-        KpiCard(key="completed_exercises", label="Completed Exercises", value=practice.get("completed_exercises")),
-        KpiCard(key="completion_ratio", label="Completion Ratio", value=practice.get("completion_ratio"), unit="ratio"),
+        KpiCard(key="recommended_exercises", label="Recommended Exercises", value=_metric_or_zero(practice.get("recommended_exercises"))),
+        KpiCard(key="completed_exercises", label="Completed Exercises", value=_metric_or_zero(practice.get("completed_exercises"))),
+        KpiCard(key="completion_ratio", label="Completion Ratio", value=_metric_or_zero(practice.get("completion_ratio"), digits=2), unit="ratio"),
         KpiCard(
             key="improvement_after_practice",
             label="Improvement After Practice",
-            value=(practice.get("improvement_after_practice") or {}).get("delta"),
+            value=_metric_or_zero((practice.get("improvement_after_practice") or {}).get("delta"), digits=2),
             unit="score",
         ),
     ]
@@ -736,8 +778,8 @@ async def get_student_interviews(
             "role": interview.track,
             "difficulty": interview.difficulty,
             "status": interview.status,
-            "score": round(score, 2) if isinstance(score, (int, float)) else None,
-            "duration_seconds": interview.duration_seconds,
+            "score": _metric_or_zero(score, digits=2),
+            "duration_seconds": _metric_or_zero(interview.duration_seconds),
             "created_at": interview.created_at,
         }
         for interview, score in rows
@@ -797,7 +839,7 @@ async def get_colleges_summary(
     total_students = int((await session.execute(sqlalchemy.select(sqlalchemy.func.count(User.id)))).scalar() or 0)
     total_interviews = int((await session.execute(sqlalchemy.select(sqlalchemy.func.count(Interview.id)))).scalar() or 0)
     avg_scores = [item.get("avg_score") for item in college_items if isinstance(item.get("avg_score"), (int, float))]
-    average_score = round(sum(avg_scores) / len(avg_scores), 2) if avg_scores else None
+    average_score = round(sum(avg_scores) / len(avg_scores), 2) if avg_scores else 0
 
     highest = max(college_items, key=lambda item: item.get("avg_score") if isinstance(item.get("avg_score"), (int, float)) else -1, default=None)
     lowest = min(
@@ -853,8 +895,8 @@ async def get_colleges_table(
                 "college_name": college_name,
                 "students_count": int(students_by_college.get(college_name, 0)),
                 "interviews_count": item.get("interviews"),
-                "avg_score": item.get("avg_score"),
-                "improvement_percent": item.get("improvement_rate"),
+                "avg_score": _metric_or_zero(item.get("avg_score"), digits=2),
+                "improvement_percent": _metric_or_zero(item.get("improvement_rate"), digits=2),
                 "active_users": item.get("usage_frequency"),
             }
         )
@@ -899,9 +941,9 @@ async def get_interviews_summary(
 
     kpis = [
         KpiCard(key="total_interviews", label="Total Interviews", value=total_interviews),
-        KpiCard(key="average_score", label="Average Score", value=round(average_score, 2) if average_score is not None else None),
+        KpiCard(key="average_score", label="Average Score", value=_metric_or_zero(average_score, digits=2)),
         KpiCard(key="completion_rate", label="Completion Rate", value=_safe_percent(completed_interviews, total_interviews), unit="percent"),
-        KpiCard(key="average_duration", label="Average Duration", value=int(average_duration) if average_duration is not None else None, unit="seconds"),
+        KpiCard(key="average_duration", label="Average Duration", value=int(_metric_or_zero(average_duration)), unit="seconds"),
         KpiCard(key="most_popular_role", label="Most Popular Role", value=popular_role[0] if popular_role else None),
         KpiCard(key="most_popular_difficulty", label="Most Popular Difficulty", value=popular_difficulty[0] if popular_difficulty else None),
     ]
@@ -958,8 +1000,8 @@ async def get_interviews_table(
             "college": university,
             "role": interview.track,
             "difficulty": interview.difficulty,
-            "score": round(score, 2) if isinstance(score, (int, float)) else None,
-            "duration": interview.duration_seconds,
+            "score": _metric_or_zero(score, digits=2),
+            "duration": _metric_or_zero(interview.duration_seconds),
             "date": interview.created_at,
         }
         for interview, student_name, university, score in rows
@@ -1079,8 +1121,8 @@ async def get_college_detail_summary(
     kpis = [
         KpiCard(key="total_students_enrolled", label="Total Students Enrolled", value=students_count),
         KpiCard(key="students_with_interviews", label="Students Who Have Given Interviews", value=students_with_interviews),
-        KpiCard(key="average_score", label="Average Score", value=summary.get("avg_score")),
-        KpiCard(key="improvement_percent", label="Improvement %", value=summary.get("improvement_rate"), unit="percent"),
+        KpiCard(key="average_score", label="Average Score", value=_metric_or_zero(summary.get("avg_score"), digits=2)),
+        KpiCard(key="improvement_percent", label="Improvement %", value=_metric_or_zero(summary.get("improvement_rate"), digits=2), unit="percent"),
         KpiCard(key="active_users_last_30_days", label="Active Users (Last 30 Days)", value=summary.get("usage_frequency")),
         KpiCard(key="completion_rate", label="Completion Rate", value=completion_rate, unit="percent"),
     ]
@@ -1331,12 +1373,12 @@ async def get_interview_detail_summary(
         raise fastapi.HTTPException(status_code=404, detail="Interview not found")
     question_level = metrics.get("question_level", [])
     kpis = [
-        KpiCard(key="overall_score", label="Overall Score", value=metrics.get("total_score")),
-        KpiCard(key="duration", label="Duration", value=metrics.get("duration_seconds"), unit="seconds"),
+        KpiCard(key="overall_score", label="Overall Score", value=_metric_or_zero(metrics.get("total_score"), digits=2)),
+        KpiCard(key="duration", label="Duration", value=_metric_or_zero(metrics.get("duration_seconds")), unit="seconds"),
         KpiCard(key="difficulty_level", label="Difficulty Level", value=metrics.get("difficulty")),
         KpiCard(key="questions_count", label="Number of Questions", value=len(question_level)),
-        KpiCard(key="speech_score", label="Speech Score", value=metrics.get("speech_score")),
-        KpiCard(key="knowledge_score", label="Knowledge Score", value=metrics.get("knowledge_score")),
+        KpiCard(key="speech_score", label="Speech Score", value=_metric_or_zero(metrics.get("speech_score"), digits=2)),
+        KpiCard(key="knowledge_score", label="Knowledge Score", value=_metric_or_zero(metrics.get("knowledge_score"), digits=2)),
         KpiCard(key="completion_status", label="Completion Status", value=metrics.get("status")),
     ]
     return DashboardOverviewResponse(kpis=kpis)
@@ -1464,7 +1506,8 @@ async def get_roles_performance(
     del current_user
     service = AnalyticsService(session)
     items = await service.get_role_segment_analytics(start_date=start_date, end_date=end_date)
-    return TablePageResponse(table_type="role_performance", items=items, page=1, limit=len(items) or 1, total=len(items))
+    normalized_items = _zero_fill_metric_nulls(items)
+    return TablePageResponse(table_type="role_performance", items=normalized_items, page=1, limit=len(items) or 1, total=len(items))
 
 
 @router.get("/roles/weak-skills", response_model=HeatmapResponse, status_code=200, summary="Role weak skills heatmap", description="Reasoning: surfaces repeated weakness themes by role for remediation design. Output: role-vs-weakness heatmap cells.")
@@ -1494,7 +1537,7 @@ async def get_role_detail(
     del current_user
     service = AnalyticsService(session)
     items = await service.get_role_segment_analytics(role=role_id)
-    return DashboardTopListResponse(table_type="role_detail", items=items)
+    return DashboardTopListResponse(table_type="role_detail", items=_zero_fill_metric_nulls(items))
 
 
 @router.get("/difficulty/metrics", response_model=TablePageResponse, status_code=200, summary="Difficulty level metrics", description="Reasoning: compares outcomes across difficulty levels to calibrate question strategy. Output: difficulty-wise metrics table.")
@@ -1507,7 +1550,8 @@ async def get_difficulty_metrics(
     del current_user
     service = AnalyticsService(session)
     items = await service.get_difficulty_segment_analytics(start_date=start_date, end_date=end_date)
-    return TablePageResponse(table_type="difficulty_metrics", items=items, page=1, limit=len(items) or 1, total=len(items))
+    normalized_items = _zero_fill_metric_nulls(items)
+    return TablePageResponse(table_type="difficulty_metrics", items=normalized_items, page=1, limit=len(items) or 1, total=len(items))
 
 
 @router.get(
@@ -1548,7 +1592,7 @@ async def get_questions_analytics(
             "question_text": row.text,
             "question_type": row.category,
             "attempts": int(row.attempts or 0),
-            "average_score": round(float(row.avg_score), 2) if row.avg_score is not None else None,
+            "average_score": _metric_or_zero(row.avg_score, digits=2),
         }
         for row in rows
     ]
@@ -1577,7 +1621,7 @@ async def get_dropoff_funnel(
     stages: list[FunnelStage] = []
     for stage in sequence:
         count = int(funnel.get(stage, 0))
-        rate = _safe_percent(count, previous_count) if previous_count is not None and previous_count > 0 else None
+        rate = _safe_percent(count, previous_count) if previous_count is not None and previous_count > 0 else 0
         stages.append(FunnelStage(stage=stage, count=count, rate=rate))
         previous_count = count
     return FunnelResponse(chart_type="funnel", stages=stages)
@@ -1651,7 +1695,8 @@ async def get_benchmarking(
                 "delta": delta,
             }
         )
-    return TablePageResponse(table_type="benchmarking", items=items, page=1, limit=len(items) or 1, total=len(items))
+    normalized_items = _zero_fill_metric_nulls(items)
+    return TablePageResponse(table_type="benchmarking", items=normalized_items, page=1, limit=len(items) or 1, total=len(items))
 
 
 @router.get(
