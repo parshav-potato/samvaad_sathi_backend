@@ -263,8 +263,10 @@ class AnalyticsService:
         for question in questions:
             qa = latest_attempt_by_question.get(question.id)
             analysis = qa.analysis_json if qa and qa.analysis_json else {}
-            domain = analysis.get("domain") if isinstance(analysis, dict) else {}
-            communication = analysis.get("communication") if isinstance(analysis, dict) else {}
+            raw_domain = analysis.get("domain") if isinstance(analysis, dict) else {}
+            raw_communication = analysis.get("communication") if isinstance(analysis, dict) else {}
+            domain = raw_domain if isinstance(raw_domain, dict) else {}
+            communication = raw_communication if isinstance(raw_communication, dict) else {}
             strengths = _as_str_list(domain.get("strengths")) + _as_str_list(communication.get("strengths"))
             weaknesses = _as_str_list(domain.get("improvements")) + _as_str_list(communication.get("improvements")) + _as_str_list(
                 communication.get("recommendations")

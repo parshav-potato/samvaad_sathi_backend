@@ -65,6 +65,7 @@ class BackendBaseSettings(BaseSettings):
         "https://samvaad-sathi.barabaricollective.org",  # Production frontend (without www)
         "https://www.samvaad-sathi.barabaricollective.org",  # Production frontend (with www)
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
+        "https://samvaad-dashboard.barabaricollective.org"
     ]
     ALLOWED_METHODS: list[str] = ["*"]
     ALLOWED_HEADERS: list[str] = ["*"]
