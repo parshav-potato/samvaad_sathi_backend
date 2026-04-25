@@ -367,6 +367,7 @@ class AnalyticsService:
         if not interviews:
             return []
         reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
 
         grouped: dict[str, list[Interview]] = defaultdict(list)
         for interview in interviews:
@@ -375,7 +376,7 @@ class AnalyticsService:
         output: list[dict[str, Any]] = []
         for role_name, role_interviews in grouped.items():
             scores = [
-                _extract_overall_score(reports.get(i.id), None)
+                _extract_overall_score(reports.get(i.id), summaries.get(i.id))
                 for i in role_interviews
             ]
             scores_clean = [s for s in scores if s is not None]
@@ -408,13 +409,14 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         interviews = await self._list_interviews_all(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college)
         reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
         grouped: dict[str, list[Interview]] = defaultdict(list)
         for interview in interviews:
             grouped[interview.difficulty or "unknown"].append(interview)
 
         output: list[dict[str, Any]] = []
         for level, level_interviews in grouped.items():
-            scores = [_extract_overall_score(reports.get(i.id), None) for i in level_interviews]
+            scores = [_extract_overall_score(reports.get(i.id), summaries.get(i.id)) for i in level_interviews]
             clean_scores = [s for s in scores if s is not None]
             completed = len([i for i in level_interviews if i.status == "completed"])
             retry_rate = await self._retry_rate_for_interviews([i.id for i in level_interviews])
@@ -440,6 +442,7 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         interviews = await self._list_interviews_all(start_date=start_date, end_date=end_date, role=role, difficulty=difficulty, college=college)
         reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
 
         users_stmt = sqlalchemy.select(User)
         users = list((await self._db.execute(users_stmt)).scalars().all())
@@ -453,12 +456,12 @@ class AnalyticsService:
 
         output: list[dict[str, Any]] = []
         for college_name, college_interviews in grouped.items():
-            scores = [_extract_overall_score(reports.get(i.id), None) for i in college_interviews]
+            scores = [_extract_overall_score(reports.get(i.id), summaries.get(i.id)) for i in college_interviews]
             clean_scores = [s for s in scores if s is not None]
             completed = len([i for i in college_interviews if i.status == "completed"])
 
             sorted_scored = sorted(
-                [(_extract_overall_score(reports.get(i.id), None), i.created_at) for i in college_interviews],
+                [(_extract_overall_score(reports.get(i.id), summaries.get(i.id)), i.created_at) for i in college_interviews],
                 key=lambda x: x[1] if x[1] is not None else datetime.datetime.min.replace(tzinfo=datetime.timezone.utc),
             )
             first = next((x[0] for x in sorted_scored if x[0] is not None), None)
@@ -490,6 +493,7 @@ class AnalyticsService:
         interview_ids = [i.id for i in interviews]
         scoped_user_ids = {i.user_id for i in interviews}
         reports = await self._reports_by_interview(interview_ids)
+        summaries = await self._summary_reports_by_interview(interview_ids)
         users_stmt = sqlalchemy.select(User)
         users = list((await self._db.execute(users_stmt)).scalars().all())
 
@@ -506,7 +510,7 @@ class AnalyticsService:
 
         active_user_ids = {i.user_id for i in interviews if i.created_at and i.created_at >= active_cutoff}
         avg_scores = [
-            _extract_overall_score(reports.get(i.id), None)
+            _extract_overall_score(reports.get(i.id), summaries.get(i.id))
             for i in interviews
         ]
         avg_scores_clean = [x for x in avg_scores if x is not None]
@@ -521,7 +525,7 @@ class AnalyticsService:
 
         user_ids_with_report = {e.user_id for e in events if e.event_type == "report_viewed" and e.user_id is not None}
         if not user_ids_with_report:
-            user_ids_with_report = {i.user_id for i in interviews if i.id in reports}
+            user_ids_with_report = {i.user_id for i in interviews if i.id in reports or i.id in summaries}
 
         user_ids_practice = await self._users_with_practice()
 
@@ -570,7 +574,7 @@ class AnalyticsService:
                 "total_users": len(users),
                 "active_users_30d": len(active_user_ids),
                 "avg_score": round(_avg_non_null(avg_scores_clean), 2) if avg_scores_clean else None,
-                "improvement_percent": round(_improvement_percent_from_interviews(interviews, reports), 2),
+                "improvement_percent": round(_improvement_percent_from_interviews(interviews, reports, summaries), 2),
             },
             "funnel": funnel,
             "funnel_dropoff": funnel_drop_off,
@@ -672,6 +676,7 @@ class AnalyticsService:
 
         interviews_all = await self._list_interviews_all()
         reports_all = await self._reports_by_interview([i.id for i in interviews_all])
+        summaries_all = await self._summary_reports_by_interview([i.id for i in interviews_all])
         user_university_map = await self._user_university_map()
 
         role_groups: dict[str, list[Interview]] = defaultdict(list)
@@ -696,7 +701,7 @@ class AnalyticsService:
         for interview in interviews_all:
             college_name = (user_university_map.get(interview.user_id) or "unknown").strip() or "unknown"
             college_interview_counts[college_name] += 1
-            score = _extract_overall_score(reports_all.get(interview.id), None)
+            score = _extract_overall_score(reports_all.get(interview.id), summaries_all.get(interview.id))
             if score is not None:
                 college_score_groups[college_name].append(score)
 
@@ -867,10 +872,11 @@ class AnalyticsService:
             }
 
         reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
         pre_scores: list[float] = []
         post_scores: list[float] = []
         for interview in interviews:
-            score = _extract_overall_score(reports.get(interview.id), None)
+            score = _extract_overall_score(reports.get(interview.id), summaries.get(interview.id))
             if score is None:
                 continue
             if interview.created_at and interview.created_at < earliest_practice:
@@ -983,6 +989,7 @@ class AnalyticsService:
         interview_stmt = sqlalchemy.select(Interview).where(Interview.user_id.in_(candidate_user_ids))
         interviews = list((await self._db.execute(interview_stmt)).scalars().all())
         reports = await self._reports_by_interview([i.id for i in interviews])
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
 
         pre_scores_by_user: dict[int, list[float]] = defaultdict(list)
         post_scores_by_user: dict[int, list[float]] = defaultdict(list)
@@ -990,7 +997,7 @@ class AnalyticsService:
             practice_ts = earliest_practice.get(interview.user_id)
             if practice_ts is None:
                 continue
-            score = _extract_overall_score(reports.get(interview.id), None)
+            score = _extract_overall_score(reports.get(interview.id), summaries.get(interview.id))
             if score is None:
                 continue
             if interview.created_at and interview.created_at < practice_ts:
@@ -1259,8 +1266,9 @@ class AnalyticsService:
             if len(interviews) < 2:
                 continue
             reports = await self._reports_by_interview([i.id for i in interviews])
+            summaries = await self._summary_reports_by_interview([i.id for i in interviews])
             scored = [
-                (_extract_overall_score(reports.get(i.id), None), i.created_at)
+                (_extract_overall_score(reports.get(i.id), summaries.get(i.id)), i.created_at)
                 for i in interviews
             ]
             scored = [x for x in scored if x[0] is not None]
@@ -1283,7 +1291,8 @@ class AnalyticsService:
     async def _overall_scores_between(self, start_date: datetime.date, end_date: datetime.date) -> list[float]:
         interviews = await self._list_interviews_all(start_date=start_date, end_date=end_date)
         reports = await self._reports_by_interview([i.id for i in interviews])
-        scores = [_extract_overall_score(reports.get(i.id), None) for i in interviews]
+        summaries = await self._summary_reports_by_interview([i.id for i in interviews])
+        scores = [_extract_overall_score(reports.get(i.id), summaries.get(i.id)) for i in interviews]
         return [s for s in scores if s is not None]
 
     async def _list_analytics_events(
@@ -1325,10 +1334,15 @@ def _extract_overall_score(report: Report | None, summary_report: SummaryReport 
     return None
 
 
-def _improvement_percent_from_interviews(interviews: list[Interview], reports: dict[int, Report]) -> float:
+def _improvement_percent_from_interviews(
+    interviews: list[Interview],
+    reports: dict[int, Report],
+    summary_reports: dict[int, SummaryReport] | None = None,
+) -> float:
+    summary_reports = summary_reports or {}
     by_user: dict[int, list[tuple[datetime.datetime, float]]] = defaultdict(list)
     for interview in interviews:
-        score = _extract_overall_score(reports.get(interview.id), None)
+        score = _extract_overall_score(reports.get(interview.id), summary_reports.get(interview.id))
         if score is None:
             continue
         created_at = interview.created_at or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
@@ -1474,8 +1488,16 @@ def _average_gap_hours(times: list[datetime.datetime]) -> float | None:
 
 def _question_type(category: str | None) -> str:
     category_norm = (category or "tech").lower()
+    if category_norm == "self":
+        return "Self"
     if category_norm == "behavioral":
         return "Behavioral"
+    if category_norm == "productivity":
+        return "Productivity"
+    if category_norm in {"company_candidate", "company-candidate", "company_candidate_qna"}:
+        return "Company/Candidate"
+    if category_norm == "general":
+        return "General"
     if category_norm in {"tech_allied", "tech-allied", "techallied"}:
         return "Tech-allied"
     return "Technical"

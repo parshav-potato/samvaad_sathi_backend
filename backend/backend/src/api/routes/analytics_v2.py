@@ -1643,12 +1643,16 @@ async def get_dropoff_funnel(
     description="Returns student and system risk alerts with prediction labels and confidence scores.",
 )
 async def get_predictive_alerts(
+    page: int = fastapi.Query(default=1, ge=1),
+    limit: int = fastapi.Query(default=20, ge=1, le=100),
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
     current_user: User = Depends(get_current_user),
     session: SQLAlchemyAsyncSession = Depends(get_async_session),
 ):
     del current_user
     service = AnalyticsService(session)
-    alerts = await service.get_alerts()
+    alerts = await service.get_alerts(start_date=start_date, end_date=end_date)
     predicted_items: list[dict[str, Any]] = []
     for alert in alerts.get("student_alerts", []):
         predicted_items.append(
@@ -1670,7 +1674,10 @@ async def get_predictive_alerts(
                 **alert,
             }
         )
-    return TablePageResponse(table_type="predictive_alerts", items=predicted_items, page=1, limit=len(predicted_items) or 1, total=len(predicted_items))
+    total = len(predicted_items)
+    start = (page - 1) * limit
+    end = start + limit
+    return TablePageResponse(table_type="predictive_alerts", items=predicted_items[start:end], page=page, limit=limit, total=total)
 
 
 @router.get(

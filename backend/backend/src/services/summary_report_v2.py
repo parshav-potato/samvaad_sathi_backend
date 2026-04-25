@@ -85,6 +85,20 @@ def _unique(items: List[str]) -> List[str]:
     return out
 
 
+def _question_type_label(category: str | None) -> str:
+    key = (category or "tech").lower()
+    category_map = {
+        "tech": "Technical question",
+        "tech_allied": "Technical Allied question",
+        "behavioral": "Behavioral question",
+        "self": "Self question",
+        "productivity": "Productivity question",
+        "company_candidate": "Company and Candidate question",
+        "general": "General question",
+    }
+    return category_map.get(key, "Technical question")
+
+
 class SummaryReportServiceV2:
     def __init__(self, db: SQLAlchemyAsyncSession) -> None:
         self._db = db
@@ -614,13 +628,7 @@ class SummaryReportServiceV2:
         question_analysis = []
         
         for idx, iq in enumerate(all_questions):
-            # Map question category to type string
-            category_map = {
-                "tech": "Technical question",
-                "tech_allied": "Technical Allied question", 
-                "behavioral": "Behavioral question",
-            }
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = _question_type_label(iq.category)
             
             # Check if this question was attempted with valid content
             attempt = attempts_by_question_id.get(iq.id)
@@ -844,12 +852,7 @@ class SummaryReportServiceV2:
         for idx, interview_question in enumerate(all_questions):
             qa = attempts_map.get(interview_question.id)
             
-            # Map category
-            q_type = "Technical question"
-            if interview_question.category == "tech_allied":
-                q_type = "Technical Allied question"
-            elif interview_question.category == "behavioral":
-                q_type = "Behavioral question"
+            q_type = _question_type_label(interview_question.category)
             
             # Check if attempted
             if qa is None:
@@ -1257,8 +1260,7 @@ class SummaryReportServiceV2:
         feedback_idx = 0
         
         for idx, iq in enumerate(all_questions):
-            category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = _question_type_label(iq.category)
             
             # Check if attempted
             if iq.id not in actually_attempted_question_ids:

@@ -56,6 +56,11 @@ from src.services.progressive_hints import (
     get_framework_sections,
     get_initial_hint,
 )
+from src.services.non_tech_blueprint import (
+    NON_TECH_BLUEPRINT_VERSION,
+    NON_TECH_FIXED_DIFFICULTY,
+    select_non_tech_interview_questions,
+)
 from src.services.whisper import transcribe_audio_with_whisper, validate_transcription_language
 from src.services.analytics_events import track_analytics_event
 
@@ -452,9 +457,8 @@ async def generate_non_tech_questions_v2(
     if job_profile is None:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_404_NOT_FOUND, detail="Job profile not found")
 
-    difficulty = (payload.difficulty or "medium").lower()
-    if difficulty not in ("easy", "medium", "hard", "expert"):
-        difficulty = "medium"
+    requested_difficulty = (payload.difficulty or "").lower().strip() if payload.difficulty else None
+    difficulty = NON_TECH_FIXED_DIFFICULTY
 
     normalized_job_name = _normalize_non_tech_job_name(job_profile.job_name)
     track = f"Non-Tech: {normalized_job_name}"
@@ -474,7 +478,9 @@ async def generate_non_tech_questions_v2(
                 "track": track,
                 "normalized_job_name": normalized_job_name,
                 "difficulty": difficulty,
+                "requested_difficulty": requested_difficulty,
                 "job_profile_id": job_profile.id,
+                "blueprint_version": NON_TECH_BLUEPRINT_VERSION,
                 "api": "interviews_v2.generate_non_tech_questions",
             },
         )
@@ -484,84 +490,21 @@ async def generate_non_tech_questions_v2(
     cached = bool(existing)
 
     if not existing:
-        resume_context = getattr(current_user, "resume_text", None) if payload.use_resume else None
-        profile_segments = [
-            f"Job Name: {normalized_job_name}",
-            f"Company: {job_profile.company_name}" if job_profile.company_name else "",
-            f"Experience Level: {job_profile.experience_level}" if job_profile.experience_level else "",
-            f"Job Description: {job_profile.job_description}",
-            f"Skills: {', '.join(job_profile.skills)}" if isinstance(job_profile.skills, list) and job_profile.skills else "",
-            f"Additional Context: {job_profile.additional_context}" if job_profile.additional_context else "",
-        ]
-        if isinstance(resume_context, str) and resume_context.strip():
-            profile_segments.append(f"Resume Context: {resume_context}")
-
-        context_text = "\n".join([seg for seg in profile_segments if seg]).strip()
-        ratio = {"tech": 0, "tech_allied": 1, "behavioral": 4}
-        topics = {
-            "tech": [],
-            "tech_allied": [normalized_job_name],
-            "behavioral": [
-                "stakeholder management",
-                "conflict resolution",
-                "decision making",
-                "communication clarity",
-                "ownership and accountability",
-                "team collaboration",
-                "adaptability under ambiguity",
-                "prioritization",
-                "problem solving under constraints",
-            ],
-            "archetypes": ["scenario", "trade-off", "stakeholder", "reflection"],
-            "depth_guidelines": [
-                "Ask for concrete examples and measurable outcomes",
-                "Probe rationale, trade-offs, and communication choices",
-                "Prefer role-relevant, situational non-technical prompts",
-            ],
-        }
-        influence = {
-            "interview_type": "non_technical",
-            "target_role": normalized_job_name,
-            "difficulty": difficulty,
-            "experience_level": job_profile.experience_level,
-            "company_name": job_profile.company_name,
-            "skills": job_profile.skills or [],
-            "job_profile_id": job_profile.id,
-        }
-
-        question_count = 5
-        questions, llm_error, latency_ms, llm_model, items = await generate_interview_questions_with_llm(
-            track=normalized_job_name,
-            context_text=context_text,
-            count=question_count,
-            difficulty=difficulty,
-            syllabus_topics=topics,
-            ratio=ratio,
-            influence=influence,
+        questions_data = select_non_tech_interview_questions(
+            role_name=normalized_job_name,
+            company_name=job_profile.company_name,
+            seed=f"{current_user.id}:{job_profile.id}:{interview.id}",
         )
 
-        if not questions:
-            questions = [
-                f"Tell me about a difficult stakeholder situation relevant to this {normalized_job_name} role and how you handled it.",
-                "Describe a time you had to make a decision with incomplete information. What trade-offs did you consider?",
-                "Give an example of how you resolved conflict within a team while keeping delivery on track.",
-                "Share a situation where you had to influence others without direct authority.",
-                "Describe one failure from your past work and what changed in your approach afterward.",
-            ]
+        if payload.use_resume and isinstance(getattr(current_user, "resume_text", None), str):
+            resume_context = (getattr(current_user, "resume_text", None) or "").strip()
+            if resume_context:
+                questions_data[0]["text"] = f"Based on your background, {questions_data[0]['text']}"
 
-        questions_data: list[dict[str, object]] = []
-        if items:
-            for item in items:
-                questions_data.append(
-                    {
-                        "text": item.get("text", ""),
-                        "topic": item.get("topic") or "non-technical",
-                        "category": item.get("category") or "behavioral",
-                    }
-                )
-        else:
-            for question in questions:
-                questions_data.append({"text": question, "topic": "non-technical", "category": "behavioral"})
+        if job_profile.additional_context:
+            context_suffix = job_profile.additional_context.strip()
+            if context_suffix:
+                questions_data[0]["text"] = f"{questions_data[0]['text']} ({context_suffix})"
 
         for idx in range(min(2, len(questions_data))):
             questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
@@ -579,15 +522,14 @@ async def generate_non_tech_questions_v2(
         )
         _validate_supplements_response(items=supplements_map, source="generate-non-tech-questions")
         response_items: list[dict[str, object]] = []
-        for idx, question_obj in enumerate(persisted):
-            structured = items[idx] if items and idx < len(items) else None
+        for question_obj in persisted:
             response_items.append(
                 {
                     "interviewQuestionId": question_obj.id,
-                    "text": (structured or {}).get("text") or question_obj.text,
-                    "topic": (structured or {}).get("topic") or question_obj.topic,
-                    "difficulty": (structured or {}).get("difficulty") or difficulty,
-                    "category": (structured or {}).get("category") or question_obj.category,
+                    "text": question_obj.text,
+                    "topic": question_obj.topic,
+                    "difficulty": difficulty,
+                    "category": question_obj.category,
                     "isFollowUp": question_obj.is_follow_up,
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
@@ -596,9 +538,9 @@ async def generate_non_tech_questions_v2(
             )
         qs = {
             "questions": [q["text"] for q in questions_data],
-            "llm_error": llm_error,
-            "latency_ms": latency_ms,
-            "llm_model": llm_model,
+            "llm_error": None,
+            "latency_ms": 0,
+            "llm_model": f"blueprint_static_{NON_TECH_BLUEPRINT_VERSION}",
             "items": response_items,
         }
     else:
