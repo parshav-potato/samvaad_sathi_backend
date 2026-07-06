@@ -400,6 +400,10 @@ async def upload_knowledge_questions(
         elif ext == ".doc":
             extracted_text = content.decode("utf-8", errors="ignore")
             
+        # Fix PDF extraction where lowercase letters are immediately followed by an uppercase question prefix
+        if extracted_text:
+            extracted_text = re.sub(r'([a-z])(Question:|What|Explain|How|When|Why|Write|Discuss|Compare|Describe)\b', r'\1\n\2', extracted_text)
+            
         # Parse text if we extracted anything
         if extracted_text.strip():
             lines = [line.strip() for line in extracted_text.split("\n")]
@@ -518,6 +522,10 @@ async def upload_knowledge_questions(
                         starts_new = True
                         
                 if starts_new or last_question_key is None or key != last_question_key:
+                    if not starts_new and last_question_key is None and not ends_with_qmark:
+                        # Ignore introductory text before the first actual question
+                        continue
+                        
                     if topic_key not in topics_map:
                         topics_map[topic_key] = {}
                     if current_level not in topics_map[topic_key]:
