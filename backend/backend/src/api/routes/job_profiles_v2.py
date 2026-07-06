@@ -198,10 +198,10 @@ async def get_job_profile_review(
         meta = LEVEL_METADATA[lvl]
         lvl_questions = [q for q in questions if q.level == lvl]
         
-        # Get first 3 questions as preview questions
+        # Get all questions
         preview = [
             JobProfileReviewPreviewQuestion(question_id=q.id, question=q.question_text)
-            for q in lvl_questions[:3]
+            for q in lvl_questions
         ]
         
         levels_list.append(JobProfileReviewLevelInfo(
