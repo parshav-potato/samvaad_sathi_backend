@@ -70,6 +70,9 @@ class BackendBaseSettings(BaseSettings):
         # staging
         "https://samvaad-saathi-staging.barabaricollective.org",
         "https://api-staging.barabaricollective.org",
+        # Staging on render
+        "https://samvaad-sathi-backend-tdd0.onrender.com",
+        "https://samvaad-saathi-frontend.onrender.com",
     ]
     ALLOWED_METHODS: list[str] = ["*"]
     ALLOWED_HEADERS: list[str] = ["*"]
