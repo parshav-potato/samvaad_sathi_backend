@@ -63,7 +63,7 @@ class BackendBaseSettings(BaseSettings):
         "http://127.0.0.1:5173",  # Qwik docker port
         "http://127.0.0.1:5174",
         "https://backend-samvaad-saathi.barabaricollective.org",
-        "https://samvaad-saathi-frontend.vercel.app" #vercel new prod
+        "https://samvaad-saathi-frontend.vercel.app", #vercel new prod
         "https://samvaad-sathi.barabaricollective.org",  # Production frontend (without www)
         "https://www.samvaad-sathi.barabaricollective.org",  # Production frontend (with www)
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
