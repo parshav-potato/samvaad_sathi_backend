@@ -38,6 +38,8 @@ email-validator
 PyPDF2
 pdfplumber
 pathlib
+PyMuPDF
+python-docx
 
 # Development and testing
 black

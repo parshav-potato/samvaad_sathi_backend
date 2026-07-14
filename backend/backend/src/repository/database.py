@@ -61,7 +61,9 @@ class AsyncDatabase:
         Set the synchronous database driver into asynchronous version by utilizing AsyncPG:
             `postgresql://` => `postgresql+asyncpg://`
         """
-        return f"postgresql+asyncpg://{settings.DB_POSTGRES_USERNAME}:{settings.DB_POSTGRES_PASSWORD}@{settings.DB_POSTGRES_HOST}:{settings.DB_POSTGRES_PORT}/{settings.DB_POSTGRES_NAME}"
+        import urllib.parse
+        encoded_password = urllib.parse.quote_plus(settings.DB_POSTGRES_PASSWORD)
+        return f"postgresql+asyncpg://{settings.DB_POSTGRES_USERNAME}:{encoded_password}@{settings.DB_POSTGRES_HOST}:{settings.DB_POSTGRES_PORT}/{settings.DB_POSTGRES_NAME}"
 
 
 async_db: AsyncDatabase = AsyncDatabase()
