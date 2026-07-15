@@ -68,7 +68,9 @@ class BackendBaseSettings(BaseSettings):
         "https://www.samvaad-sathi.barabaricollective.org",  # Production frontend (with www)
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
         "https://samvaad-dashboard.barabaricollective.org",
-        "https://master.d30wpikvvj1kc2.amplifyapp.com"
+        "https://master.d30wpikvvj1kc2.amplifyapp.com",
+        "https://main.d36hlrn367i0rr.amplifyapp.com", #new aws production
+        "https://master.d1ljdkppy5vau1.amplifyapp.com", #new aws dashboard prod
     ]
     ALLOWED_METHODS: list[str] = ["*"]
     ALLOWED_HEADERS: list[str] = ["*"]
