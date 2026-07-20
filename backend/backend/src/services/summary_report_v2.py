@@ -85,6 +85,25 @@ def _unique(items: List[str]) -> List[str]:
     return out
 
 
+def _question_type_label(category: str | None) -> str:
+    key = (category or "tech").lower()
+    category_map = {
+        "tech": "Technical question",
+        "tech_allied": "Technical Allied question",
+        "behavioral": "Behavioral question",
+        "self": "Self question",
+        "productivity": "Productivity question",
+        "company_candidate": "Company and Candidate question",
+        "general": "General question",
+    }
+    return category_map.get(key, "Technical question")
+
+
+def _is_non_tech_track(track: str | None) -> bool:
+    normalized_track = (track or "").strip().lower()
+    return normalized_track.startswith("non-tech:")
+
+
 class SummaryReportServiceV2:
     def __init__(self, db: SQLAlchemyAsyncSession) -> None:
         self._db = db
@@ -124,6 +143,11 @@ class SummaryReportServiceV2:
                 result.extend(follow_ups_by_parent[q.id])
         
         return result
+
+    def _maybe_strip_knowledge_summary(self, *, track: str, score_summary: Dict[str, Any]) -> Dict[str, Any]:
+        if _is_non_tech_track(track):
+            score_summary.pop("knowledgeCompetence", None)
+        return score_summary
 
     async def generate_for_interview(
         self,
@@ -336,7 +360,7 @@ class SummaryReportServiceV2:
             )
             # Validate the final report
             parsed = SummaryReportResponse(**final_report)
-            return parsed.model_dump(exclude_none=False)
+            return parsed.model_dump(exclude_none=True)
         except Exception as e:
             # LLM data invalid or calculation failed - fall back
             return self._build_fallback_report(
@@ -404,6 +428,7 @@ class SummaryReportServiceV2:
                     }
                 }
             }
+            score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
             
             candidate_info = {
                 "name": candidate_name,
@@ -577,6 +602,7 @@ class SummaryReportServiceV2:
                 }
             }
         }
+        score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
         
         # Build candidateInfo in code
         candidate_info = {
@@ -614,13 +640,7 @@ class SummaryReportServiceV2:
         question_analysis = []
         
         for idx, iq in enumerate(all_questions):
-            # Map question category to type string
-            category_map = {
-                "tech": "Technical question",
-                "tech_allied": "Technical Allied question", 
-                "behavioral": "Behavioral question",
-            }
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = _question_type_label(iq.category)
             
             # Check if this question was attempted with valid content
             attempt = attempts_by_question_id.get(iq.id)
@@ -801,6 +821,8 @@ class SummaryReportServiceV2:
                 ),
             ),
         )
+        score_summary_dict = score_summary.model_dump(exclude_none=False)
+        score_summary_dict = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary_dict)
         
         # Overall feedback (speech only)
         speech_strengths = computed_metrics.get("speech_strengths", [])
@@ -844,12 +866,7 @@ class SummaryReportServiceV2:
         for idx, interview_question in enumerate(all_questions):
             qa = attempts_map.get(interview_question.id)
             
-            # Map category
-            q_type = "Technical question"
-            if interview_question.category == "tech_allied":
-                q_type = "Technical Allied question"
-            elif interview_question.category == "behavioral":
-                q_type = "Behavioral question"
+            q_type = _question_type_label(interview_question.category)
             
             # Check if attempted
             if qa is None:
@@ -922,12 +939,12 @@ class SummaryReportServiceV2:
         report = SummaryReportResponse(
             reportId=report_id,
             candidateInfo=candidate_info,
-            scoreSummary=score_summary,
+            scoreSummary=ScoreSummary(**score_summary_dict),
             overallFeedback=overall_feedback,
             questionAnalysis=question_analysis,
         )
         
-        return report.model_dump(exclude_none=False)
+        return report.model_dump(exclude_none=True)
 
     async def generate_for_interview_lite(
         self,
@@ -1113,13 +1130,13 @@ class SummaryReportServiceV2:
                     duration=duration_str,
                     durationFeedback=duration_feedback
                 ),
-                scoreSummary=ScoreSummary(**fallback_std["scoreSummary"]),
+                scoreSummary=ScoreSummary(**self._maybe_strip_knowledge_summary(track=track, score_summary=dict(fallback_std["scoreSummary"]))),
                 questionAnalysis=qa_items,
                 recommendedPractice={"title": "Practice", "description": "Practice more."},
                 speechFluencyFeedback={"strengths": "N/A", "areasOfImprovement": "N/A", "ratingEmoji": "Neutral", "ratingTitle": "N/A", "ratingDescription": "N/A"},
                 nextSteps=[{"title": "Practice"}],
                 finalTip={"title": "Tip", "description": "Keep practicing."}
-            ).model_dump(exclude_none=False)
+            ).model_dump(exclude_none=True)
 
         try:
             final_report = self._calculate_final_scores_lite(
@@ -1135,7 +1152,7 @@ class SummaryReportServiceV2:
                 duration_feedback=duration_feedback,
             )
             parsed = SummaryReportResponseLite(**final_report)
-            return parsed.model_dump(exclude_none=False)
+            return parsed.model_dump(exclude_none=True)
         except Exception as e:
             # Fallback on exception
             print(f"Error parsing lite report: {e}")
@@ -1150,7 +1167,6 @@ class SummaryReportServiceV2:
                     durationFeedback=duration_feedback
                 ),
                 scoreSummary=ScoreSummary(
-                    knowledgeCompetence=KnowledgeCompetenceScore(score=0, maxScore=25, average=0, maxAverage=5, percentage=0, criteria=ScoreCriteria()),
                     speechAndStructure=SpeechAndStructureScore(score=0, maxScore=20, average=0, maxAverage=5, percentage=0, criteria=SpeechCriteria())
                 ),
                 questionAnalysis=[],
@@ -1158,7 +1174,7 @@ class SummaryReportServiceV2:
                 speechFluencyFeedback={"strengths": "Error", "areasOfImprovement": "Error", "ratingEmoji": "Sad", "ratingTitle": "Error", "ratingDescription": "Error"},
                 nextSteps=[],
                 finalTip={"title": "Error", "description": "Error"}
-            ).model_dump(exclude_none=False)
+            ).model_dump(exclude_none=True)
 
     def _calculate_final_scores_lite(
         self,
@@ -1244,6 +1260,7 @@ class SummaryReportServiceV2:
                 }
             }
         }
+        score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
         
         candidate_info = {
             "name": candidate_name,
@@ -1257,8 +1274,7 @@ class SummaryReportServiceV2:
         feedback_idx = 0
         
         for idx, iq in enumerate(all_questions):
-            category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = _question_type_label(iq.category)
             
             # Check if attempted
             if iq.id not in actually_attempted_question_ids:

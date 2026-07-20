@@ -131,22 +131,26 @@ def main() -> None:
         print(f"✓ [Test 2] Created session {session_id}, prompt: {prompt_text[:60]}...")
 
         # ------------------------------------------------------------------ #
-        # Test 3: POST /session – level 2 while locked (expect 403)           #
+        # Test 3: POST /session – level 2 (no lock enforcement, expect 201)  #
         # ------------------------------------------------------------------ #
         r, err = safe_call(client, "POST", f"{PACING_API}/session", headers=headers_a, json={"level": 2})
-        print_result("POST /api/pacing-practice/session (level 2 locked)", r, err)
-        if not r or r.status_code != 403:
-            raise SystemExit(f"[Test 3] Expected 403 for locked level 2, got {r.status_code if r else 'no response'}")
-        print("✓ [Test 3] Locked level 2 correctly rejected with 403")
+        print_result("POST /api/pacing-practice/session (level 2)", r, err)
+        if not r or r.status_code != 201:
+            raise SystemExit(f"[Test 3] Expected 201 for level 2 session, got {r.status_code if r else 'no response'}")
+        print("✓ [Test 3] Level 2 session created (no gating on session creation)")
 
         # ------------------------------------------------------------------ #
-        # Test 4: POST /session – level 3 while locked (expect 403)           #
+        # Test 4: POST /session – level 3 (no lock enforcement, expect 201)  #
         # ------------------------------------------------------------------ #
         r, err = safe_call(client, "POST", f"{PACING_API}/session", headers=headers_a, json={"level": 3})
-        print_result("POST /api/pacing-practice/session (level 3 locked)", r, err)
-        if not r or r.status_code != 403:
-            raise SystemExit(f"[Test 4] Expected 403 for locked level 3, got {r.status_code if r else 'no response'}")
-        print("✓ [Test 4] Locked level 3 correctly rejected with 403")
+        print_result("POST /api/pacing-practice/session (level 3)", r, err)
+        if not r or r.status_code != 201:
+            raise SystemExit(f"[Test 4] Expected 201 for level 3 session, got {r.status_code if r else 'no response'}")
+        level3_data = safe_json(r)
+        level3_session_id = level3_data.get("sessionId")
+        if not level3_session_id:
+            raise SystemExit("[Test 4] Missing sessionId for level 3 session")
+        print("✓ [Test 4] Level 3 session created (no gating on session creation)")
 
         # ------------------------------------------------------------------ #
         # Test 5: POST /session/{id}/submit – audio upload + analysis         #
@@ -191,18 +195,66 @@ def main() -> None:
             if speech_speed["status"] not in ("Good", "Needs Adjustment"):
                 raise SystemExit(f"[Test 5] Unexpected status in speechSpeed: {speech_speed['status']}")
 
-            # Validate pauseDistribution structure
-            for key in ("value", "idealRange", "status", "feedback"):
+            # Validate pauseDistribution structure (new linguistic scorer)
+            for key in ("score", "status", "feedback", "avgWordsPerPause",
+                        "totalPauses", "mandatoryCovered", "commaPausesMissed"):
                 if key not in pause_dist:
                     raise SystemExit(f"[Test 5] Missing '{key}' in pauseDistribution")
-            if pause_dist["idealRange"] != "8-12 words":
-                raise SystemExit(f"[Test 5] Unexpected idealRange for pauseDistribution: {pause_dist['idealRange']}")
+            if not (0 <= pause_dist["score"] <= 100):
+                raise SystemExit(f"[Test 5] pauseDistribution.score out of range: {pause_dist['score']}")
+            if pause_dist["status"] not in ("Good", "Average", "Needs Adjustment"):
+                raise SystemExit(f"[Test 5] Unexpected status in pauseDistribution: {pause_dist['status']}")
+
+            # Validate fillerWords structure
+            filler_words = submit_data.get("fillerWords", {})
+            for key in ("count", "totalWords", "fillerRatio", "status", "suggestion", "fillersFound"):
+                if key not in filler_words:
+                    raise SystemExit(f"[Test 5] Missing '{key}' in fillerWords")
+            if filler_words["status"] not in ("Good", "Average", "Needs Adjustment"):
+                raise SystemExit(f"[Test 5] Unexpected status in fillerWords: {filler_words['status']}")
 
             wpm_val = speech_speed["value"]
-            pause_val = pause_dist["value"]
-            print(f"✓ [Test 5] Score={score}/100 ({score_label}), WPM={wpm_val}, Pause interval={pause_val}")
+            pause_score = pause_dist["score"]
+            print(f"✓ [Test 5] Score={score}/100 ({score_label}), WPM={wpm_val}, Pause score={pause_score}/100")
             print(f"  Speech speed: {speech_speed['status']} – {speech_speed['feedback']}")
             print(f"  Pause dist:   {pause_dist['status']} – {pause_dist['feedback']}")
+            print(f"  Filler words: {filler_words['status']} – count={filler_words['count']}/{filler_words['totalWords']}")
+
+            # -------------------------------------------------------------- #
+            # Test 5b: POST /session/{id}/submit (level 3 report shape)     #
+            # -------------------------------------------------------------- #
+            with open(audio_path, "rb") as af:
+                files = {"file": ("answer.mp3", af, "audio/mpeg")}
+                r3, err3 = safe_call(
+                    client,
+                    "POST",
+                    f"{PACING_API}/session/{level3_session_id}/submit",
+                    headers=headers_a,
+                    files=files,
+                )
+            print_result(f"POST /api/pacing-practice/session/{level3_session_id}/submit (level 3)", r3, err3)
+            if not r3 or r3.status_code != 200:
+                raise SystemExit(f"[Test 5b] Expected 200 for level 3 submit, got {r3.status_code if r3 else 'no response'}")
+
+            level3_submit = safe_json(r3)
+            level3_report = level3_submit.get("level3Report")
+            if level3_report is None:
+                raise SystemExit("[Test 5b] Missing level3Report in level 3 submit response")
+
+            for key in ("overallScore", "overallStatus", "deliveryControl", "clarity", "fluency", "interviewQuality"):
+                if key not in level3_report:
+                    raise SystemExit(f"[Test 5b] Missing '{key}' in level3Report")
+
+            delivery = level3_report.get("deliveryControl", {})
+            if "speechSpeed" not in delivery or "speechConsistency" not in delivery:
+                raise SystemExit("[Test 5b] deliveryControl missing speechSpeed/speechConsistency")
+
+            interview_q = level3_report.get("interviewQuality", {})
+            for key in ("responseDuration", "energyLevel", "consistency"):
+                if key not in interview_q:
+                    raise SystemExit(f"[Test 5b] interviewQuality missing '{key}'")
+
+            print("✓ [Test 5b] Level-3 grouped report structure validated")
         else:
             print("⚠  [Test 5] Skipped – no audio file available")
             score = None
@@ -236,10 +288,15 @@ def main() -> None:
 
             speech_speed_detail = detail.get("speechSpeed")
             pause_dist_detail = detail.get("pauseDistribution")
+            filler_words_detail = detail.get("fillerWords")
             if speech_speed_detail is None:
                 raise SystemExit("[Test 6] Missing speechSpeed in completed session detail")
             if pause_dist_detail is None:
                 raise SystemExit("[Test 6] Missing pauseDistribution in completed session detail")
+            if filler_words_detail is None:
+                raise SystemExit("[Test 6] Missing fillerWords in completed session detail")
+            if "score" not in pause_dist_detail:
+                raise SystemExit("[Test 6] Missing 'score' in pauseDistribution detail")
 
             print(f"✓ [Test 6] Session detail correct – status=completed, score={detail_score}, transcript present")
 

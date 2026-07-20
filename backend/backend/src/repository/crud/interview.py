@@ -1,7 +1,9 @@
 import sqlalchemy
 from typing import List, Tuple, Optional
+import datetime
 
 from src.models.db.interview import Interview
+from src.models.db.question_attempt import QuestionAttempt
 from src.models.db.summary_report import SummaryReport
 from src.repository.crud.base import BaseCRUDRepository
 
@@ -30,7 +32,25 @@ class InterviewCRUDRepository(BaseCRUDRepository):
         interview: Interview | None = query.scalar()  # type: ignore
         if not interview:
             return None
+
+        duration_stmt = (
+            sqlalchemy.select(
+                sqlalchemy.func.min(QuestionAttempt.created_at).label("start_at"),
+                sqlalchemy.func.max(QuestionAttempt.created_at).label("end_at"),
+            )
+            .where(QuestionAttempt.interview_id == interview_id)
+        )
+        duration_row = (await self.async_session.execute(duration_stmt)).one()
+        start_at = duration_row.start_at
+        end_at = duration_row.end_at
+
+        duration_seconds: int | None = None
+        if start_at is not None and end_at is not None:
+            duration_seconds = max(0, int((end_at - start_at).total_seconds()))
+
         interview.status = "completed"
+        interview.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        interview.duration_seconds = duration_seconds
         await self.async_session.commit()
         await self.async_session.refresh(interview)
         return interview

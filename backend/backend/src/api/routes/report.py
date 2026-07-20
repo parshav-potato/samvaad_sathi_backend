@@ -14,6 +14,7 @@ from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.repository.crud.report import ReportCRUDRepository
 from src.services.report import FinalReportService
+from src.services.analytics_events import track_analytics_event
 
 
 router = fastapi.APIRouter(tags=["report"])
@@ -113,6 +114,14 @@ async def get_final_report(
     report = await report_repo.get_by_interview_id(interview_id)
     if not report:
         raise fastapi.HTTPException(status_code=404, detail="Final report not found for this interview")
+
+    await track_analytics_event(
+        session,
+        event_type="report_viewed",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"report_type": "final", "source": "report.get_final_report"},
+    )
 
     response = FinalReportResponse(
         interview_id=interview.id,
