@@ -29,17 +29,28 @@ class ResumeExperienceSchema(BaseModel):
     company: str = ""
     role: str = ""
     duration: str = ""
+    bullets: Optional[List[str]] = []
     highlights: List[str] = []
 
 class ResumeProjectSchema(BaseModel):
     title: str = ""
     description: str = ""
+    duration: Optional[str] = ""
+    github_link: Optional[str] = ""
+    hosted_link: Optional[str] = ""
+    bullets: Optional[List[str]] = []
     technologies: Optional[List[str]] = []
+    duration: Optional[str] = ""
+    bullets: Optional[List[str]] = []
+    highlights: Optional[List[str]] = []
+    githubUrl: Optional[str] = ""
+    liveUrl: Optional[str] = ""
 
 class ResumeEducationSchema(BaseModel):
     institution: str = ""
     degree: str = ""
     year: str = ""
+    duration: Optional[str] = ""
 
 class FullResumeContentSchema(BaseModel):
     header: ResumeHeaderSchema = Field(default_factory=ResumeHeaderSchema)
