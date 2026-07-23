@@ -64,11 +64,15 @@ class BackendBaseSettings(BaseSettings):
         "http://127.0.0.1:5174",
         "https://backend-samvaad-saathi.barabaricollective.org",
         "https://samvaad-saathi-frontend.vercel.app" #vercel new prod
+        "https://samvaad-saathi-frontend.vercel.app", #vercel new prod
         "https://samvaad-sathi.barabaricollective.org",  # Production frontend (without www)
         "https://www.samvaad-sathi.barabaricollective.org",  # Production frontend (with www)
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
+        "https://samvaad-saathi-dashboard.onrender.com",  # Dashboard frontend on Render
         "https://samvaad-dashboard.barabaricollective.org",
         "https://master.d30wpikvvj1kc2.amplifyapp.com",
+        "https://main.d36hlrn367i0rr.amplifyapp.com", #new aws production
+        "https://master.d1ljdkppy5vau1.amplifyapp.com", #new aws dashboard prod
         # staging
         "https://samvaad-saathi-staging.barabaricollective.org",
         "https://api-staging.barabaricollective.org",
