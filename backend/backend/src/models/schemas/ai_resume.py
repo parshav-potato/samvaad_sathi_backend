@@ -10,7 +10,7 @@ class ScoreBreakdown(BaseModel):
 class SkillsAnalysis(BaseModel):
     strongSkills: List[str]
     missingSkills: List[str]
-    deprioritizedSkills: List[str]
+    additionalSkills: List[str]
 
 class ExperienceEvaluationSchema(BaseModel):
     rating: str  # Excellent | Good | Average | Bad

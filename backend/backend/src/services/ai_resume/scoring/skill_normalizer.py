@@ -14,52 +14,116 @@ class SkillNormalizer:
         
         # Comprehensive canonical mapping database (Expandable to 250+ entries easily)
         self.alias_matrix = {
-            # Languages
-            "javascript": "javascript", "js": "javascript", "ts": "typescript", "typescript": "typescript",
-            "python": "python", "py": "python", "c++": "cpp", "cpp": "cpp", "cplusplus": "cpp",
-            "c#": "csharp", "csharp": "csharp", "java": "java", "golang": "go", "go": "go",
-            
-            # Frontend Frameworks & Tech
-            "react": "react", "reactjs": "react", "react.js": "react", "nextjs": "nextjs", "next.js": "nextjs",
-            "vue": "vue", "vuejs": "vue", "vue.js": "vue", "angular": "angular", "angularjs": "angular",
-            "tailwind": "tailwindcss", "tailwind css": "tailwindcss", "bootstrap": "bootstrap",
-            "html": "html", "html5": "html", "css": "css", "css3": "css", "sass": "sass",
-            
-            # Backend Frameworks
-            "nodejs": "nodejs", "node": "nodejs", "node.js": "nodejs",
-            "express": "express", "expressjs": "express", "express.js": "express",
-            "django": "django", "flask": "fastapi", "fastapi": "fastapi", "spring": "springboot", "springboot": "springboot",
-            
-            # Databases
-            "postgres": "postgresql", "postgresql": "postgresql", "mongo": "mongodb", "mongodb": "mongodb",
-            "mysql": "mysql", "redis": "redis", "sqlite": "sqlite", "oracle": "oracle",
-            
-            # Cloud & DevOps
-            "aws": "aws", "amazon web services": "aws", "docker": "docker", "kubernetes": "kubernetes", "k8s": "kubernetes",
-            "gcp": "gcp", "google cloud": "gcp", "azure": "azure", "jenkins": "jenkins", "terraform": "terraform",
-            "ci/cd": "cicd", "cicd": "cicd", "git": "git", "github": "github",
-            
-            # APIs & Protocol Layers
-            "rest apis": "rest", "rest api": "rest", "rest": "rest", "graphql": "graphql", "soap": "soap",
-            "websockets": "websockets", "websocket": "websockets", "twilio api": "twilio", "twilio": "twilio",
-            
-            # Design UI/UX
-            "figma": "figma", "adobe xd": "adobexd", "sketch": "sketch", "photoshop": "photoshop"
+            # --- API & Protocols ---
+            "rest": "rest", "rest api": "rest", "rest apis": "rest",
+            "restful api": "rest", "restful apis": "rest", "restful": "rest",
+            "restful web services": "rest", "graphql": "graphql", "soap": "soap",
+            "websockets": "websockets", "websocket": "websockets", "ws": "websockets",
+
+            # --- Languages ---
+            "javascript": "javascript", "js": "javascript", "ecmascript": "javascript", "es6": "javascript",
+            "typescript": "typescript", "ts": "typescript",
+            "python": "python", "py": "python",
+            "java": "java",
+            "c++": "cpp", "cpp": "cpp", "cplusplus": "cpp",
+            "c#": "csharp", "csharp": "csharp",
+            "golang": "go", "go": "go",
+            "ruby": "ruby", "rust": "rust", "php": "php",
+
+            # --- Frontend Frameworks & Libraries ---
+            "react": "react", "reactjs": "react", "react.js": "react", "react js": "react",
+            "nextjs": "nextjs", "next.js": "nextjs", "next js": "nextjs", "next": "nextjs",
+            "vue": "vue", "vuejs": "vue", "vue.js": "vue", "vue js": "vue",
+            "angular": "angular", "angularjs": "angular", "angular.js": "angular", "angular js": "angular",
+            "svelte": "svelte", "sveltekit": "svelte",
+            "tailwind": "tailwindcss", "tailwind css": "tailwindcss", "tailwindcss": "tailwindcss",
+            "bootstrap": "bootstrap", "bootstrap5": "bootstrap",
+            "html": "html", "html5": "html",
+            "css": "css", "css3": "css", "sass": "sass", "scss": "sass",
+
+            # --- Backend Frameworks ---
+            "nodejs": "nodejs", "node": "nodejs", "node.js": "nodejs", "node js": "nodejs",
+            "express": "express", "expressjs": "express", "express.js": "express", "express js": "express",
+            "django": "django",
+            "fastapi": "fastapi", "fast api": "fastapi",
+            "flask": "flask",
+            "spring": "springboot", "springboot": "springboot", "spring boot": "springboot",
+
+            # --- Databases ---
+            "postgres": "postgresql", "postgresql": "postgresql", "postgres db": "postgresql",
+            "mongo": "mongodb", "mongodb": "mongodb", "mongo db": "mongodb",
+            "mysql": "mysql", "my sql": "mysql",
+            "sqlite": "sqlite", "sqlite3": "sqlite",
+            "redis": "redis",
+            "oracle": "oracle", "oracledb": "oracle",
+            "dynamodb": "dynamodb", "dynamo db": "dynamodb",
+            "cassandra": "cassandra",
+
+            # --- Cloud & DevOps ---
+            "aws": "aws", "amazon web services": "aws",
+            "gcp": "gcp", "google cloud": "gcp", "google cloud platform": "gcp",
+            "azure": "azure", "microsoft azure": "azure",
+            "docker": "docker", "containerization": "docker", "containers": "docker",
+            "kubernetes": "kubernetes", "k8s": "kubernetes",
+            "ci/cd": "cicd", "cicd": "cicd", "continuous integration": "cicd", "ci cd": "cicd",
+            "git": "git", "github": "github", "gitlab": "gitlab", "bitbucket": "bitbucket",
+            "jenkins": "jenkins", "terraform": "terraform", "ansible": "terraform",
+
+            # --- Design & Tools ---
+            "figma": "figma", "adobe xd": "adobexd", "postman": "postman",
+
+            # --- AI / ML / Data ---
+            "openai": "openai", "langchain": "langchain", "tensorflow": "tensorflow",
+            "pytorch": "pytorch", "pandas": "pandas", "numpy": "numpy"
         }
 
         # Human-readable presentation mapping for clean React Dashboard display cards
         self.display_names = {
-            "javascript": "JavaScript", "typescript": "TypeScript", "python": "Python", "cpp": "C++",
-            "csharp": "C#", "java": "Java", "go": "Go", "react": "React.js", "nextjs": "Next.js",
-            "vue": "Vue.js", "angular": "Angular", "tailwindcss": "Tailwind CSS", "bootstrap": "Bootstrap",
-            "html": "HTML5", "css": "CSS3", "sass": "Sass", "nodejs": "Node.js", "express": "Express.js",
-            "django": "Django", "fastapi": "FastAPI", "springboot": "Spring Boot", "postgresql": "PostgreSQL",
-            "mongodb": "MongoDB", "mysql": "MySQL", "redis": "Redis", "aws": "AWS", "docker": "Docker",
-            "kubernetes": "Kubernetes", "git": "Git", "github": "GitHub", "cicd": "CI/CD",
-            "rest": "REST APIs", "graphql": "GraphQL", "websockets": "WebSockets", "twilio": "Twilio API",
-            "figma": "Figma"
+            "rest": "REST APIs",
+            "websockets": "WebSockets",
+            "graphql": "GraphQL",
+            "soap": "SOAP",
+            "javascript": "JavaScript",
+            "typescript": "TypeScript",
+            "python": "Python",
+            "java": "Java",
+            "cpp": "C++",
+            "csharp": "C#",
+            "go": "Go",
+            "react": "React.js",
+            "nextjs": "Next.js",
+            "vue": "Vue.js",
+            "angular": "Angular",
+            "svelte": "Svelte",
+            "tailwindcss": "Tailwind CSS",
+            "bootstrap": "Bootstrap",
+            "html": "HTML5",
+            "css": "CSS3",
+            "sass": "Sass",
+            "nodejs": "Node.js",
+            "express": "Express.js",
+            "django": "Django",
+            "fastapi": "FastAPI",
+            "flask": "Flask",
+            "springboot": "Spring Boot",
+            "postgresql": "PostgreSQL",
+            "mongodb": "MongoDB",
+            "mysql": "MySQL",
+            "sqlite": "SQLite",
+            "redis": "Redis",
+            "aws": "AWS",
+            "gcp": "GCP",
+            "azure": "Azure",
+            "docker": "Docker",
+            "kubernetes": "Kubernetes",
+            "cicd": "CI/CD",
+            "git": "Git",
+            "github": "GitHub",
+            "figma": "Figma",
+            "postman": "Postman",
+            "openai": "OpenAI",
+            "langchain": "LangChain"
         }
-
     def normalize(self, raw_string: str) -> str:
         """Normalizes an individual token or short phrase phrase into its canonical tech ID."""
         if not raw_string:
