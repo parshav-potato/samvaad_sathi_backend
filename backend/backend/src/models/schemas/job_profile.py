@@ -91,6 +91,7 @@ class JobProfileUploadResponse(BaseSchemaModel):
     topics_detected: List[str] = []
     total_questions: int = 0
     topics: List[KnowledgeQuestionTopicResponse] = []
+    extracted_text: Optional[str] = None
 
 class JobProfileExtractSkillsRequest(BaseSchemaModel):
     job_description: str

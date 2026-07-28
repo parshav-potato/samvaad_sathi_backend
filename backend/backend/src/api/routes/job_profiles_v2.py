@@ -319,12 +319,60 @@ async def upload_job_description(
     Validates and processes the uploaded Job Description file entirely in memory.
     No file is written to disk and no metadata is persisted.
     """
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+    import PyPDF2
+    
     extension, size = await validate_file(file)
+    
+    extracted_text = ""
+    try:
+        await file.seek(0)
+        content = await file.read()
+        ext = extension.lower()
+        if ext == ".txt":
+            extracted_text = content.decode("utf-8", errors="ignore")
+        elif ext == ".pdf":
+            try:
+                pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+                texts = []
+                for page in pdf_reader.pages:
+                    try:
+                        page_text = page.extract_text() or ""
+                        if page_text.strip():
+                            texts.append(page_text)
+                    except Exception:
+                        continue
+                extracted_text = "\n".join(texts)
+            except Exception as e:
+                logger.error(f"Error parsing PDF file in upload_jd: {e}")
+                extracted_text = ""
+        elif ext == ".docx":
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as z:
+                    xml_content = z.read("word/document.xml")
+                    root = ET.fromstring(xml_content)
+                    texts = []
+                    for elem in root.iter():
+                        if elem.tag.endswith('}t'):
+                            if elem.text:
+                                texts.append(elem.text)
+                    extracted_text = " ".join(texts)
+            except Exception as e:
+                logger.error(f"Error parsing DOCX file in upload_jd: {e}")
+                extracted_text = ""
+        elif ext == ".doc":
+            extracted_text = content.decode("utf-8", errors="ignore")
+    except Exception as e:
+        logger.error(f"Error reading file in upload_jd: {e}")
+
     return JobProfileUploadResponse(
         success=True,
         original_file_name=file.filename or "",
         file_type=extension.replace(".", ""),
         file_size=size,
+        extracted_text=extracted_text,
     )
 
 
