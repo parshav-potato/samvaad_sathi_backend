@@ -1,136 +1,123 @@
-# this code give scoring based on working links present in the resume
-import re
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+
 
 class LinkScorer:
     """
-    Deterministic Link Scorer for the ATS Engine.
-    Consumes output from SmartLinkValidator, handles engineering vs designer tracks,
-    calculates metrics out of 40, and formats the output for frontend rendering.
+    Production-Grade Link Scorer.
+    Evaluates proof-of-work across profile identity, active deployments,
+    mapped project repositories, packages, and certifications.
     """
-    
+
     def __init__(self):
-        # Target keywords to identify design-oriented tracks if not specified explicitly
-        self.design_keywords = re.compile(r'(ui/ux|product designer|graphic|figma|illustrator|behance|dribbble)', re.IGNORECASE)
+        pass
 
-    def score_links(self, validator_output: Dict[str, Any], track: str = None, job_title: str = "") -> Dict[str, Any]:
-        """
-        Main interface to process and score links.
-        
-        :param validator_output: The exact output dictionary from SmartLinkValidator.validate_all_links_async()
-        :param track: Explicit path setting ('engineering' or 'designer')
-        :param job_title: Job description or title to fallback-infer track type
-        """
-        # 1. Flatten and categorize the complex output structure from your SmartLinkValidator
-        normalized_links = self._normalize_validator_data(validator_output)
-        
-        # 2. Determine processing track route
-        if not track:
-            track = self._infer_track(job_title, normalized_links)
-            
-        # 3. Calculate scores based on track
-        if track == 'designer':
-            return self._score_designer_track(normalized_links)
-        else:
-            return self._score_engineering_track(normalized_links)
+    def _calculate_diminishing_score(self, count: int, scale_map: Dict[int, float], max_val: float) -> float:
+        """Helper to apply non-linear diminishing returns based on count tiers."""
+        if count <= 0:
+            return 0.0
+        return scale_map.get(count, max_val)
 
-    def _normalize_validator_data(self, validator_output: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """
-        Flattens the 'links' section of your validator into a key-value map by platform type.
-        Ensures statuses map smoothly into ('valid' | 'broken' | 'missing').
-        """
-        # Default map structure
-        flat_map = {
-            "linkedin": {"status": "missing", "url": ""},
-            "github": {"status": "missing", "url": ""},
-            "behance": {"status": "missing", "url": ""},
-            "dribbble": {"status": "missing", "url": ""},
-            "portfolio": {"status": "missing", "url": ""}
+    def score_links(
+        self,
+        validator_output: Dict[str, Any],
+        mapped_projects: Optional[List[Dict[str, Any]]] = None,
+        track: str = "engineering",
+        job_title: str = ""
+    ) -> Dict[str, Any]:
+        links_map = validator_output.get("links", {})
+
+        categories = {
+            "linkedin": [],
+            "github_profile": [],
+            "portfolio": [],
+            "deployments": [],
+            "repositories": [],
+            "packages": [],
+            "certifications": []
         }
-        
-        raw_links = validator_output.get("links", {})
-        
-        for original_url, details in raw_links.items():
-            url = details.get("normalized_url", "").lower()
+
+        for url, details in links_map.items():
+            cat = details.get("category", "")
+            platform = details.get("platform", "")
             is_valid = details.get("valid", False)
-            status_str = "valid" if is_valid else "broken"
-            
-            # Map based on domain matching
-            if "linkedin.com" in url:
-                flat_map["linkedin"] = {"status": status_str, "url": original_url}
-            elif "github.com" in url:
-                flat_map["github"] = {"status": status_str, "url": original_url}
-            elif "behance.net" in url:
-                flat_map["behance"] = {"status": status_str, "url": original_url}
-            elif "dribbble.com" in url:
-                flat_map["dribbble"] = {"status": status_str, "url": original_url}
-            else:
-                # Treat other active URLs (like personal web domains or custom URLs) as portfolio targets
-                if flat_map["portfolio"]["status"] != "valid": 
-                    flat_map["portfolio"] = {"status": status_str, "url": original_url}
-                    
-        return flat_map
 
-    def _infer_track(self, job_title: str, normalized_links: Dict[str, Any]) -> str:
-        """Helper to auto-switch tracks based on job title or parsed platforms."""
-        if self.design_keywords.search(job_title):
-            return 'designer'
-        if normalized_links["behance"]["status"] == "valid" or normalized_links["dribbble"]["status"] == "valid":
-            return 'designer'
-        return 'engineering'
-
-    def _get_link_metrics(self, platform_data: Dict[str, Any], max_points: int) -> tuple:
-        """Translates structural validation statuses into concrete point values and string indicators."""
-        status = platform_data.get("status", "missing")
-        
-        if status == "valid":
-            return True, True, max_points, "Working"
-        elif status == "broken":
-            return True, False, 0, "Broken link detected"
-        else:
-            return False, False, 0, "Missing"
-
-    def _score_engineering_track(self, links: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculates exact metrics for Engineering Track (Max 40)."""
-        li_pres, li_work, li_score, li_feed = self._get_link_metrics(links["linkedin"], 10)
-        gh_pres, gh_work, gh_score, gh_feed = self._get_link_metrics(links["github"], 10)
-        proj_pres, proj_work, proj_score, proj_feed = self._get_link_metrics(links["portfolio"], 20)
-        
-        return {
-            "track": "engineering",
-            "totalScore": li_score + gh_score + proj_score,
-            "maxScore": 40,
-            "linkAnalysis": {
-                "linkedIn": {"present": li_pres, "working": li_work, "score": li_score, "maxScore": 10, "feedback": li_feed},
-                "github": {"present": gh_pres, "working": gh_work, "score": gh_score, "maxScore": 10, "feedback": gh_feed},
-                "projects": {"present": proj_pres, "working": proj_work, "score": proj_score, "maxScore": 20, "feedback": proj_feed}
+            link_payload = {
+                "url": url,
+                "valid": is_valid,
+                "platform": platform,
+                "status_code": details.get("status_code", 0)
             }
-        }
 
-    def _score_designer_track(self, links: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculates exact metrics for Designer Track (Max 40)."""
-        li_pres, li_work, li_score, li_feed = self._get_link_metrics(links["linkedin"], 10)
-        
-        # Design track platform logic evaluation (Behance or Dribbble can fulfill this category)
-        bh_status = links["behance"]["status"]
-        db_status = links["dribbble"]["status"]
-        
-        if bh_status == "valid" or db_status == "valid":
-            design_pres, design_work, design_score, design_feed = True, True, 20, "Working"
-        elif bh_status == "broken" or db_status == "broken":
-            design_pres, design_work, design_score, design_feed = True, False, 0, "Broken link detected on design profile"
-        else:
-            design_pres, design_work, design_score, design_feed = False, False, 0, "Missing Behance or Dribbble profile"
-            
-        live_pres, live_work, live_score, live_feed = self._get_link_metrics(links["portfolio"], 10)
-        
+            if platform == "linkedin":
+                categories["linkedin"].append(link_payload)
+            elif platform == "github" and details.get("sub_type") != "repository":
+                categories["github_profile"].append(link_payload)
+            elif cat == "portfolio":
+                categories["portfolio"].append(link_payload)
+            elif cat == "deployment":
+                categories["deployments"].append(link_payload)
+            elif cat == "repository":
+                categories["repositories"].append(link_payload)
+            elif cat == "package":
+                categories["packages"].append(link_payload)
+            elif cat == "certification":
+                categories["certifications"].append(link_payload)
+
+        # 1. Score Pillar 1: Identity & Profiles (Max 2.0 Pts)
+        li_valid = any(l["valid"] for l in categories["linkedin"])
+        gh_valid = any(l["valid"] for l in categories["github_profile"])
+        port_valid = any(l["valid"] for l in categories["portfolio"])
+
+        profile_score = 0.0
+        if li_valid: profile_score += 0.8
+        if gh_valid: profile_score += 0.8
+        if port_valid: profile_score += 0.4
+        profile_score = min(profile_score, 2.0)
+
+        # 2. Score Pillar 2: Proof-of-Work with Diminishing Returns (Max 2.0 Pts)
+        valid_deploy_count = len([l for l in categories["deployments"] if l["valid"]])
+        valid_repo_count = len([l for l in categories["repositories"] if l["valid"]])
+
+        mapped_count = 0
+        if mapped_projects:
+            for p in mapped_projects:
+                p_url = p.get("projectUrl", "")
+                if p_url and links_map.get(p_url, {}).get("valid"):
+                    mapped_count += 1
+
+        # Tiered scaling maps: 1 -> 0.5, 2 -> 0.8, 3+ -> 1.0
+        deploy_points = self._calculate_diminishing_score(valid_deploy_count, {1: 0.5, 2: 0.8}, 1.0)
+        repo_points = self._calculate_diminishing_score(valid_repo_count, {1: 0.3, 2: 0.5}, 0.6)
+        mapped_points = self._calculate_diminishing_score(mapped_count, {1: 0.2, 2: 0.3}, 0.4)
+
+        proof_score = min(round(deploy_points + repo_points + mapped_points, 2), 2.0)
+
+        # 3. Score Pillar 3: Technical Extras (Max 1.0 Pt)
+        valid_packages = [l for l in categories["packages"] if l["valid"]]
+        valid_certs = [l for l in categories["certifications"] if l["valid"]]
+
+        extras_score = 0.0
+        if valid_packages: extras_score += 0.5
+        if valid_certs: extras_score += 0.5
+        extras_score = min(extras_score, 1.0)
+
+        total_score = round(profile_score + proof_score + extras_score, 1)
+
         return {
-            "track": "designer",
-            "totalScore": li_score + design_score + live_score,
-            "maxScore": 40,
+            "totalScore": total_score,
+            "maxScore": 5.0,
+            "track": track,
+            "categoryBreakdown": {
+                "linkedin": {"present": len(categories["linkedin"]) > 0, "working": li_valid, "count": len(categories["linkedin"])},
+                "github": {"present": len(categories["github_profile"]) > 0 or valid_repo_count > 0, "working": gh_valid or valid_repo_count > 0, "repositoryCount": valid_repo_count},
+                "portfolio": {"present": len(categories["portfolio"]) > 0, "working": port_valid},
+                "deployments": {"present": len(categories["deployments"]) > 0, "working": valid_deploy_count > 0, "activeCount": valid_deploy_count},
+                "packages": {"present": len(categories["packages"]) > 0, "working": len(valid_packages) > 0, "count": len(valid_packages)},
+                "certifications": {"present": len(categories["certifications"]) > 0, "working": len(valid_certs) > 0, "count": len(valid_certs)}
+            },
             "linkAnalysis": {
-                "linkedIn": {"present": li_pres, "working": li_work, "score": li_score, "maxScore": 10, "feedback": li_feed},
-                "designPlatform": {"present": design_pres, "working": design_work, "score": design_score, "maxScore": 20, "feedback": design_feed},
-                "livePortfolio": {"present": live_pres, "working": live_work, "score": live_score, "maxScore": 10, "feedback": live_feed}
+                "linkedIn": {"present": len(categories["linkedin"]) > 0, "working": li_valid, "score": 0.8 if li_valid else 0.0},
+                "github": {"present": len(categories["github_profile"]) > 0, "working": gh_valid, "score": 0.8 if gh_valid else 0.0},
+                "projects": {"present": port_valid or valid_deploy_count > 0, "working": port_valid or valid_deploy_count > 0, "score": proof_score}
             }
         }

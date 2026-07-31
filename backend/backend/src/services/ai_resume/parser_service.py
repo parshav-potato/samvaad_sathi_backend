@@ -1,39 +1,26 @@
-import fitz #pymupdf
-from docx import Document
-from fastapi import UploadFile, HTTPException
 from io import BytesIO
+import json
+from docx import Document
+from fastapi import HTTPException, UploadFile
+import fitz  # PyMuPDF
 
 
-# Allowed MIME types
 ALLOWED_FILE_TYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]
 
-# Max file size (5 MB example)
 MAX_FILE_SIZE_MB = 10
 
 
 async def validate_resume_file(file: UploadFile):
-    """
-    Validate uploaded resume file.
-
-    Checks:
-    1. File type
-    2. File size
-    """
-
-    # Validate content type
     if file.content_type not in ALLOWED_FILE_TYPES:
         raise HTTPException(
             status_code=400,
             detail="Only PDF and DOCX files are allowed",
         )
 
-    # Read file bytes temporarily
     contents = await file.read()
-
-    # Validate file size
     file_size_mb = len(contents) / (1024 * 1024)
 
     if file_size_mb > MAX_FILE_SIZE_MB:
@@ -42,42 +29,23 @@ async def validate_resume_file(file: UploadFile):
             detail=f"File size exceeds {MAX_FILE_SIZE_MB} MB limit",
         )
 
-    # IMPORTANT:
-    # Reset pointer after reading
-    # otherwise future reads become empty
     await file.seek(0)
 
 
 async def extract_resume_text(file: UploadFile) -> str:
-    """
-    Main resume text extraction function.
-
-    Detects file type and routes
-    to proper parser.
-    """
-
     await validate_resume_file(file)
-
     filename = file.filename.lower()
 
     try:
-        # PDF parsing
         if filename.endswith(".pdf"):
-            return await extract_pdf_text(file)
-
-        # DOCX parsing
+            return await extract_pdf_text_spatial(file)
         elif filename.endswith(".docx"):
             return await extract_docx_text(file)
-
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="Unsupported file format",
-            )
+            raise HTTPException(status_code=400, detail="Unsupported file format")
 
     except HTTPException:
         raise
-
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -85,118 +53,127 @@ async def extract_resume_text(file: UploadFile) -> str:
         )
 
 
-# async def extract_pdf_text(file: UploadFile) -> str:
-#     """
-#     Extract text from PDF using PyMuPDF.
-#     """
-
-#     try:
-#         # Read uploaded file bytes
-#         contents = await file.read()
-
-#         # Open PDF from memory
-#         pdf_document = fitz.open(
-#             stream=contents,
-#             filetype="pdf",
-#         )
-
-#         extracted_text = ""
-
-#         # Loop through all pages
-#         for page_number in range(len(pdf_document)):
-#             page = pdf_document.load_page(page_number)
-
-#             # Extract text from page
-#             extracted_text += page.get_text()
-
-#         pdf_document.close()
-
-#         # Reset file pointer
-#         await file.seek(0)
-
-#         if not extracted_text.strip():
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="No text found in PDF resume",
-#             )
-
-#         return extracted_text.strip()
-
-#     except HTTPException:
-#         raise
-
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"PDF parsing failed: {str(e)}",
-#         )
-
-async def extract_pdf_text(file: UploadFile) -> str:
+async def extract_pdf_text_spatial(file: UploadFile) -> dict:
     """
-    Extract text from PDF using PyMuPDF.
-    Enhanced to capture hidden clickable hyperlinks and append them to the text buffer.
+    Spatial PDF Parser using PyMuPDF Bounding Boxes.
+    Extracts text blocks and maps clickable link rects directly to overlapping text spans,
+    inlining URLs into their exact sentence positions.
     """
     try:
         contents = await file.read()
         pdf_document = fitz.open(stream=contents, filetype="pdf")
-        
-        extracted_text = ""
-        hyperlinks_found = []
 
-        # Loop through pages to parse text + embedded link schemas
-        for page_number in range(len(pdf_document)):
-            page = pdf_document.load_page(page_number)
-            extracted_text += page.get_text() + "\n"
-            
-            # FIXED: Extract underlying clickable URLs (e.g. hidden behind "here" anchors)
+        reconstructed_lines = []
+        document_map = []
+        all_unique_urls = set()
+
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+
+            # 1. Fetch raw page dict (Blocks -> Lines -> Spans with bbox)
+            page_dict = page.get_text("dict")
+
+            # 2. Fetch interactive PDF annotations (links with bounding rects)
             page_links = page.get_links()
+            valid_links = []
             for link in page_links:
-                if "uri" in link:
-                    hyperlinks_found.append(link["uri"])
+                if "uri" in link and link["uri"].strip():
+                    valid_links.append(
+                        {
+                            "uri": link["uri"].strip(),
+                            "rect": fitz.Rect(link["from"]),
+                        }
+                    )
+                    all_unique_urls.add(link["uri"].strip())
+
+            # 3. Iterate through text blocks spatially
+            blocks = page_dict.get("blocks", [])
+            for b in blocks:
+                if b.get("type") == 0:  # Text block
+                    for line in b.get("lines", []):
+                        line_text_parts = []
+                        line_bbox = line.get("bbox")
+
+                        for span in line.get("spans", []):
+                            span_text = span.get("text", "")
+                            span_rect = fitz.Rect(span.get("bbox"))
+
+                            matched_url = None
+                            # Check spatial intersection between link annotation rect and text span rect
+                            for l in valid_links:
+                                # Overlap check: intersect or containment
+                                if (
+                                    span_rect.intersects(l["rect"])
+                                    or l["rect"].contains(span_rect)
+                                    or span_rect.contains(l["rect"])
+                                ):
+                                    matched_url = l["uri"]
+                                    break
+
+                            if matched_url and matched_url not in span_text:
+                                # Inline attachment directly at text placement
+                                line_text_parts.append(
+                                    f"{span_text} [{matched_url}]"
+                                )
+                            else:
+                                line_text_parts.append(span_text)
+
+                        full_line = " ".join(line_text_parts).strip()
+                        if full_line:
+                            reconstructed_lines.append(full_line)
+
+                            # Record in spatial document map
+                            document_map.append(
+                                {
+                                    "page": page_num + 1,
+                                    "text": full_line,
+                                    "bbox": line_bbox,
+                                    "y_top": line_bbox[1] if line_bbox else 0,
+                                }
+                            )
 
         pdf_document.close()
         await file.seek(0)
 
-        if not extracted_text.strip():
-            raise HTTPException(status_code=400, detail="No text found in PDF resume")
+        raw_text_output = "\n".join(reconstructed_lines)
 
-        # Append all verified hidden hyperlinks directly to the text dump 
-        # so SmartLinkValidator can run network checks on them perfectly
-        if hyperlinks_found:
-            extracted_text += "\n\n----- EXTRACTED EMBEDDED HYPERLINKS -----\n"
-            extracted_text += "\n".join(list(set(hyperlinks_found)))
+        if not raw_text_output.strip():
+            raise HTTPException(
+                status_code=400, detail="No text found in PDF resume"
+            )
 
-        return extracted_text.strip()
+        # Append structured spatial metadata block at bottom for downstream parser contexts
+        if all_unique_urls:
+            raw_text_output += "\n\n----- SPATIALLY VERIFIED EMBEDDED LINKS -----\n"
+            raw_text_output += "\n".join(list(all_unique_urls))
+
+        return {
+            "text": raw_text_output.strip(),
+            "documentMap": document_map,
+            "embeddedLinks": list(all_unique_urls)
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF link-parsing failed: {str(e)}")
-    
+        raise HTTPException(
+            status_code=500, detail=f"Spatial PDF parsing failed: {str(e)}"
+        )
 
-    
+
 async def extract_docx_text(file: UploadFile) -> str:
     """
     Extract text from DOCX using python-docx.
     """
-
     try:
-        # Read uploaded bytes
         contents = await file.read()
-
-        # Create in-memory file
         docx_file = BytesIO(contents)
-
-        # Load document
         document = Document(docx_file)
 
         extracted_text = ""
-
-        # Extract paragraphs
         for paragraph in document.paragraphs:
             extracted_text += paragraph.text + "\n"
 
-        # Reset file pointer
         await file.seek(0)
 
         if not extracted_text.strip():
@@ -206,10 +183,14 @@ async def extract_docx_text(file: UploadFile) -> str:
             )
 
         return extracted_text.strip()
+        # return {
+        #     "text": extracted_text.strip(),
+        #     "documentMap": document_map,
+        #     "embeddedLinks": list(all_unique_urls)
+        # }
 
     except HTTPException:
         raise
-
     except Exception as e:
         raise HTTPException(
             status_code=500,

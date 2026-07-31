@@ -39,8 +39,9 @@ class ATSEngine:
         """
         # 1. Run Link Scoring (Ingests raw output from your SmartLinkValidator)
         link_report = self.link_scorer.score_links(
-            validator_output=verified_links_raw, 
-            job_title=target_role
+          validator_output=verified_links_raw,
+          mapped_projects=parsed_projects,
+          job_title=target_role
         )
         track_determined = link_report.get("track", "engineering")
 
@@ -57,12 +58,12 @@ class ATSEngine:
 
         # 4. Run Project Scoring (Evaluates independent project structural points)
         project_report = self.project_scorer.score_projects(parsed_projects)
-        project_score_out_of_40 = project_report.get("totalScore", 0)
+        project_score_out_of_35 = project_report.get("totalScore", 0)
 
         # 5. Run Experience/Project Weight Allocation Matching
         experience_report = self.experience_scorer.score_experience(
             experience_records=parsed_experience,
-            project_score_out_of_40=project_score_out_of_40,
+            project_score_out_of_35=project_score_out_of_35,
             experience_level=experience_level,
             raw_resume_text=raw_resume_text
         )
@@ -76,12 +77,10 @@ class ATSEngine:
             raw_resume_text=raw_resume_text,
             project_report=project_report
         )
-        # FIXED: Text-based fail-safe checks for link presence to capture plain-text handlers
         text_lower = raw_resume_text.lower()
         
         if "github" in text_lower or "github.com" in text_lower:
             master_report["hygieneCheck"]["hasGithub"] = True
-            # If links are clearly present in project bullet points, enforce working status fallback
             if "link:" in text_lower or "http" in text_lower:
                 master_report["hygieneCheck"]["githubWorking"] = True
 
@@ -89,25 +88,29 @@ class ATSEngine:
             master_report["hygieneCheck"]["hasLinkedIn"] = True
             master_report["hygieneCheck"]["linkedInWorking"] = True
 
-        # Matches patterns like: +91 9618211626, 9912081886, +91-98765-43210, +1 (555) 019-2834
-        phone_regex = re.compile(
-            r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b|\b\d{10,12}\b'
-        )
-        
-        # Scrape and audit raw resume text buffer
         raw_text_strip = raw_resume_text.strip()
-        
-        # Execute structural regex search loop
-        has_phone = bool(phone_regex.search(raw_text_strip))
-        # has_phone = any(char.isdigit() for char in text_lower) and len([c for c in text_lower if c.isdigit()]) >= 10
-        # if "phone" in text_lower or "contact" in text_lower or "+" in text_lower:
-        #     has_phone = True
-        has_email = "@" in text_lower and "." in text_lower
+
+        phone_regex = re.compile(r'\+?\d[\d\s\-\(\)]{8,}\d')
+        email_regex = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
+
+        phone_match = phone_regex.search(raw_text_strip)
+        email_match = email_regex.search(raw_text_strip)
+
+        digits = ""
+        has_phone = False
+        if phone_match:
+            digits = re.sub(r'\D', '', phone_match.group(0))
+            if 10 <= len(digits) <= 15:
+                has_phone = True
+
+        has_email = bool(email_match)
+
+        print("phone of Candidate:", phone_match)
+        print("email of Candidate:", email_match)
 
         master_report["hygieneCheck"]["phoneRegexMatch"] = has_phone
         master_report["hygieneCheck"]["hasPhone"] = has_phone
         master_report["hygieneCheck"]["hasEmail"] = has_email
-        # master_report["track"] = track_determined
-        # Inject metadata parameters for downstream contextual components
         master_report["track"] = track_determined
+
         return master_report

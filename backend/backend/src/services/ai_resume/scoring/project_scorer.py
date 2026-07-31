@@ -4,20 +4,44 @@ from typing import Dict, Any, List
 class ProjectScorer:
     """
     Deterministic Project Scorer for the ATS Engine.
-    Evaluates projects individually using a strict 40-point rubric:
-    - Frameworks Used: +10 points
-    - GitHub Link:     +10 points
-    - Deployment Link: +10 points (Vercel, Netlify, Render, AWS, etc.)
-    - Metrics/Impact:  +10 points
+    Evaluates projects across 5 pillars without performing text link extraction:
+    1. Presentation Structure & Highlights Depth (Max 7.0 pts)
+    2. Framework & Tool Declarations (Max 7.0 pts)
+    3. Tech Stack Density & Relevance (Max 7.0 pts)
+    4. Quantitative Performance Metrics (Max 7.0 pts)
+    5. Verified Repository & Live Deployment Status (Max 7.0 pts)
+    ----------------------------------------------------------
+    Total Max Score Per Project: 35.0 Points
     """
 
     def __init__(self):
+        # Expanded modern framework, library, cloud, and AI catalog
         self.framework_keywords = {
+            # Web & App Frameworks
             "react", "angular", "vue", "nextjs", "next.js", "express", 
             "django", "flask", "fastapi", "spring", "springboot", 
-            "tailwind", "bootstrap", "mongodb", "postgresql", "mysql"
+            "tailwind", "bootstrap", "svelte", "nuxt",
+            
+            # Languages & Runtimes
+            "typescript", "javascript", "python", "java", "golang", "go", "c++",
+            
+            # Databases & ORMs
+            "mongodb", "postgresql", "postgres", "mysql", "sqlite", "redis",
+            "prisma", "supabase", "firebase", "dynamodb",
+            
+            # DevOps & Cloud Infrastructure
+            "docker", "kubernetes", "k8s", "aws", "azure", "gcp",
+            "kafka", "rabbitmq", "graphql", "websockets", "ci/cd",
+            
+            # AI / ML & Data Engineering
+            "openai", "langchain", "tensorflow", "pytorch", "pandas",
+            "numpy", "spark"
         }
-        self.metrics_pattern = re.compile(r'\b(?:\d+(?:\.\d+)?\s*%\s*|\d+\s*\+\s*|\d+\s*k\b|\d+\s*ms\b|\d+\s*x\b)', re.IGNORECASE)
+
+        self.metrics_pattern = re.compile(
+            r'\b(?:\d+(?:\.\d+)?\s*%\s*|\d+\s*\+\s*|\d+\s*k\b|\d+\s*users\b|\d+\s*ms\b|\d+\s*x\b)', 
+            re.IGNORECASE
+        )
 
     def score_projects(self, parsed_projects: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not parsed_projects or not isinstance(parsed_projects, list):
@@ -30,87 +54,114 @@ class ProjectScorer:
             title = project.get("title", project.get("projectName", "Unnamed Project"))
             desc = project.get("description", "")
             highlights = project.get("highlights", [])
-            direct_url = project.get("projectUrl", project.get("url", ""))
+            project_url = project.get("projectUrl", "")
 
-            # Combine structural text descriptions to scan for words
             body_text = f"{desc} {' '.join(highlights)}".lower()
-            url_text = str(direct_url).lower()
 
-            # 1. Framework Check (+10)
+            # Pillar 1: Presentation & Highlights Structure (Max 7.0 pts)
+            # Scores project depth using bullet highlight counts and text length
+            highlight_count = len(highlights) if isinstance(highlights, list) else 0
+            if highlight_count >= 5 or len(body_text.strip()) > 250:
+                context_pts = 7.0
+            elif highlight_count >= 3 or len(body_text.strip()) > 120:
+                context_pts = 5.5
+            elif highlight_count >= 1 or len(body_text.strip()) > 40:
+                context_pts = 4.0
+            else:
+                context_pts = 2.0
+
+            # Pillar 2: Technical Frameworks & Tools Declarations (Max 7.0 pts)
             has_framework = any(fw in body_text or fw in title.lower() for fw in self.framework_keywords)
-            fw_points = 10 if has_framework else 0
+            fw_pts = 7.0 if has_framework else 3.0
 
-            # # 2. GitHub Code Repository Check (+10)
-            # has_github = "github.com" in url_text or "github.com" in body_text or "gitlab.com" in url_text
-            # gh_points = 10 if has_github else 0
+            # Pillar 3: Tech Stack Density & Broad Relevance (Max 7.0 pts)
+            tech_count = sum(1 for fw in self.framework_keywords if fw in body_text)
+            if tech_count >= 4:
+                relevance_pts = 7.0
+            elif tech_count >= 2:
+                relevance_pts = 5.5
+            else:
+                relevance_pts = 3.0
 
-            # # 3. Live Cloud Deployment URL Check (+10)
-            # # Checks if they have an active link that isn't just code repositories
-            # has_deployment = any(host in url_text or host in body_text for host in ["vercel", "netlify", "render.com", "heroku", "aws", "github.io", "amplify", "pages.dev"])
-            # if direct_url and "github.com" not in url_text and "gitlab.com" not in url_text:
-            #     has_deployment = True
-            # deploy_points = 10 if has_deployment else 0
-            # 2. GitHub Code Repository Check (+10)
-            has_github = "github.com" in url_text or "github.com" in body_text or "gitlab.com" in url_text or "github" in body_text
-            # If they have anchor link text indicators next to the code stack, treat it as present
-            if "link:" in body_text and any(tech in body_text for tech in ["react", "node", "express", "python"]):
-                has_github = True
-            gh_points = 10 if has_github else 0
+            # Pillar 4: Quantitative Impact Benchmarks (Max 7.0 pts)
+            has_metrics = bool(self.metrics_pattern.search(body_text)) or any(
+                k in body_text for k in ["scale", "optimize", "streamline", "users", "automated", "latency"]
+            )
+            metrics_pts = 7.0 if has_metrics else 3.0
 
-            # 3. Live Cloud Deployment URL Check (+10)
-            has_deployment = any(host in url_text or host in body_text for host in ["vercel", "netlify", "render.com", "heroku", "aws", "github.io"])
-            if direct_url and "github.com" not in url_text:
-                has_deployment = True
-            # FIXED FALLBACK: If the text states a deployment link keyword indicator like "link: here", do not penalize it with a 0
-            if "link:" in body_text or "url:" in body_text or "demo" in body_text:
-                has_deployment = True
-            deploy_points = 10 if has_deployment else 0
+            # Pillar 5: Verified Repository & Deployment Health (Max 7.0 pts)
+            repo_status = project.get("repository", {})
+            deployment_status = project.get("deployment", {})
 
-            # 4. Impact Metrics Check (+10)
-            has_metrics = bool(self.metrics_pattern.search(body_text))
-            metrics_points = 10 if has_metrics else 0
+            verification_pts = 0.0
+            if repo_status.get("working"):
+                verification_pts += 4.0
+            elif repo_status.get("present") or "github.com" in str(project_url).lower():
+                verification_pts += 2.0
 
-            project_total = fw_points + gh_points + deploy_points + metrics_points
+            if deployment_status.get("working"):
+                verification_pts += 3.0
+            elif deployment_status.get("present"):
+                verification_pts += 1.5
+
+            if verification_pts == 0.0 and project_url:
+                verification_pts = 2.0  # Fallback for unclassified working web URLs
+
+            project_total = round(context_pts + fw_pts + relevance_pts + metrics_pts + verification_pts, 1)
+            project_total = min(project_total, 35.0)
             cumulative_score += project_total
 
-            # Document granular omissions for targeted feedback loops
+            # Generate targeted gaps
             gaps = []
-            if not has_framework: gaps.append("Missing explicit framework declarations")
-            if not has_github: gaps.append("Missing functional GitHub repository link")
-            if not has_deployment: gaps.append("Missing live application deployment URL (Vercel/Netlify/Cloud)")
-            if not has_metrics: gaps.append("Missing quantitative impact metrics (e.g. loading speeds, scale benchmarks)")
+            if not repo_status.get("working") and not deployment_status.get("working"):
+                gaps.append("Repository link or public live application deployment details are unavailable.")
+            if not has_metrics:
+                gaps.append("Project description could be strengthened by including quantitative impact or performance metrics.")
+            if tech_count < 2:
+                gaps.append("Expand on specific libraries, frameworks, or cloud databases used.")
 
             scored_project_list.append({
                 "projectName": title,
                 "score": project_total,
-                "maxScore": 40,
+                "maxScore": 35,
                 "rating": self._get_rating_label(project_total),
-                "projectUrl": direct_url if direct_url else "",
+                "projectUrl": project_url,
                 "detectedGaps": gaps,
                 "breakdown": {
-                    "hasFramework": has_framework,
-                    "hasGithub": has_github,
-                    "hasDeployment": has_deployment,
-                    "hasMetrics": has_metrics
+                    "structureDepth": context_pts >= 5.5,
+                    "frameworkDeclarations": has_framework,
+                    "stackDensity": tech_count >= 2,
+                    "impactMetrics": has_metrics,
+                    "verifiedDeploymentOrRepo": verification_pts >= 4.0
                 }
             })
 
         total_projects = len(parsed_projects)
-        overall_score = int(round(cumulative_score / total_projects)) if total_projects > 0 else 0
+        overall_score = round(cumulative_score / total_projects, 1) if total_projects > 0 else 0.0
 
         return {
             "totalScore": overall_score,
-            "maxScore": 40,
+            "maxScore": 35,
             "overallRating": self._get_rating_label(overall_score),
             "projectCount": total_projects,
             "projectEvaluation": scored_project_list
         }
 
-    def _get_rating_label(self, score: int) -> str:
-        if score <= 10: return "Needs Improvement"
-        elif score <= 20: return "Average"
-        elif score <= 30: return "Good"
-        else: return "Excellent"
+    def _get_rating_label(self, score: float) -> str:
+        if score <= 15:
+            return "Needs Improvement"
+        elif score <= 26:
+            return "Average"
+        elif score <= 31:
+            return "Good"
+        else:
+            return "Excellent"
 
     def _build_empty_response(self) -> Dict[str, Any]:
-        return {"totalScore": 0, "maxScore": 40, "overallRating": "Needs Improvement", "projectCount": 0, "projectEvaluation": []}
+        return {
+            "totalScore": 0.0,
+            "maxScore": 35,
+            "overallRating": "Needs Improvement",
+            "projectCount": 0,
+            "projectEvaluation": []
+        }

@@ -49,8 +49,8 @@ TARGET SYSTEM SCORES TO INJECT (USE THESE EXACT NUMBERS):
 - MASTER ATS SCORE: {exact_total_score}
 - skillsMatch BREAKDOWN: {exact_breakdown['skillsMatch']}
 - experienceMatch BREAKDOWN: {exact_breakdown['experienceMatch']}
-- formattingScore BREAKDOWN: {exact_breakdown['formattingScore']}
-- keywordDensity BREAKDOWN: {exact_breakdown['keywordDensity']}
+- linkIntegrity BREAKDOWN: {exact_breakdown['linkIntegrity']}
+- educationScore BREAKDOWN: {exact_breakdown['educationScore']}
 
 TARGET EVALUATION PARAMETERS:
 - CANDIDATE TARGET ROLE: {target_role}
@@ -70,13 +70,13 @@ Return response in EXACT clean valid JSON format matching the schema below witho
   "scoreBreakdown": {{
     "skillsMatch": {exact_breakdown['skillsMatch']},
     "experienceMatch": {exact_breakdown['experienceMatch']},
-    "formattingScore": {exact_breakdown['formattingScore']},
-    "keywordDensity": {exact_breakdown['keywordDensity']}
+    "linkIntegrity": {exact_breakdown['linkIntegrity']},
+    "educationScore": {exact_breakdown['educationScore']}
   }},
   "skillsAnalysis": {{
     "strongSkills": ["Extracted_Skill_1", "Extracted_Skill_2"],
     "missingSkills": ["Missing_Skill_1", "Missing_Skill_2"],
-    "deprioritizedSkills": ["Irrelevant_Skill_1"]
+    "additionalSkills": ["Irrelevant_Skill_1"]
   }},
   "experienceEvaluation": {{
     "rating": "Fresher profile configuration applied. Scoring focus shifted heavily onto project metrics and academic builds.",
