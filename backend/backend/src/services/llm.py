@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from typing import Any, Type, List, Dict, Literal
+from typing import Any, Type, List, Dict, Literal, TypeVar
 
 import pydantic
 from openai import AsyncOpenAI
@@ -587,13 +587,15 @@ class PauseCoachLLM(pydantic.BaseModel):
     score: int
 
 
+T = TypeVar('T', bound=pydantic.BaseModel)
+
 async def structured_output(
-    model_class: Type[pydantic.BaseModel],
+    model_class: Type[T],
     *,
     system_prompt: str,
     user_content: Any,
     temperature: float = 0,
-) -> tuple[pydantic.BaseModel | None, str | None, int | None, str]:
+) -> tuple[T | None, str | None, int | None, str]:
     """Call OpenAI asynchronously with JSON response_format and validate against Pydantic model."""
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
@@ -607,9 +609,9 @@ async def structured_output(
             return None, None, None, model
         # Use Chat Completions for all models; switch token param for newer families
         raw = "{}"
-        is_new_family = any(str(model).lower().startswith(p) for p in ("gpt-5", "gpt-4.1", "o4", "o3"))
+        is_new_family = any(model.lower().startswith(p) for p in ("gpt-5", "gpt-4.1", "o4", "o3"))
         token_param_key = "max_completion_tokens" if is_new_family else "max_tokens"
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": model,
             "response_format": {"type": "json_object"},
             token_param_key: 2048, 
@@ -662,7 +664,7 @@ async def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float 
         )
         error = perr
         if result:
-            skills = [str(x) for x in result.skills]
+            skills = result.skills
             years = result.years_experience
         latency_ms = latency
     except Exception as e:
@@ -758,11 +760,11 @@ async def generate_interview_questions_with_llm(
     # Prepare a sampled syllabus so we don't send the entire topic bank to the LLM
     topics = syllabus_topics or {}
     r = ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1}
-    total = max(1, min(50, int(count or 3)))
+    total = max(1, min(50, count or 3))
     # Normalize ratio to total questions (we use it only as guidance for sampling size)
-    r_tech = max(0, int(r.get("tech", 0)))
-    r_allied = max(0, int(r.get("tech_allied", 0)))
-    r_beh = max(0, int(r.get("behavioral", 0)))
+    r_tech = max(0, r.get("tech", 0))
+    r_allied = max(0, r.get("tech_allied", 0))
+    r_beh = max(0, r.get("behavioral", 0))
 
     def _pick(ls: list[str] | None, n: int) -> list[str]:
         pool = list(ls or [])
