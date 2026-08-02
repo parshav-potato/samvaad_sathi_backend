@@ -3,7 +3,7 @@ import pathlib
 
 import decouple
 import pydantic
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.parent.parent.resolve()
 
@@ -108,7 +108,7 @@ class BackendBaseSettings(BaseSettings):
     ELEVENLABS_API_KEY: str = decouple.config("ELEVENLABS_API_KEY", cast=str, default="")  # type: ignore
     ELEVENLABS_VOICE_ID: str = decouple.config("ELEVENLABS_VOICE_ID", cast=str, default="hpp4J3VqNfWAUOO0d1Us")  # type: ignore
 
-    model_config = pydantic.ConfigDict(
+    model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=f"{str(ROOT_DIR)}/.env",
         validate_assignment=True,
