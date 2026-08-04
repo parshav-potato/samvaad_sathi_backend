@@ -20,6 +20,7 @@ from src.services.summary_report_v2 import SummaryReportServiceV2
 from src.services.analytics_events import track_analytics_event
 
 
+logger = logging.getLogger(__name__)
 router = fastapi.APIRouter(prefix="/v2", tags=["summary-report-v2"])
 
 
@@ -42,17 +43,29 @@ async def generate_summary_report_v2(
     qa_repo: QuestionAttemptCRUDRepository = Depends(get_repository(QuestionAttemptCRUDRepository)),
     sr_repo: SummaryReportCRUDRepository = Depends(get_repository(SummaryReportCRUDRepository)),
 ):
-    logger = logging.getLogger(__name__)
-    logger.info("POST /v2/summary-report called for interview_id=%s by user_id=%s", payload.interview_id, current_user.id)
+    logger.info(
+        "summary_report_v2.generate.start interview_id=%s user_id=%s",
+        payload.interview_id,
+        current_user.id,
+    )
 
     # Verify interview belongs to current user
     interview = await interview_repo.get_by_id_and_user(payload.interview_id, current_user.id)
     if not interview:
+        logger.warning(
+            "summary_report_v2.generate.denied interview_id=%s user_id=%s",
+            payload.interview_id,
+            current_user.id,
+        )
         raise fastapi.HTTPException(status_code=404, detail="Interview not found or access denied")
 
     # Fetch all question attempts for interview
-    attempts = await qa_repo.list_by_interview(interview_id=interview.id)
-    logger.debug("POST /v2/summary-report assembling %d question attempts for interview_id=%s", len(attempts), interview.id)
+    attempts = await qa_repo.list_latest_reportable_by_interview(interview_id=interview.id)
+    logger.debug(
+        "summary_report_v2.generate.attempts_loaded interview_id=%s attempts_count=%s",
+        interview.id,
+        len(attempts),
+    )
     analyzed_count = await analysis_service.ensure_recorded_attempts_analyzed(
         question_attempts=attempts,
         user_id=current_user.id,
@@ -60,11 +73,11 @@ async def generate_summary_report_v2(
         logger=logger,
     )
     if analyzed_count:
-        attempts = await qa_repo.list_by_interview(interview_id=interview.id)
+        attempts = await qa_repo.list_latest_reportable_by_interview(interview_id=interview.id)
         logger.info(
-            "POST /v2/summary-report completed pre-report analysis for %d question attempts on interview_id=%s",
-            analyzed_count,
+            "summary_report_v2.generate.pre_analysis_completed interview_id=%s analyzed_attempts=%s",
             interview.id,
+            analyzed_count,
         )
 
     # Check if resume was used for any questions in this interview
@@ -77,18 +90,34 @@ async def generate_summary_report_v2(
     candidate_name = getattr(current_user, "name", None)
 
     service = SummaryReportServiceV2(session)
-    result = await service.generate_for_interview_lite(
-        interview.id, attempts, interview.track, resume_used, candidate_name
-    )
+    try:
+        result = await service.generate_for_interview_lite(
+            interview.id, attempts, interview.track, resume_used, candidate_name
+        )
+    except Exception:
+        logger.exception(
+            "summary_report_v2.generate.service_failed interview_id=%s user_id=%s",
+            interview.id,
+            current_user.id,
+        )
+        raise
 
     # Persist summary report (idempotent per interview)
     try:
         await sr_repo.upsert(interview_id=interview.id, report_json=result)
         await session.commit()
-        logger.info("POST /v2/summary-report persisted successfully for interview_id=%s", interview.id)
-    except Exception as exc:  # noqa: BLE001
+        logger.info(
+            "summary_report_v2.generate.persisted interview_id=%s user_id=%s",
+            interview.id,
+            current_user.id,
+        )
+    except Exception:  # noqa: BLE001
         await session.rollback()
-        logger.exception("POST /v2/summary-report failed to persist for interview_id=%s: %s", interview.id, exc)
+        logger.exception(
+            "summary_report_v2.generate.persist_failed interview_id=%s user_id=%s",
+            interview.id,
+            current_user.id,
+        )
 
     return SummaryReportResponseLite(**result)
 
@@ -108,11 +137,15 @@ async def get_summary_report_v2(
     interview_repo: InterviewCRUDRepository = Depends(get_repository(InterviewCRUDRepository)),
     sr_repo: SummaryReportCRUDRepository = Depends(get_repository(SummaryReportCRUDRepository)),
 ):
-    logger = logging.getLogger(__name__)
-    logger.info("GET /v2/summary-report/%s by user_id=%s", interview_id, current_user.id)
+    logger.info("summary_report_v2.get.start interview_id=%s user_id=%s", interview_id, current_user.id)
 
     interview = await interview_repo.get_by_id_and_user(interview_id, current_user.id)
     if not interview:
+        logger.warning(
+            "summary_report_v2.get.denied interview_id=%s user_id=%s",
+            interview_id,
+            current_user.id,
+        )
         raise fastapi.HTTPException(status_code=404, detail="Interview not found or access denied")
 
     record = await sr_repo.get_by_interview_id(interview_id)

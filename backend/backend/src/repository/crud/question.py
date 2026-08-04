@@ -6,6 +6,31 @@ from src.models.db.interview_question import InterviewQuestion
 from src.repository.crud.base import BaseCRUDRepository
 
 
+REPORT_ANALYSIS_KEYS = ("domain", "communication", "pace", "pause")
+
+
+def _has_transcribed_answer(question_attempt: QuestionAttempt) -> bool:
+    transcription = question_attempt.transcription
+    if not transcription:
+        return False
+    if isinstance(transcription, dict):
+        text = transcription.get("text") or transcription.get("transcript")
+        return bool(str(text or "").strip())
+    return bool(str(transcription).strip())
+
+
+def _has_report_analysis(question_attempt: QuestionAttempt) -> bool:
+    analysis = question_attempt.analysis_json if isinstance(question_attempt.analysis_json, dict) else {}
+    return any(
+        isinstance(analysis.get(analysis_key), dict) and bool(analysis.get(analysis_key))
+        for analysis_key in REPORT_ANALYSIS_KEYS
+    )
+
+
+def _is_reportable_attempt(question_attempt: QuestionAttempt) -> bool:
+    return _has_transcribed_answer(question_attempt) or _has_report_analysis(question_attempt)
+
+
 class QuestionAttemptCRUDRepository(BaseCRUDRepository):
     async def create_attempt(self, *, interview_id: int, question_id: int, question_text: str) -> QuestionAttempt:
         """Create a new question attempt linked to a specific question"""
@@ -62,6 +87,45 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         query = await self.async_session.execute(statement=stmt)
         rows = query.scalars().all()
         return list(rows)
+
+    async def list_latest_reportable_by_interview(self, *, interview_id: int) -> list[QuestionAttempt]:
+        """Get one attempt per question for reports, preferring the latest answer-bearing attempt.
+
+        Starting/retrying a question can create a newer empty attempt row. For reports,
+        that row must not hide an older transcribed/analyzed answer for the same question.
+        If a question has no reportable attempt yet, the latest empty attempt is returned
+        so callers can still mark the question as not attempted.
+        """
+        stmt = (
+            sqlalchemy.select(QuestionAttempt)
+            .join(InterviewQuestion, QuestionAttempt.question_id == InterviewQuestion.id)
+            .where(
+                QuestionAttempt.interview_id == interview_id,
+                QuestionAttempt.question_id.is_not(None),
+            )
+            .order_by(InterviewQuestion.order.asc(), QuestionAttempt.id.desc())
+        )
+        query = await self.async_session.execute(statement=stmt)
+        rows = list(query.scalars().all())
+
+        latest_by_question_id: dict[int, QuestionAttempt] = {}
+        reportable_by_question_id: dict[int, QuestionAttempt] = {}
+        ordered_question_ids: list[int] = []
+
+        for question_attempt in rows:
+            question_id = question_attempt.question_id
+            if question_id is None:
+                continue
+            if question_id not in latest_by_question_id:
+                latest_by_question_id[question_id] = question_attempt
+                ordered_question_ids.append(question_id)
+            if question_id not in reportable_by_question_id and _is_reportable_attempt(question_attempt):
+                reportable_by_question_id[question_id] = question_attempt
+
+        return [
+            reportable_by_question_id.get(question_id) or latest_by_question_id[question_id]
+            for question_id in ordered_question_ids
+        ]
 
     async def list_by_interview_cursor(self, *, interview_id: int, limit: int, cursor_id: int | None) -> tuple[list[QuestionAttempt], int | None]:
         """Get the latest attempt for each question with cursor pagination, ordered by question order.
@@ -172,4 +236,3 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         )
         query = await self.async_session.execute(statement=stmt)
         return query.scalar_one_or_none()
-

@@ -10,6 +10,7 @@ This generates the new report format with:
 
 from __future__ import annotations
 
+import logging
 import uuid
 import math
 from datetime import datetime, timezone
@@ -43,6 +44,9 @@ from src.models.schemas.summary_report_v2 import (
     CandidateInfoLite,
 )
 from src.services.llm import synthesize_summary_sections, synthesize_summary_sections_lite
+
+
+logger = logging.getLogger(__name__)
 
 
 def _as_float(v: Any) -> Optional[float]:
@@ -102,6 +106,151 @@ def _question_type_label(category: str | None) -> str:
 def _is_non_tech_track(track: str | None) -> bool:
     normalized_track = (track or "").strip().lower()
     return normalized_track.startswith("non-tech:")
+
+
+REPORT_ANALYSIS_KEYS = ("domain", "communication", "pace", "pause")
+
+
+def _has_transcribed_answer(question_attempt: QuestionAttempt | None) -> bool:
+    if question_attempt is None:
+        return False
+    transcription = question_attempt.transcription
+    if not transcription:
+        return False
+    if isinstance(transcription, dict):
+        text = transcription.get("text") or transcription.get("transcript")
+        return bool(str(text or "").strip())
+    return bool(str(transcription).strip())
+
+
+def _has_report_analysis(question_attempt: QuestionAttempt | None) -> bool:
+    if question_attempt is None:
+        return False
+    analysis = question_attempt.analysis_json if isinstance(question_attempt.analysis_json, dict) else {}
+    return any(
+        isinstance(analysis.get(analysis_key), dict) and bool(analysis.get(analysis_key))
+        for analysis_key in REPORT_ANALYSIS_KEYS
+    )
+
+
+def _is_reportable_attempt(question_attempt: QuestionAttempt | None) -> bool:
+    return _has_transcribed_answer(question_attempt) or _has_report_analysis(question_attempt)
+
+
+def _as_int(v: Any) -> int | None:
+    try:
+        if v is None:
+            return None
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _score_0_5(v: Any) -> int:
+    score = _as_float(v)
+    if score is None:
+        return 0
+    if score <= 5:
+        return round(max(0.0, min(5.0, score)))
+    return _to_int_0_5(score)
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        items = _as_list_str(value)
+        for item in items:
+            text = item.strip()
+            if text:
+                return text
+    return None
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _fallback_lite_scores(question_attempt: QuestionAttempt | None) -> dict[str, Any]:
+    analysis = question_attempt.analysis_json if question_attempt and isinstance(question_attempt.analysis_json, dict) else {}
+    domain = analysis.get("domain") or {}
+    domain_criteria = domain.get("criteria") or {}
+    communication = analysis.get("communication") or {}
+    communication_criteria = communication.get("criteria") or {}
+    pace = analysis.get("pace") or {}
+
+    return {
+        "knowledgeScores": {
+            "accuracy": _score_0_5((domain_criteria.get("correctness") or {}).get("score")),
+            "depth": _score_0_5((domain_criteria.get("depth") or {}).get("score")),
+            "relevance": _score_0_5((domain_criteria.get("relevance") or {}).get("score")),
+            "examples": _score_0_5((domain_criteria.get("examples") or {}).get("score")),
+            "terminology": _score_0_5((domain_criteria.get("terminology") or {}).get("score")),
+        },
+        "speechScores": {
+            "fluency": _score_0_5(
+                _first_present(
+                    communication.get("overall_score"),
+                    communication.get("communication_score"),
+                )
+            ),
+            "structure": _score_0_5(
+                _first_present(
+                    communication.get("structure_score"),
+                    (communication_criteria.get("structure") or {}).get("score"),
+                )
+            ),
+            "pacing": _score_0_5(_first_present(pace.get("score"), pace.get("pace_score"))),
+            "grammar": _score_0_5(
+                _first_present(
+                    communication.get("grammar_score"),
+                    (communication_criteria.get("grammar") or {}).get("score"),
+                )
+            ),
+        },
+    }
+
+
+def _fallback_lite_feedback(question_attempt: QuestionAttempt | None) -> dict[str, str]:
+    analysis = question_attempt.analysis_json if question_attempt and isinstance(question_attempt.analysis_json, dict) else {}
+    domain = analysis.get("domain") or {}
+    communication = analysis.get("communication") or {}
+    pace = analysis.get("pace") or {}
+    pause = analysis.get("pause") or {}
+
+    strengths = _first_text(
+        domain.get("strengths"),
+        communication.get("strengths"),
+        domain.get("summary"),
+        communication.get("summary"),
+    )
+    improvements = _first_text(
+        domain.get("improvements"),
+        domain.get("suggestions"),
+        communication.get("recommendations"),
+        communication.get("suggestions"),
+        pace.get("recommendations"),
+        pause.get("recommendations"),
+    )
+
+    return {
+        "strengths": strengths or "Answer submitted; detailed feedback is being generated.",
+        "areasOfImprovement": improvements or "Review the answer for clarity, depth, and relevance.",
+    }
+
+
+def _normalize_lite_feedback(feedback: Any, fallback: dict[str, str]) -> dict[str, str]:
+    if not isinstance(feedback, dict):
+        return fallback
+
+    strengths = str(feedback.get("strengths") or "").strip()
+    improvements = str(feedback.get("areasOfImprovement") or "").strip()
+
+    return {
+        "strengths": strengths or fallback["strengths"],
+        "areasOfImprovement": improvements or fallback["areasOfImprovement"],
+    }
 
 
 class SummaryReportServiceV2:
@@ -996,10 +1145,7 @@ class SummaryReportServiceV2:
         for qa in question_attempts:
             if qa.question_id is not None:
                 attempts_by_question_id[qa.question_id] = qa
-                has_transcription = qa.transcription is not None and len(str(qa.transcription).strip()) > 0
-                analysis = getattr(qa, "analysis_json", None) or {}
-                has_analysis = bool(analysis)
-                if has_transcription or has_analysis:
+                if _is_reportable_attempt(qa):
                     actually_attempted_question_ids.add(qa.question_id)
         
         total_questions = len(all_interview_questions)
@@ -1153,9 +1299,14 @@ class SummaryReportServiceV2:
             )
             parsed = SummaryReportResponseLite(**final_report)
             return parsed.model_dump(exclude_none=True)
-        except Exception as e:
+        except Exception:
             # Fallback on exception
-            print(f"Error parsing lite report: {e}")
+            logger.exception(
+                "summary_report_v2.lite.parse_failed interview_id=%s total_questions=%s attempted_questions=%s",
+                interview_id,
+                total_questions,
+                attempted_questions,
+            )
             # Return minimal valid response (same as above)
             return SummaryReportResponseLite(
                 reportId=str(uuid.uuid4()),
@@ -1192,12 +1343,43 @@ class SummaryReportServiceV2:
         """Calculate final scores for Lite report."""
         per_question_scores = llm_data.get("perQuestionScores", [])
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
-        attempted_questions = len(per_question_scores)
+
+        score_by_question_id: dict[int, dict[str, Any]] = {}
+        scored_question_ids: list[int] = []
+        for q_scores in per_question_scores:
+            if not isinstance(q_scores, dict):
+                continue
+            question_id = _as_int(q_scores.get("questionId"))
+            if question_id is None:
+                continue
+            score_by_question_id[question_id] = q_scores
+            scored_question_ids.append(question_id)
+
+        feedback_by_question_id: dict[int, dict[str, Any]] = {}
+        for idx, feedback in enumerate(per_question_feedback):
+            if not isinstance(feedback, dict):
+                continue
+            question_id = _as_int(feedback.get("questionId"))
+            if question_id is None and idx < len(scored_question_ids):
+                question_id = scored_question_ids[idx]
+            if question_id is not None:
+                feedback_by_question_id[question_id] = feedback
+
+        attempted_question_ids = [
+            question.id
+            for question in all_questions
+            if question.id in actually_attempted_question_ids
+            and _is_reportable_attempt(attempts_by_question_id.get(question.id))
+        ]
+        attempted_questions = len(attempted_question_ids)
         
         kc_accuracy_sum = kc_depth_sum = kc_relevance_sum = kc_examples_sum = kc_terminology_sum = 0
         ssf_fluency_sum = ssf_structure_sum = ssf_pacing_sum = ssf_grammar_sum = 0
         
-        for q_scores in per_question_scores:
+        for question_id in attempted_question_ids:
+            q_scores = score_by_question_id.get(question_id) or _fallback_lite_scores(
+                attempts_by_question_id.get(question_id)
+            )
             k = q_scores.get("knowledgeScores", {})
             kc_accuracy_sum += k.get("accuracy", 0)
             kc_depth_sum += k.get("depth", 0)
@@ -1271,28 +1453,24 @@ class SummaryReportServiceV2:
         }
         
         question_analysis = []
-        feedback_idx = 0
         
         for idx, iq in enumerate(all_questions):
             question_type = _question_type_label(iq.category)
+            attempt = attempts_by_question_id.get(iq.id)
             
             # Check if attempted
-            if iq.id not in actually_attempted_question_ids:
+            if iq.id not in actually_attempted_question_ids or not _is_reportable_attempt(attempt):
                 # Not attempted
                 feedback_item = {
                     "strengths": "",
                     "areasOfImprovement": "Not attempted"
                 }
             else:
-                # Attempted - get feedback from LLM
-                feedback_item = None
-                if feedback_idx < len(per_question_feedback):
-                    fb_data = per_question_feedback[feedback_idx]
-                    feedback_item = {
-                        "strengths": fb_data.get("strengths", ""),
-                        "areasOfImprovement": fb_data.get("areasOfImprovement", "")
-                    }
-                    feedback_idx += 1
+                # Attempted - use LLM feedback by question id, with deterministic fallback.
+                feedback_item = _normalize_lite_feedback(
+                    feedback_by_question_id.get(iq.id),
+                    _fallback_lite_feedback(attempt),
+                )
             
             question_analysis.append({
                 "id": idx + 1,

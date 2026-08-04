@@ -385,6 +385,7 @@ class LLMPerQuestionScoresStrict(pydantic.BaseModel):
 
 
 class LLMQuestionFeedbackLiteStrict(pydantic.BaseModel):
+    questionId: int | None = None
     strengths: str
     areasOfImprovement: str
 
@@ -456,7 +457,7 @@ async def synthesize_summary_sections_lite(
         "The code will handle: reportId, candidateInfo, question metadata, totals, averages, and percentages.\n\n"
         "Strict JSON schema: {\n"
         "  perQuestionScores: [{ questionId: int, knowledgeScores: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) }, speechScores: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }],\n"
-        "  perQuestionFeedback: [{ strengths: string, areasOfImprovement: string }],\n"
+        "  perQuestionFeedback: [{ questionId: int, strengths: string, areasOfImprovement: string }],\n"
         "  recommendedPractice: { title: string, description: string },\n"
         "  speechFluencyFeedback: { strengths: string, areasOfImprovement: string, ratingEmoji: string, ratingTitle: string, ratingDescription: string },\n"
         "  nextSteps: [{ title: string }],\n"
@@ -491,6 +492,7 @@ async def synthesize_summary_sections_lite(
         "IMPORTANT NOTES:\n"
         "1. perQuestionScores: Include scores for ALL questions provided in per_question data\n"
         "2. perQuestionFeedback: Array corresponding to perQuestionScores order (same length)\n"
+        "   - Each feedback entry MUST include the matching questionId from perQuestionScores.\n"
         "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
         "   - strengths: A SINGLE concise sentence summarizing what they did well (or 'None identified' if no answer).\n"
         "   - areasOfImprovement: A SINGLE concise sentence summarizing what was missing or weak.\n"
