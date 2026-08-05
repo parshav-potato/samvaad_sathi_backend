@@ -599,6 +599,7 @@ async def structured_output(
     system_prompt: str,
     user_content: Any,
     temperature: float = 0,
+    max_tokens: int = 2048,
 ) -> tuple[T | None, str | None, int | None, str]:
     """Call OpenAI asynchronously with JSON response_format and validate against Pydantic model."""
     model = settings.OPENAI_MODEL
@@ -618,7 +619,7 @@ async def structured_output(
         kwargs: dict[str, Any] = {
             "model": model,
             "response_format": {"type": "json_object"},
-            token_param_key: 2048, 
+            token_param_key: max_tokens,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content if isinstance(user_content, str) else json.dumps(user_content, ensure_ascii=False)},
@@ -1177,3 +1178,50 @@ async def analyze_communication_with_llm(
     if result:
         analysis = result.model_dump()
     return analysis, error, latency_ms, model
+
+
+class LLMKnowledgeQuestionLevel(pydantic.BaseModel):
+    level: int
+    questions: list[str]
+
+class LLMKnowledgeQuestionTopic(pydantic.BaseModel):
+    topicName: str
+    candidateType: str
+    levels: list[LLMKnowledgeQuestionLevel]
+
+class LLMKnowledgeBaseExtraction(pydantic.BaseModel):
+    topics: list[LLMKnowledgeQuestionTopic]
+
+async def extract_knowledge_base_with_llm(text: str) -> tuple[LLMKnowledgeBaseExtraction | None, str | None, int | None, str]:
+    sys_prompt = """You are an expert technical interviewer and document parser.
+Your task is to read the following raw text from an uploaded question bank document (like a PDF) and organize it perfectly into a JSON structure.
+
+Instructions:
+1. Identify all domains/topics (e.g. 'User Experience (UX)', 'Frontend').
+2. Identify candidate types if specified (e.g. 'Freshers', 'Experienced'). If not specified, use 'General'.
+3. Extract ALL questions exactly as written under their respective difficulty levels. Do not summarize or alter the question text. Keep all questions intact.
+4. The output must perfectly match the following JSON schema exactly, using these exact keys:
+{
+  "topics": [
+    {
+      "topicName": "String",
+      "candidateType": "String",
+      "levels": [
+        {
+          "level": 1,
+          "questions": ["String", "String"]
+        }
+      ]
+    }
+  ]
+}
+"""
+
+    result, error, latency_ms, model = await structured_output(
+        model_class=LLMKnowledgeBaseExtraction,
+        system_prompt=sys_prompt,
+        user_content=text,
+        temperature=0,
+        max_tokens=8192,
+    )
+    return result, error, latency_ms, model
