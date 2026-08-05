@@ -675,7 +675,14 @@ async def extract_skills(
             detail="job_description cannot be empty"
         )
         
-    extracted_skills = extract_skills_from_text(payload.job_description)
+    extracted_skills, error = await extract_skills_from_text(payload.job_description)
+    if error:
+        logger.error(f"Failed to extract skills via LLM: {error}")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to extract skills. The AI service may be temporarily unavailable. Reason: {error}"
+        )
+
     return JobProfileExtractSkillsResponse(skills=extracted_skills)
 
 
