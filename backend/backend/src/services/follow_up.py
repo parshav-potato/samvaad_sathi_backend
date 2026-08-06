@@ -89,16 +89,16 @@ class FollowUpService:
             return None
 
         interview = await self._interview_repo.get_by_id(interview_id=attempt.interview_id)
+
+        track = interview.track if interview else "general"
+        difficulty = interview.difficulty if interview else "medium"
+
         logger.info(
         "Interview loaded | Interview=%s | Track=%s | Difficulty=%s",
         attempt.interview_id,
         track,
         difficulty,
         )
-
-        track = interview.track if interview else "general"
-        difficulty = interview.difficulty if interview else "medium"
-
         # Enforce strict question count for Full Stack Developer mode
         if track == "Full Stack Developer":
             unasked_qs = await self._interview_question_repo.get_questions_without_attempts(interview_id=attempt.interview_id)
