@@ -97,13 +97,6 @@ async def transcribe_audio_with_whisper(
 
             end_time = time.perf_counter()
             latency_ms = int((end_time - start_time) * 1000)
-            logger.info(
-              "Whisper transcription successful | File=%s | TotalLatency=%d ms | TranscriptLength=%d chars | Words=%d",
-              filename,
-              latency_ms,
-              len(transcription_dict["text"]),
-              len(transcription_dict["words"]),
-            )
             # Convert response to dictionary format
             transcription_dict = {
                 "task": getattr(transcript, "task", "transcribe"),
@@ -112,7 +105,6 @@ async def transcribe_audio_with_whisper(
                 "text": getattr(transcript, "text", ""),
                 "words": []
             }
-
             # Extract word-level timestamps if available
             if hasattr(transcript, "words") and getattr(transcript, "words"):
                 transcription_dict["words"] = [
@@ -124,6 +116,14 @@ async def transcribe_audio_with_whisper(
                     for word in transcript.words
                 ]
 
+
+            logger.info(
+              "Whisper transcription successful | File=%s | TotalLatency=%d ms | TranscriptLength=%d chars | Words=%d",
+              filename,
+              latency_ms,
+              len(transcription_dict["text"]),
+              len(transcription_dict["words"]),
+            )
             return transcription_dict, None, latency_ms, model_name
 
         finally:

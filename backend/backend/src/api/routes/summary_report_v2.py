@@ -105,6 +105,8 @@ async def generate_summary_report_v2(
     question_repo = InterviewQuestionCRUDRepository(session)
     question_start = time.perf_counter()
     questions = await question_repo.list_by_interview(interview_id=interview.id)
+    resume_used = any(q.resume_used for q in questions) if questions else None
+
     logger.info(
     "Interview questions loaded | Interview=%s | Questions=%d | ResumeUsed=%s | Time=%.2fs",
     interview.id,
@@ -112,8 +114,6 @@ async def generate_summary_report_v2(
     resume_used,
     time.perf_counter() - question_start,
     )
-    resume_used = any(q.resume_used for q in questions) if questions else None
-
     # Get candidate name from user if available
     candidate_name = getattr(current_user, "name", None)
 
