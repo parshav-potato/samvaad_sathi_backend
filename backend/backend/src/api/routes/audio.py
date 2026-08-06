@@ -1,4 +1,5 @@
 import fastapi
+import time
 import logging
 from fastapi import Form, UploadFile, File
 
@@ -44,16 +45,29 @@ async def transcribe_audio_answer(
     
     # Step 1: Verify question attempt exists and belongs to current user
     try:
+        request_start = time.perf_counter()
         question_attempt_id_int = int(question_attempt_id)
     except ValueError:
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid question_attempt_id format. Must be a valid integer."
         )
-    
+    logger.info(
+       "Transcription request started | User=%s | QuestionAttempt=%s | File=%s | Language=%s",
+        current_user.id,
+        question_attempt_id,
+        file.filename,
+        language,
+    )
     question_attempt = await question_repo.get_by_id_and_user(
         question_attempt_id=question_attempt_id_int,
         user_id=current_user.id
+    )
+
+    logger.info(
+       "Question attempt verified | User=%s | QuestionAttempt=%s",
+       current_user.id,
+       question_attempt_id_int,
     )
     
     if not question_attempt:
@@ -64,7 +78,14 @@ async def transcribe_audio_answer(
 
     # Step 2: Validate audio file
     try:
+        validation_start = time.perf_counter()
         audio_bytes, file_metadata = await validate_audio_file(file)
+        logger.info(
+        "Audio validated | QuestionAttempt=%s | Size=%d bytes | Duration=%.2f sec",
+        question_attempt_id_int,
+        file_metadata["size"],
+        time.perf_counter() - validation_start,
+       )
     except fastapi.HTTPException:
         raise  # Re-raise validation errors as-is
     except Exception as e:
@@ -78,12 +99,23 @@ async def transcribe_audio_answer(
 
     # Step 4: Validate and normalize language
     validated_language = validate_transcription_language(language)
-
+    whisper_start = time.perf_counter()
+    logger.info(
+      "Whisper transcription started | QuestionAttempt=%s",
+      question_attempt_id_int,
+    )
     # Step 5: Transcribe with Whisper API
     transcription, whisper_error, whisper_latency_ms, whisper_model = await transcribe_audio_with_whisper(
         audio_bytes=audio_bytes,
         filename=file_metadata["filename"], 
         language=validated_language
+    )
+    logger.info(
+    "Whisper completed | QuestionAttempt=%s | Time=%.2fs | Error=%s | WordCount=%d",
+      question_attempt_id_int,
+      time.perf_counter() - whisper_start,
+      whisper_error,
+      extract_word_count(transcription),
     )
 
     follow_up_service = FollowUpService(async_session=question_repo.async_session)
@@ -93,11 +125,18 @@ async def transcribe_audio_answer(
     audio_url = ""
     save_error = None
     try:
+        save_audio_start = time.perf_counter()
         temp_file_path, audio_url = await save_audio_file(
             audio_bytes=audio_bytes,
             filename=file_metadata["filename"],
             user_id=current_user.id,
             question_attempt_id=question_attempt_id_int
+        )
+        logger.info(
+        "Audio file saved | QuestionAttempt=%s | Time=%.2fs | AudioURL=%s",
+        question_attempt_id_int,
+        time.perf_counter() - save_audio_start,
+        audio_url,
         )
         # Note: audio_url is just a reference name for database storage
         # temp_file_path is the actual temporary file that will be cleaned up
@@ -109,12 +148,19 @@ async def transcribe_audio_answer(
     db_save_error = None
     if audio_url and transcription and not save_error:
         try:
+            db_start = time.perf_counter()
             updated_qa = await question_repo.update_audio_transcription(
                 question_attempt_id=question_attempt_id_int,
                 audio_url=audio_url,  # Just a reference name, not a real file path
                 transcription=transcription
             )
             saved = updated_qa is not None
+            logger.info(
+               "Database updated | QuestionAttempt=%s | Time=%.2fs | Saved=%s",
+               question_attempt_id_int,
+               time.perf_counter() - db_start,
+               updated_qa is not None,
+            )
         except Exception as e:
             db_save_error = str(e)
             saved = False
@@ -134,6 +180,12 @@ async def transcribe_audio_answer(
     follow_up_question = None
     if final_saved:
         try:
+            followup_start = time.perf_counter()
+
+            logger.info(
+               "Follow-up generation started | QuestionAttempt=%s",
+               question_attempt_id_int,
+            )
             follow_up_metadata = await follow_up_service.handle_transcription_saved(question_attempt_id_int)
             if follow_up_metadata:
                 qid = follow_up_metadata.get("follow_up_question_id")
@@ -147,8 +199,18 @@ async def transcribe_audio_answer(
                         "text": text,
                         "strategy": follow_up_metadata.get("strategy"),
                     }
+                    logger.info(
+                       "Follow-up generation finished | QuestionAttempt=%s | Time=%.2fs | Generated=%s",
+                       question_attempt_id_int,
+                       time.perf_counter() - followup_start,
+                       follow_up_metadata is not None,
+                    )
         except Exception as follow_up_error:  # noqa: BLE001
             logger.warning("Failed to generate follow-up question for attempt %s: %s", question_attempt_id_int, follow_up_error)
+            logger.exception(
+              "Follow-up generation failed | QuestionAttempt=%s",
+              question_attempt_id_int,
+            )
 
     # Generate status message
     if final_saved:
@@ -159,7 +221,13 @@ async def transcribe_audio_answer(
         message = f"Audio uploaded but transcription failed: {whisper_error}"
     else:
         message = "Audio upload failed"
-
+    logger.info(
+        "Transcription workflow completed | QuestionAttempt=%s | TotalTime=%.2fs | Saved=%s | FollowUp=%s",
+        question_attempt_id_int,
+        time.perf_counter() - request_start,
+        final_saved,
+        follow_up_metadata is not None,
+    )
     return AudioTranscriptionResponse(
         question_attempt_id=question_attempt_id_int,
         filename=file_metadata["filename"],

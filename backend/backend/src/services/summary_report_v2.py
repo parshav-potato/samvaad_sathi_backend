@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 import math
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -43,7 +44,7 @@ from src.models.schemas.summary_report_v2 import (
     CandidateInfoLite,
 )
 from src.services.llm import synthesize_summary_sections, synthesize_summary_sections_lite
-
+logger = logging.getLogger(__name__)
 
 def _as_float(v: Any) -> Optional[float]:
     try:
@@ -160,18 +161,37 @@ class SummaryReportServiceV2:
         """Generate the new restructured summary report."""
         
         question_attempts = list(question_attempts)
-        
+        logger.info(
+           "Summary report generation started | interview_id=%s | track=%s | candidate=%s | received_attempts=%d",
+           interview_id,
+           track,
+           candidate_name,
+           len(question_attempts),
+        )
+        logger.debug(
+        "Fetching interview questions for interview_id=%s",
+        interview_id,
+        )
         # Fetch all InterviewQuestions for this interview
         stmt = sqlalchemy.select(InterviewQuestion).where(
             InterviewQuestion.interview_id == interview_id
         ).order_by(InterviewQuestion.order.asc())
         result = await self._db.execute(stmt)
         fetched_questions = list(result.scalars().all())
+        logger.info(
+        "Fetched %d interview questions for interview_id=%s",
+        len(fetched_questions),
+        interview_id,
+        )
         
         # Reorder questions so follow-ups appear immediately after their parent question
         # This ensures Q4's follow-up appears as Q4.1 (after Q4) rather than at the end
         all_interview_questions = self._order_questions_with_followups(fetched_questions)
-        
+
+        logger.debug(
+        "Questions reordered. Total questions after follow-up ordering=%d",
+        len(all_interview_questions),
+        )
         # Build a map of question_id -> QuestionAttempt
         # When there are multiple attempts for the same question (re-attempts),
         # keep only the latest attempt as it represents the user's most recent/best effort
@@ -180,6 +200,12 @@ class SummaryReportServiceV2:
         
         for qa in question_attempts:
             if qa.question_id is not None:
+                logger.debug(
+                "Processing QuestionAttempt id=%s question_id=%s interview_id=%s",
+                qa.id,
+                qa.question_id,
+                qa.interview_id,
+                )
                 # This overwrites previous attempts - intended behavior for re-attempts
                 attempts_by_question_id[qa.question_id] = qa
                 
@@ -187,13 +213,25 @@ class SummaryReportServiceV2:
                 has_transcription = qa.transcription is not None and len(str(qa.transcription).strip()) > 0
                 analysis = getattr(qa, "analysis_json", None) or {}
                 has_analysis = bool(analysis)
+                logger.debug(
+                "Attempt %s content status | transcription=%s | analysis=%s",
+                qa.id,
+                has_transcription,
+                has_analysis,
+                )
                 
                 if has_transcription or has_analysis:
                     actually_attempted_question_ids.add(qa.question_id)
         
         total_questions = len(all_interview_questions)
         attempted_questions = len(actually_attempted_question_ids)  # Count only real attempts
-        
+
+        logger.info(
+         "Interview statistics | total_questions=%d | attempted_questions=%d | mapped_attempts=%d",
+         total_questions,
+         attempted_questions,
+         len(attempts_by_question_id),
+        )
         # Collect metrics from analyses
         kc_accuracy: List[float] = []
         kc_depth: List[float] = []
@@ -214,16 +252,29 @@ class SummaryReportServiceV2:
         per_question_inputs: List[dict] = []
         
         for interview_question in all_interview_questions:
+            logger.debug(
+            "Evaluating report for question_id=%s text=%s",
+            interview_question.id,
+            interview_question.text[:80],
+            )
             qa = attempts_by_question_id.get(interview_question.id)
             
             # Skip questions that weren't actually attempted with content
             if interview_question.id not in actually_attempted_question_ids:
+                logger.warning(
+                "Skipping question_id=%s because it was not marked as attempted",
+                interview_question.id,
+                )
                 continue
             
             # Double-check that the latest attempt has actual content
             # This handles re-attempt scenarios where an earlier session had content
             # but the latest attempt is empty
             if qa is None:
+                logger.warning(
+                "No QuestionAttempt found for question_id=%s",
+                interview_question.id,
+                )
                 continue
                 
             has_transcription = bool(
@@ -232,6 +283,10 @@ class SummaryReportServiceV2:
             has_analysis = bool(qa.analysis_json and isinstance(qa.analysis_json, dict))
             
             if not (has_transcription or has_analysis):
+                logger.warning(
+                "Skipping question_id=%s because transcription and analysis are both empty",
+                interview_question.id,
+                )
                 continue
             
             # Attempted question with actual content - process analysis
@@ -302,7 +357,16 @@ class SummaryReportServiceV2:
                 "pace": p,
                 "pause": z,
             })
-        
+
+        logger.info(
+        "Metric aggregation complete | accuracy=%d depth=%d relevance=%d structure=%d grammar=%d pacing=%d",
+        len(kc_accuracy),
+        len(kc_depth),
+        len(kc_relevance),
+        len(ssf_structure),
+        len(ssf_grammar),
+        len(ssf_pacing),
+        )
         # Compute aggregated metrics
         computed_metrics = {
             "kc_accuracy_pct": _avg(kc_accuracy),
@@ -324,6 +388,12 @@ class SummaryReportServiceV2:
         
         # Call LLM to synthesize the report
         interview_date = datetime.now(timezone.utc).isoformat()
+
+        logger.info(
+           "Calling summary synthesis LLM | interview_id=%s | attempted_questions=%d",
+           interview_id,
+           attempted_questions,
+        )
         llm_data, llm_error, latency_ms, model_name = await synthesize_summary_sections(
             per_question_inputs=per_question_inputs,
             computed_metrics=computed_metrics,
@@ -333,9 +403,19 @@ class SummaryReportServiceV2:
             candidate_name=candidate_name,
             total_questions=total_questions,
         )
-        
+        logger.info(
+          "Summary synthesis completed | latency=%sms | model=%s | error=%s",
+          latency_ms,
+          model_name,
+          llm_error,
+        )
         # If LLM failed, build a fallback report
         if not llm_data or llm_error:
+            logger.error(
+              "LLM summary generation failed. Falling back to deterministic report. interview_id=%s error=%s",
+              interview_id,
+              llm_error,
+            )
             return self._build_fallback_report(
                 interview_id=interview_id,
                 track=track,
@@ -348,6 +428,10 @@ class SummaryReportServiceV2:
         
         # Calculate final scores from LLM's per-question scores
         try:
+            logger.info(
+            "Calculating final report scores for interview_id=%s",
+            interview_id,
+            )
             final_report = self._calculate_final_scores(
                 llm_data=llm_data,
                 total_questions=total_questions,
@@ -360,8 +444,16 @@ class SummaryReportServiceV2:
             )
             # Validate the final report
             parsed = SummaryReportResponse(**final_report)
+            logger.info(
+            "Summary report generated successfully | interview_id=%s",
+            interview_id,
+            )
             return parsed.model_dump(exclude_none=True)
         except Exception as e:
+            logger.exception(
+             "Failed while calculating final report for interview_id=%s",
+             interview_id,
+            )
             # LLM data invalid or calculation failed - fall back
             return self._build_fallback_report(
                 interview_id=interview_id,
@@ -396,9 +488,20 @@ class SummaryReportServiceV2:
         per_question_scores = llm_data.get("perQuestionScores", [])
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
         attempted_questions = len(per_question_scores)
+
+        logger.info(
+        "Calculating final scores | total_questions=%d | attempted_questions=%d | llm_scores=%d | llm_feedback=%d",
+        total_questions,
+        attempted_questions,
+        len(per_question_scores),
+        len(per_question_feedback),
+        )
         
         # If no questions were actually attempted, return all zeros immediately
         if attempted_questions == 0 or total_questions == 0:
+            logger.warning(
+            "No attempted questions found. Returning zero-score report."
+            )
             score_summary = {
                 "knowledgeCompetence": {
                     "score": 0,
@@ -502,7 +605,16 @@ class SummaryReportServiceV2:
         ssf_pacing_sum = 0
         ssf_grammar_sum = 0
         
+
+        logger.debug(
+        "Aggregating scores from %d LLM question results",
+        len(per_question_scores),
+        )
         for q_scores in per_question_scores:
+            logger.debug(
+            "Processing LLM scores for question_id=%s",
+            q_scores.get("questionId"),
+            )
             k_scores = q_scores.get("knowledgeScores", {})
             kc_accuracy_sum += k_scores.get("accuracy", 0)
             kc_depth_sum += k_scores.get("depth", 0)
@@ -521,7 +633,11 @@ class SummaryReportServiceV2:
                                    kc_examples_sum + kc_terminology_sum)
         ssf_total_from_attempted = (ssf_fluency_sum + ssf_structure_sum + 
                                     ssf_pacing_sum + ssf_grammar_sum)
-        
+        logger.info(
+        "Aggregated score totals | KC=%d | Speech=%d",
+        kc_total_from_attempted,
+        ssf_total_from_attempted,
+        )
         # Calculate average scores per question from attempted questions
         # IMPORTANT: This uses attempted_questions (not total_questions) as denominator
         # to get the average performance on attempted questions
@@ -539,9 +655,19 @@ class SummaryReportServiceV2:
         # Example 2 (SKIP): 5 total questions, only 2 attempted, 3 skipped
         #   - attempted=2, total=5, ratio=0.4 → 40% penalty (60% of questions skipped)
         completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
-        
+        logger.info(
+        "Completion ratio calculated = %.2f (%d/%d)",
+        completion_ratio,
+        attempted_questions,
+        total_questions,
+        )
         kc_score_total = round(kc_avg_per_question * completion_ratio)
         ssf_score_total = round(ssf_avg_per_question * completion_ratio)
+        logger.info(
+        "Penalized scores | KC=%d | Speech=%d",
+        kc_score_total,
+        ssf_score_total,
+        )
         
         # Distribute the final penalized score back to criteria proportionally
         # This ensures criteria sum exactly to the final score
@@ -571,7 +697,11 @@ class SummaryReportServiceV2:
         # Calculate percentages (max: KC=25, SSF=20)
         kc_pct = int((kc_score_total / 25.0) * 100)
         ssf_pct = int((ssf_score_total / 20.0) * 100)
-        
+        logger.info(
+        "Final percentages | KC=%d%% | Speech=%d%%",
+        kc_pct,
+        ssf_pct,
+        )
         # Build the score summary
         score_summary = {
             "knowledgeCompetence": {
@@ -614,7 +744,14 @@ class SummaryReportServiceV2:
         # Build questionAnalysis from code (question metadata) + LLM (feedback)
         # Create a map of questionId to feedback from LLM
         feedback_by_question_id = {}
+        logger.debug(
+        "Building LLM feedback map"
+        )
         for idx, score in enumerate(per_question_scores):
+            logger.debug(
+            "Mapping feedback for question_id=%s",
+            score.get("questionId"),
+            )
             q_id = score.get("questionId")
             if idx < len(per_question_feedback):
                 llm_feedback = per_question_feedback[idx]
@@ -636,10 +773,21 @@ class SummaryReportServiceV2:
                             "actionableInsights": actionable_insights if isinstance(actionable_insights, list) else [],
                         }
                     }
-        
+        logger.info(
+        "Feedback mapped for %d questions",
+        len(feedback_by_question_id),
+        )
         question_analysis = []
-        
+        logger.info(
+        "Building question analysis for %d interview questions",
+        len(all_questions),
+        )
         for idx, iq in enumerate(all_questions):
+            logger.debug(
+            "Question analysis | question_id=%s | category=%s",
+            iq.id,
+            iq.category,
+            )
             question_type = _question_type_label(iq.category)
             
             # Check if this question was attempted with valid content
@@ -652,12 +800,26 @@ class SummaryReportServiceV2:
                 )
                 has_analysis = bool(attempt.analysis_json and isinstance(attempt.analysis_json, dict))
                 has_valid_attempt = has_transcription or has_analysis
-            
+            logger.debug(
+            "Question %s validation | transcription=%s | analysis=%s | valid=%s",
+            iq.id,
+            has_transcription,
+            has_analysis,
+            has_valid_attempt,
+            )
             # Get feedback from LLM if available for this question
             feedback = feedback_by_question_id.get(iq.id)
-            
+            if feedback is None:
+                logger.warning(
+                "No LLM feedback found for question_id=%s",
+                iq.id,
+                )
             # If not attempted, provide "Not attempted" feedback
             if not has_valid_attempt:
+                logger.warning(
+                "Question %s marked as NOT ATTEMPTED",
+                iq.id,
+                )
                 feedback = {
                     "knowledgeRelated": {
                         "strengths": [],
@@ -680,6 +842,9 @@ class SummaryReportServiceV2:
         overall_feedback_raw = llm_data.get("overallFeedback", {})
         speech_fluency_raw = overall_feedback_raw.get("speechFluency", {}) if isinstance(overall_feedback_raw, dict) else {}
         
+        logger.debug(
+        "Preparing overall feedback section"
+        )
         # If no questions were actually attempted (all skipped), don't show misleading feedback
         # Clear out any generic LLM feedback and show only actionable step to attempt questions
         if attempted_questions == 0:
@@ -704,7 +869,12 @@ class SummaryReportServiceV2:
                     "actionableSteps": speech_fluency_raw.get("actionableSteps") or [] if isinstance(speech_fluency_raw, dict) else [],
                 }
             }
-        
+        logger.info(
+        "Summary report ready | report_questions=%d | attempted=%d | candidate=%s",
+        len(question_analysis),
+        attempted_questions,
+        candidate_name,
+        )
         # Return the complete report with calculated scores and code-generated metadata
         return {
             "reportId": str(uuid.uuid4()),  # Generate in code
@@ -724,11 +894,16 @@ class SummaryReportServiceV2:
         interview_date: str,
         candidate_name: str | None,
     ) -> Dict[str, Any]:
+        logger.info(
+        "Building fallback summary report for interview_id=%s, track=%s",
+        interview_id,
+        track,
+        )
         """Build a fallback report when LLM fails."""
         
         # Generate report ID
         report_id = str(uuid.uuid4())
-        
+        logger.debug("Generated fallback report_id=%s", report_id)
         # Candidate info
         candidate_info = CandidateInfo(
             name=candidate_name,
@@ -756,7 +931,13 @@ class SummaryReportServiceV2:
             attempt_ratio = 0.0
         else:
             attempt_ratio = attempted_questions / total_questions
-        
+
+        logger.debug(
+        "Fallback scoring: attempted_questions=%s, total_questions=%s, attempt_ratio=%.2f",
+        attempted_questions,
+        total_questions,
+        attempt_ratio,
+        )
         # Calculate totals BEFORE penalty
         kc_total_before_penalty = kc_accuracy + kc_depth + kc_relevance + kc_examples + kc_terminology
         ssf_total_before_penalty = ssf_fluency + ssf_structure + ssf_pacing + ssf_grammar
@@ -764,7 +945,11 @@ class SummaryReportServiceV2:
         # Apply attempt penalty to totals (not individual criteria)
         kc_score = round(kc_total_before_penalty * attempt_ratio)
         ssf_score = round(ssf_total_before_penalty * attempt_ratio)
-        
+        logger.debug(
+        "Fallback scores calculated: knowledge_score=%s, speech_score=%s",
+        kc_score,
+        ssf_score,
+        )
         # Distribute the final penalized score back to criteria proportionally
         if kc_total_before_penalty > 0:
             kc_accuracy_final = round(kc_score * (kc_accuracy / kc_total_before_penalty))
@@ -830,6 +1015,10 @@ class SummaryReportServiceV2:
         
         # If no questions were actually attempted, don't show misleading feedback
         if attempted_questions == 0:
+            logger.debug(
+            "Preparing overall fallback feedback (attempted_questions=%s)",
+            attempted_questions,
+            )
             overall_feedback = OverallFeedback(
                 speechFluency=SpeechFluencyFeedback(
                     strengths=[],
@@ -865,12 +1054,20 @@ class SummaryReportServiceV2:
         
         for idx, interview_question in enumerate(all_questions):
             qa = attempts_map.get(interview_question.id)
+            logger.debug(
+            "Processing fallback feedback for question_id=%s",
+            interview_question.id,
+            )
             
             q_type = _question_type_label(interview_question.category)
             
             # Check if attempted
             if qa is None:
                 # Not attempted
+                logger.debug(
+                "Question %s not attempted; adding default feedback",
+                interview_question.id,
+                )
                 question_analysis.append(QuestionAnalysisItem(
                     id=idx + 1,
                     totalQuestions=total_questions,
@@ -894,6 +1091,10 @@ class SummaryReportServiceV2:
             
             if not (has_transcription or has_analysis):
                 # No valid content
+                logger.debug(
+                "Question %s has no valid transcription/analysis; marking as not attempted",
+                interview_question.id,
+                )
                 question_analysis.append(QuestionAnalysisItem(
                     id=idx + 1,
                     totalQuestions=total_questions,
@@ -910,6 +1111,10 @@ class SummaryReportServiceV2:
                 continue
             
             # Attempted - extract feedback from analysis
+            logger.debug(
+            "Building fallback feedback from analysis for question_id=%s",
+            interview_question.id,
+            )
             analysis = getattr(qa, "analysis_json", None) or {}
             d = analysis.get("domain") or {}
             
@@ -936,12 +1141,21 @@ class SummaryReportServiceV2:
             ))
         
         # Build final response
+        logger.info(
+        "Assembling fallback summary report with %d question analyses",
+        len(question_analysis),
+        )
         report = SummaryReportResponse(
             reportId=report_id,
             candidateInfo=candidate_info,
             scoreSummary=ScoreSummary(**score_summary_dict),
             overallFeedback=overall_feedback,
             questionAnalysis=question_analysis,
+        )
+
+        logger.info(
+        "Fallback summary report generated successfully for interview_id=%s",
+        interview_id,
         )
         
         return report.model_dump(exclude_none=True)
@@ -954,6 +1168,11 @@ class SummaryReportServiceV2:
         resume_used: bool | None = None,
         candidate_name: str | None = None,
     ) -> Dict[str, Any]:
+        logger.info(
+        "Generating lite summary report for interview_id=%s, track=%s",
+        interview_id,
+        track,
+        )
         """Generate the new restructured summary report (Lite)."""
         
         question_attempts = list(question_attempts)
@@ -962,8 +1181,19 @@ class SummaryReportServiceV2:
         interview_stmt = sqlalchemy.select(Interview).where(Interview.id == interview_id)
         interview_res = await self._db.execute(interview_stmt)
         interview = interview_res.scalar_one_or_none()
+
+        if interview:
+           logger.debug("Interview %s loaded for lite summary generation", interview_id)
+        else:
+           logger.warning("Interview %s not found while generating lite summary", interview_id)
         
         duration_str = "0 mins"
+
+        logger.debug(
+        "Calculated interview duration=%s for interview_id=%s",
+        duration_str,
+        interview_id,
+        )
         duration_feedback = "You managed your time effectively."
         
         if interview and interview.created_at:
@@ -988,7 +1218,11 @@ class SummaryReportServiceV2:
         ).order_by(InterviewQuestion.order.asc())
         result = await self._db.execute(stmt)
         all_interview_questions = list(result.scalars().all())
-        
+        logger.debug(
+        "Loaded %d interview questions for interview_id=%s",
+        len(all_interview_questions),
+        interview_id,
+        )
         # Build a map of question_id -> QuestionAttempt
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
         actually_attempted_question_ids: set[int] = set()
@@ -1004,6 +1238,13 @@ class SummaryReportServiceV2:
         
         total_questions = len(all_interview_questions)
         attempted_questions = len(actually_attempted_question_ids)
+
+        logger.info(
+        "Interview %s has %d/%d attempted questions",
+        interview_id,
+        attempted_questions,
+        total_questions,
+        )
         
         # Collect metrics
         kc_accuracy: List[float] = []
@@ -1018,7 +1259,7 @@ class SummaryReportServiceV2:
         speech_strengths: List[str] = []
         speech_improvements: List[str] = []
         per_question_inputs: List[dict] = []
-        
+        logger.debug("Collecting metrics for lite summary report")
         for interview_question in all_interview_questions:
             qa = attempts_by_question_id.get(interview_question.id)
             if interview_question.id not in actually_attempted_question_ids:
@@ -1087,8 +1328,17 @@ class SummaryReportServiceV2:
             "speech_strengths": _unique(speech_strengths)[:6],
             "speech_improvements": _unique(speech_improvements)[:6],
         }
+
+        logger.debug(
+        "Computed aggregate metrics for %d attempted questions",
+        attempted_questions,
+        )
         
         interview_date = datetime.now(timezone.utc).isoformat()
+        logger.info(
+        "Calling LLM to synthesize lite summary report for interview_id=%s",
+        interview_id,
+        )
         llm_data, llm_error, latency_ms, model_name = await synthesize_summary_sections_lite(
             per_question_inputs=per_question_inputs,
             computed_metrics=computed_metrics,
@@ -1098,8 +1348,18 @@ class SummaryReportServiceV2:
             candidate_name=candidate_name,
             total_questions=total_questions,
         )
-        
+        logger.info(
+        "Lite summary synthesis completed (model=%s latency=%sms error=%s)",
+        model_name,
+        latency_ms,
+        llm_error,
+        )
         if not llm_data or llm_error:
+            logger.warning(
+            "Lite summary LLM generation failed for interview_id=%s (error=%s). Using fallback report.",
+            interview_id,
+            llm_error,
+            )
             # Fallback logic for error case
             fallback_std = self._build_fallback_report(
                 interview_id=interview_id,
@@ -1121,6 +1381,10 @@ class SummaryReportServiceV2:
                     feedback=QuestionFeedbackLite(strengths="N/A", areasOfImprovement="N/A")
                 ))
             
+            logger.info(
+            "Returning fallback lite summary report for interview_id=%s",
+            interview_id,
+            )
             return SummaryReportResponseLite(
                 reportId=str(uuid.uuid4()),
                 candidateInfo=CandidateInfoLite(
@@ -1139,6 +1403,10 @@ class SummaryReportServiceV2:
             ).model_dump(exclude_none=True)
 
         try:
+            logger.debug(
+            "Calculating final lite report scores for interview_id=%s",
+            interview_id,
+            )
             final_report = self._calculate_final_scores_lite(
                 llm_data=llm_data,
                 total_questions=total_questions,
@@ -1152,10 +1420,17 @@ class SummaryReportServiceV2:
                 duration_feedback=duration_feedback,
             )
             parsed = SummaryReportResponseLite(**final_report)
+            logger.info(
+            "Lite summary report generated successfully for interview_id=%s",
+            interview_id,
+            )
             return parsed.model_dump(exclude_none=True)
         except Exception as e:
             # Fallback on exception
-            print(f"Error parsing lite report: {e}")
+            logger.exception(
+            "Failed to build lite summary report for interview_id=%s",
+            interview_id,
+            )
             # Return minimal valid response (same as above)
             return SummaryReportResponseLite(
                 reportId=str(uuid.uuid4()),
@@ -1189,11 +1464,19 @@ class SummaryReportServiceV2:
         duration_str: str,
         duration_feedback: str,
     ) -> Dict[str, Any]:
+        logger.info(
+        "Calculating lite summary scores (track=%s total_questions=%d)",
+        track,
+        total_questions,
+        )
         """Calculate final scores for Lite report."""
         per_question_scores = llm_data.get("perQuestionScores", [])
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
         attempted_questions = len(per_question_scores)
-        
+        logger.debug(
+        "Received LLM scores for %d attempted questions",
+        attempted_questions,
+        )
         kc_accuracy_sum = kc_depth_sum = kc_relevance_sum = kc_examples_sum = kc_terminology_sum = 0
         ssf_fluency_sum = ssf_structure_sum = ssf_pacing_sum = ssf_grammar_sum = 0
         
@@ -1220,6 +1503,10 @@ class SummaryReportServiceV2:
             kc_avg_per_question = ssf_avg_per_question = 0
             
         completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
+        logger.debug(
+        "Lite score completion ratio: %.2f",
+        completion_ratio,
+        )
         kc_score_total = round(kc_avg_per_question * completion_ratio)
         ssf_score_total = round(ssf_avg_per_question * completion_ratio)
         
@@ -1261,7 +1548,11 @@ class SummaryReportServiceV2:
             }
         }
         score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
-        
+        logger.debug(
+        "Lite score summary prepared (knowledge=%s speech=%s)",
+        kc_score_total,
+        ssf_score_total,
+        )
         candidate_info = {
             "name": candidate_name,
             "interviewDate": interview_date,
@@ -1272,8 +1563,12 @@ class SummaryReportServiceV2:
         
         question_analysis = []
         feedback_idx = 0
-        
+        logger.debug("Preparing lite question analysis")
         for idx, iq in enumerate(all_questions):
+            logger.debug(
+            "Processing lite feedback for question_id=%s",
+            iq.id,
+            )
             question_type = _question_type_label(iq.category)
             
             # Check if attempted
@@ -1301,7 +1596,10 @@ class SummaryReportServiceV2:
                 "question": iq.text,
                 "feedback": feedback_item,
             })
-            
+            logger.info(
+            "Lite summary score calculation completed with %d question analyses",
+            len(question_analysis),
+            )
         return {
             "reportId": str(uuid.uuid4()),
             "candidateInfo": candidate_info,
