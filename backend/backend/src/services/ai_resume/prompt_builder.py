@@ -75,6 +75,7 @@ Return response in EXACT clean valid JSON format matching the schema below witho
   }},
   "skillsAnalysis": {{
     "strongSkills": ["Extracted_Skill_1", "Extracted_Skill_2"],
+    "relatedSkills": ["Related_Skill_1", "Related_Skill_2"],
     "missingSkills": ["Missing_Skill_1", "Missing_Skill_2"],
     "additionalSkills": ["Irrelevant_Skill_1"]
   }},
