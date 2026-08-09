@@ -42,7 +42,10 @@ async def transcribe_audio_answer(
     4. Save audio file and update database
     5. Return transcription results
     """
-    
+    logger.warning(
+    "######## TRANSCRIBE NEW CODE TEST v1 ######## | QuestionAttempt=%s",
+    question_attempt_id,
+    )
     # Step 1: Verify question attempt exists and belongs to current user
     try:
         request_start = time.perf_counter()
