@@ -14,9 +14,23 @@ from src.config.manager import settings
 
 
 def initialize_backend_application() -> fastapi.FastAPI:
+    
+    logging.basicConfig(
+        level=settings.LOGGING_LEVEL,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        force=True,
+    )
+
      # Configure application logging
     logging.getLogger().setLevel(settings.LOGGING_LEVEL)
     logging.getLogger("src").setLevel(settings.LOGGING_LEVEL)
+
+    logging.getLogger(__name__).info(
+    "######## APPLICATION INFO LOG TEST ########"
+    )
+    logging.getLogger(__name__).warning(
+    "######## APPLICATION WARNING LOG TEST ########"
+    )
 
     # Load environment variables from .env if present
     load_dotenv()
