@@ -1,3 +1,4 @@
+import logging
 import fastapi
 import uvicorn
 from dotenv import load_dotenv
@@ -13,6 +14,10 @@ from src.config.manager import settings
 
 
 def initialize_backend_application() -> fastapi.FastAPI:
+     # Configure application logging
+    logging.getLogger().setLevel(settings.LOGGING_LEVEL)
+    logging.getLogger("src").setLevel(settings.LOGGING_LEVEL)
+
     # Load environment variables from .env if present
     load_dotenv()
     app = fastapi.FastAPI(**settings.set_backend_app_attributes)  # type: ignore
