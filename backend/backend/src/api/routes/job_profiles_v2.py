@@ -1,4 +1,5 @@
 import fastapi
+import asyncio
 from fastapi import File, UploadFile
 from typing import List, Optional
 import logging
@@ -37,7 +38,7 @@ from src.models.schemas.job_profile import (
 from src.services.file_processor import validate_file
 from src.services.skills_extractor import extract_skills_from_text
 from src.repository.crud.job_profile import JobProfileCRUDRepository
-from src.services.llm import generate_interview_questions_with_llm, extract_knowledge_base_with_llm
+from src.services.llm import generate_interview_questions_with_llm
 from src.services.syllabus_service import syllabus_service
 
 logger = logging.getLogger(__name__)
@@ -453,8 +454,9 @@ async def upload_knowledge_questions(
             
         # Parse text if we extracted anything
         if extracted_text.strip():
-            # Call LLM to parse the entire text
-            result, error, latency_ms, model = await extract_knowledge_base_with_llm(extracted_text)
+            # Call heuristic parser to parse the entire text
+            from src.services.knowledge_parser import parse_knowledge_base_text
+            result, error, latency_ms, model = parse_knowledge_base_text(extracted_text)
             
             if error or not result:
                 raise fastapi.HTTPException(
@@ -593,10 +595,10 @@ async def generate_questions_v2(
     track = profile.job_name
     context_text = profile.job_description
 
-    for l in payload.levels:
+    async def process_level(l):
         if l.count == 0:
-            continue
-
+            return []
+            
         difficulty = level_map[l.level]
         
         # Prepare syllabus and question ratio using existing syllabus service
@@ -639,9 +641,8 @@ async def generate_questions_v2(
         if payload.knowledge_reference_context:
             influence["knowledge_reference_context"] = payload.knowledge_reference_context
 
-        # Senior instruction: Make multiple smaller LLM calls to prevent large call failures (e.g. batch size of 5)
         remaining = l.count
-        batch_size = 5
+        batch_size = 20
         level_generated_items = []
 
         while remaining > 0:
@@ -676,11 +677,17 @@ async def generate_questions_v2(
             level_generated_items.extend(structured_items)
             remaining -= current_batch
 
-        for item in level_generated_items:
+        return [(l.level, difficulty, item) for item in level_generated_items]
+
+    # Process all requested levels in parallel
+    results = await asyncio.gather(*[process_level(l) for l in payload.levels])
+
+    for level_results in results:
+        for level, difficulty, item in level_results:
             generated_questions_data.append({
                 "job_profile_id": profile.id,
                 "question_text": item["text"],
-                "level": l.level,
+                "level": level,
                 "difficulty": difficulty,
                 "question_type": item.get("category", "theoretical"),
                 "is_ai_generated": True,
