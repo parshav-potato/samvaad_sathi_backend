@@ -642,25 +642,25 @@ async def generate_questions_v2(
             influence["knowledge_reference_context"] = payload.knowledge_reference_context
 
         remaining = l.count
-        batch_size = 20
-        level_generated_items = []
-
+        batch_size = 10
+        
+        # Calculate batches
+        batches = []
         while remaining > 0:
             current_batch = min(remaining, batch_size)
-            current_influence = dict(influence)
-            if level_generated_items:
-                current_influence["exclude_questions"] = [
-                    item["text"] for item in level_generated_items
-                ]
+            batches.append(current_batch)
+            remaining -= current_batch
 
+        async def fetch_batch(b_count, batch_idx):
+            current_influence = dict(influence)
             logger.info(
-                f"Generating batch of {current_batch} questions (remaining: {remaining}) for Job Profile {job_profile_id} at Level {l.level} ({difficulty})"
+                f"Generating parallel batch {batch_idx+1}/{len(batches)} ({b_count} questions) for Job Profile {job_profile_id} at Level {l.level} ({difficulty})"
             )
 
             questions_list, error, latency_ms, llm_model, structured_items = await generate_interview_questions_with_llm(
                 track=track,
                 context_text=context_text,
-                count=current_batch,
+                count=b_count,
                 difficulty=difficulty,
                 syllabus_topics=topics,
                 ratio=ratio,
@@ -673,9 +673,14 @@ async def generate_questions_v2(
                     status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Failed to generate questions for Level {l.level}: {error or 'No questions generated'}"
                 )
+            return structured_items
 
-            level_generated_items.extend(structured_items)
-            remaining -= current_batch
+        # Run all batches concurrently to prevent timeouts on Render
+        batch_results = await asyncio.gather(*[fetch_batch(b, i) for i, b in enumerate(batches)])
+        
+        level_generated_items = []
+        for res in batch_results:
+            level_generated_items.extend(res)
 
         return [(l.level, difficulty, item) for item in level_generated_items]
 
