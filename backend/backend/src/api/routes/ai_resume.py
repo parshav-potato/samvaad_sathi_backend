@@ -1,0 +1,175 @@
+import uuid
+import fastapi
+from fastapi import (
+    UploadFile,
+    File,
+    Form,
+    Depends,
+    HTTPException,
+)
+import sqlalchemy
+from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
+
+from src.api.dependencies.auth import get_current_user
+from src.api.dependencies.session import get_async_session
+
+from src.models.db.user import User
+from src.models.db.ai_resume_analysis import AIResumeAnalysis
+from src.models.schemas.ai_resume import ResumeAnalysisResponse
+from src.repository.crud.ai_resume_analysis import (
+    AIResumeAnalysisCRUDRepository,
+)
+from src.repository.crud.user import UserCRUDRepository
+from src.api.dependencies.repository import get_repository
+from src.services.ai_resume.parser_service import (
+    extract_resume_text,
+)
+from src.services.ai_resume.template_service import (
+    generate_structured_resume_data,
+)
+
+from src.services.ai_resume.ats_service import (
+    generate_ats_analysis,
+)
+
+router = fastapi.APIRouter(
+    prefix="/ai-resume",
+    tags=["ai-resume"],
+)
+
+
+@router.post(
+    "/analyze",
+    status_code=200,
+    summary="Analyze resume using ATS AI",
+)
+async def analyze_resume(
+    resumeFile: UploadFile = File(...),
+    targetRole: str = Form(...),
+    experienceLevel: str = Form(...),
+    jobDescription: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    session: SQLAlchemyAsyncSession = Depends(get_async_session),
+    user_repo: UserCRUDRepository = Depends(get_repository(repo_type=UserCRUDRepository)),
+):
+    """
+    Upload and analyze resume against job description.
+    """
+
+    try:
+        # Validate fields
+        if not targetRole.strip():
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail="Target role is required",
+            )
+
+        if not experienceLevel.strip():
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail="Experience level is required",
+            )
+
+        if not jobDescription.strip():
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail="Job description is required",
+            )
+
+        # 1. Extract rich parser payload (contains text, documentMap, embeddedLinks)
+        parser_payload = await extract_resume_text(resumeFile)
+        
+        # Safely extract pure text string for structured JSON & DB saving
+        if isinstance(parser_payload, dict):
+            pure_resume_text = parser_payload.get("text", "")
+        else:
+            pure_resume_text = str(parser_payload)
+            parser_payload = {"text": pure_resume_text, "documentMap": [], "embeddedLinks": []}
+
+        # 2. Turn the unstructured text data into a structured schema layout
+        parsed_resume_json = await generate_structured_resume_data(
+            resume_text=pure_resume_text,
+            analysis_result={}
+        )
+
+        # 3. Generate ATS analysis using enriched parser_payload
+        analysis_result = await generate_ats_analysis(
+            resume_payload=parser_payload,  # Passes text + spatial map + links
+            target_role=targetRole,
+            experience_level=experienceLevel,
+            job_description=jobDescription,
+            parsed_resume_json=parsed_resume_json,
+        )
+
+        # Sync tracking ID
+        analysis_id = analysis_result.get("analysisId", str(uuid.uuid4()))
+        analysis_result["analysisId"] = analysis_id
+
+        # Save in DB
+        db_analysis = AIResumeAnalysis(
+            analysis_id=analysis_id,
+            user_id=current_user.id,
+            target_role=targetRole,
+            experience_level=experienceLevel,
+            job_description=jobDescription,
+            extracted_resume_text=pure_resume_text,  # Clean string for DB
+            analysis_result=analysis_result,
+        )
+
+        session.add(db_analysis)
+
+        # Auto-save clean resume text string to user profile
+        stmt = sqlalchemy.update(User).where(User.id == current_user.id).values(resume_text=pure_resume_text)
+        await session.execute(stmt)
+
+        await session.commit()
+        await session.refresh(db_analysis)
+
+        return analysis_result
+
+    except fastapi.HTTPException:
+        raise
+
+    except Exception as e:
+        await session.rollback()
+
+        import traceback
+        with open("backend_error.log", "w") as f:
+            f.write(traceback.format_exc())
+
+        raise fastapi.HTTPException(
+            status_code=500,
+            detail=f"Resume analysis failed: {str(e)}",
+        )
+
+
+@router.get(
+    "/analysis/{analysis_id}",
+    response_model=ResumeAnalysisResponse,
+    status_code=200,
+)
+async def get_resume_analysis(
+    analysis_id: str,
+    current_user: User = Depends(get_current_user),
+    session: SQLAlchemyAsyncSession = Depends(get_async_session),
+):
+    """
+    Fetch already generated ATS analysis
+    """
+
+    repo = AIResumeAnalysisCRUDRepository(session)
+    analysis = await repo.get_by_analysis_id(analysis_id)
+
+    if not analysis:
+        raise HTTPException(
+            status_code=404,
+            detail="Analysis not found",
+        )
+
+    if analysis.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    return analysis.analysis_result

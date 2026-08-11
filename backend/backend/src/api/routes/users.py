@@ -20,6 +20,7 @@ from src.utilities.exceptions.password import PasswordDoesNotMatch
 from src.utilities.exceptions.http.exc_400 import http_exc_400_credentials_bad_signin_request
 
 from src.models.db.user import TargetPositionEnum
+from src.services.analytics_events import track_analytics_event
 
 
 router = fastapi.APIRouter(prefix="", tags=["users"])
@@ -41,22 +42,36 @@ async def register_user(
     except EntityAlreadyExists:
         raise fastapi.HTTPException(status_code=fastapi.status.HTTP_400_BAD_REQUEST, detail="Email already exists")
 
+    user_id = user.id
+    user_email = user.email
+    user_name = user.name
+    user_created_at = user.created_at
+    user_is_onboarded = user.is_onboarded if hasattr(user, "is_onboarded") else False
+
     token = jwt_generator.generate_access_token_for_user(user=user)
-    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    refresh = await session_repo.create_session(user_id=user_id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    await track_analytics_event(
+        session_repo.async_session,
+        event_type="user_signup",
+        user_id=user_id,
+        event_data={"source": "users.register"},
+    )
 
     return UserInResponse(
-        user_id=user.id,
+        user_id=user_id,
         authorized_user=UserWithToken(token=token, 
                                     refresh_token=refresh.token,
-                                    email=user.email, 
-                                    name=user.name, 
-                                    created_at=user.created_at,
-                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
+                                    email=user_email,
+                                    name=user_name,
+                                    created_at=user_created_at,
+                                    is_onboarded=user_is_onboarded,
                                     degree=None,
                                     university=None,
                                     target_position=None,
                                     years_experience=None,
                                     total_attempts=0,
+                                    has_resume_text=bool(getattr(user, "resume_text", None)),
+                                    skills=user.skills.get("items", []) if isinstance(getattr(user, "skills", None), dict) else [],
                                     company=None),
     )
 
@@ -77,22 +92,30 @@ async def login_user(
     except (EntityDoesNotExist, PasswordDoesNotMatch):
         raise await http_exc_400_credentials_bad_signin_request()
 
+    user_id = user.id
+    user_email = user.email
+    user_name = user.name
+    user_created_at = user.created_at
+    user_is_onboarded = user.is_onboarded if hasattr(user, "is_onboarded") else False
+
     token = jwt_generator.generate_access_token_for_user(user=user)
-    refresh = await session_repo.create_session(user_id=user.id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
+    refresh = await session_repo.create_session(user_id=user_id, expiry_minutes=settings.REFRESH_TOKEN_EXPIRY_MINUTES)
 
     return UserInResponse(
-        user_id=user.id,
+        user_id=user_id,
         authorized_user=UserWithToken(token=token, 
                                     refresh_token=refresh.token,
-                                    email=user.email, 
-                                    name=user.name, 
-                                    created_at=user.created_at,
-                                    is_onboarded=user.is_onboarded if hasattr(user, 'is_onboarded') else False,
+                                    email=user_email,
+                                    name=user_name,
+                                    created_at=user_created_at,
+                                    is_onboarded=user_is_onboarded,
                                     degree=None,
                                     university=None,
                                     target_position=None,
                                     years_experience=None,
                                     total_attempts=0,
+                                    has_resume_text=bool(getattr(user, "resume_text", None)),
+                                    skills=user.skills.get("items", []) if isinstance(getattr(user, "skills", None), dict) else [],
                                     company=None),
     )
 
@@ -124,7 +147,10 @@ async def get_me(
             university=current_user.university,
             target_position=current_user.target_position,
             years_experience=current_user.years_experience,
+            has_resume=bool(getattr(current_user, 'resume_text', None)),
             total_attempts=total_attempts,
+            has_resume_text=bool(getattr(current_user, "resume_text", None)),
+            skills=current_user.skills.get("items", []) if isinstance(getattr(current_user, "skills", None), dict) else [],
             company=current_user.company,
         ),
     )
@@ -145,6 +171,7 @@ async def update_profile(
     current_user=fastapi.Depends(get_current_user),
     user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
 ) -> UserProfileOut:
+    previous_target_position = getattr(current_user, "target_position", None)
     # Persist updates via repository
     updated = await user_repo.update_user_profile(
         user_id=current_user.id,
@@ -159,6 +186,17 @@ async def update_profile(
         await user_repo.set_onboarded(user_id=updated.id, value=True)
         updated = await user_repo.get_user_by_id(user_id=updated.id)
 
+    if profile_update.target_position and profile_update.target_position != previous_target_position:
+        await track_analytics_event(
+            user_repo.async_session,
+            event_type="role_selected",
+            user_id=updated.id,
+            event_data={
+                "target_position": profile_update.target_position,
+                "source": "users.profile",
+            },
+        )
+
     return UserProfileOut(
         user_id=updated.id,
         email=updated.email,
@@ -167,6 +205,8 @@ async def update_profile(
         university=updated.university,
         target_position=updated.target_position,
         years_experience=updated.years_experience,
+        has_resume_text=bool(getattr(updated, "resume_text", None)),
+        skills=updated.skills.get("items", []) if isinstance(getattr(updated, "skills", None), dict) else [],
     )
 
 

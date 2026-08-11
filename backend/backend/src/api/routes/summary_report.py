@@ -13,7 +13,9 @@ from src.models.schemas.summary_report import SummaryReportRequest, SummaryRepor
 from src.repository.crud.interview import InterviewCRUDRepository
 from src.repository.crud.question import QuestionAttemptCRUDRepository
 from src.repository.crud.summary_report import SummaryReportCRUDRepository
+from src.services.analysis import analysis_service
 from src.services.summary_report_v2 import SummaryReportServiceV2
+from src.services.analytics_events import track_analytics_event
 
 
 router = fastapi.APIRouter(tags=["report"])
@@ -22,6 +24,7 @@ router = fastapi.APIRouter(tags=["report"])
 @router.post(
     "/summary-report",
     response_model=SummaryReportResponse,
+    response_model_exclude_none=True,
     status_code=200,
     summary="Generate a summary report (independent of final report)",
     description=(
@@ -48,6 +51,19 @@ async def generate_summary_report(
     # Fetch all question attempts for interview
     attempts = await qa_repo.list_by_interview(interview_id=interview.id)
     logger.debug("/summary-report assembling %d question attempts for interview_id=%s", len(attempts), interview.id)
+    analyzed_count = await analysis_service.ensure_recorded_attempts_analyzed(
+        question_attempts=attempts,
+        user_id=current_user.id,
+        db=session,
+        logger=logger,
+    )
+    if analyzed_count:
+        attempts = await qa_repo.list_by_interview(interview_id=interview.id)
+        logger.info(
+            "/summary-report completed pre-report analysis for %d question attempts on interview_id=%s",
+            analyzed_count,
+            interview.id,
+        )
 
     # Check if resume was used for any questions in this interview
     from src.repository.crud.interview_question import InterviewQuestionCRUDRepository
@@ -78,6 +94,7 @@ async def generate_summary_report(
 @router.get(
     "/summary-report/{interview_id}",
     response_model=SummaryReportResponse,
+    response_model_exclude_none=True,
     status_code=200,
     summary="Fetch a previously saved summary report",
     description="Retrieves a persisted summary report for the interview if present.",
@@ -100,12 +117,21 @@ async def get_summary_report(
     if not record or not record.report_json:
         raise fastapi.HTTPException(status_code=404, detail="Summary report not found for this interview")
 
+    await track_analytics_event(
+        session,
+        event_type="report_viewed",
+        user_id=current_user.id,
+        interview_id=interview.id,
+        event_data={"report_type": "summary", "source": "summary_report.get_summary_report"},
+    )
+
     return SummaryReportResponse(**record.report_json)
 
 
 @router.get(
     "/summary-reports",
     response_model=SummaryReportsListResponse,
+    response_model_exclude_none=True,
     status_code=200,
     summary="Get user's last x summary reports",
     description="Retrieves the user's most recent summary reports with interview IDs and tracks.",

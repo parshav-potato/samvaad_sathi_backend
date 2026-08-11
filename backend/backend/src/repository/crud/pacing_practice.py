@@ -142,3 +142,15 @@ class PacingPracticeSessionCRUDRepository(BaseCRUDRepository):
         )
         result = await self.async_session.execute(statement=stmt)
         return list(result.scalars().all())
+
+    async def has_completed_practice(self, *, user_id: int) -> bool:
+        """Return True if the user has completed at least one pacing session."""
+        stmt = (
+            sqlalchemy.select(sqlalchemy.func.count())
+            .select_from(PacingPracticeSession)
+            .where(PacingPracticeSession.user_id == user_id)
+            .where(PacingPracticeSession.status == "completed")
+        )
+        result = await self.async_session.execute(statement=stmt)
+        count = result.scalar_one()
+        return bool(count and count > 0)

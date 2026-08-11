@@ -3,7 +3,7 @@ import pathlib
 
 import decouple
 import pydantic
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.parent.parent.resolve()
 
@@ -62,9 +62,23 @@ class BackendBaseSettings(BaseSettings):
         "http://0.0.0.0:5173",
         "http://127.0.0.1:5173",  # Qwik docker port
         "http://127.0.0.1:5174",
+        "https://backend-samvaad-saathi.barabaricollective.org",
+        "https://samvaad-saathi-frontend.vercel.app" #vercel new prod
+        "https://samvaad-saathi-frontend.vercel.app", #vercel new prod
         "https://samvaad-sathi.barabaricollective.org",  # Production frontend (without www)
         "https://www.samvaad-sathi.barabaricollective.org",  # Production frontend (with www)
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
+        "https://samvaad-saathi-dashboard.onrender.com",  # Dashboard frontend on Render
+        "https://samvaad-dashboard.barabaricollective.org",
+        "https://master.d30wpikvvj1kc2.amplifyapp.com",
+        "https://main.d36hlrn367i0rr.amplifyapp.com", #new aws production
+        "https://master.d1ljdkppy5vau1.amplifyapp.com", #new aws dashboard prod
+        # staging
+        "https://samvaad-saathi-staging.barabaricollective.org",
+        "https://api-staging.barabaricollective.org",
+        # Staging on render
+        "https://samvaad-sathi-backend-tdd0.onrender.com",
+        "https://samvaad-saathi-frontend.onrender.com",
     ]
     ALLOWED_METHODS: list[str] = ["*"]
     ALLOWED_HEADERS: list[str] = ["*"]
@@ -106,7 +120,7 @@ class BackendBaseSettings(BaseSettings):
     ELEVENLABS_API_KEY: str = decouple.config("ELEVENLABS_API_KEY", cast=str, default="")  # type: ignore
     ELEVENLABS_VOICE_ID: str = decouple.config("ELEVENLABS_VOICE_ID", cast=str, default="hpp4J3VqNfWAUOO0d1Us")  # type: ignore
 
-    model_config = pydantic.ConfigDict(
+    model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=f"{str(ROOT_DIR)}/.env",
         validate_assignment=True,

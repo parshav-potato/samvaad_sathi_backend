@@ -1,0 +1,672 @@
+{
+  "info": {
+    "_postman_id": "43d84341-93c9-43b2-905e-4f2a39377500",
+    "name": "Samvaad Sathi - HR Non-Tech Blueprint Demo",
+    "description": "End-to-end demo for the HR and Communications non-tech interview blueprint: auth, resume upload, HR job profile creation/listing, non-tech question generation, answer upload, analysis, interview completion, summary report generation, and cleanup.\n\nBefore running:\n1. Start the backend at {{baseUrl}}.\n2. In Postman, choose files for the two file-upload requests if Postman does not resolve relative paths automatically:\n   - Upload Resume: sample.txt\n   - Answer Question With Audio: assets/Speech.mp3\n3. Run requests in order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('demoEmail')) {",
+          "  pm.collectionVariables.set('demoEmail', `hr_demo_${Date.now()}@example.com`);",
+          "}",
+          "if (!pm.collectionVariables.get('password')) {",
+          "  pm.collectionVariables.set('password', 'pass123!');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Register Demo User",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{demoEmail}}\",\n  \"password\": \"{{password}}\",\n  \"name\": \"HR Non-Tech Demo User\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/users",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "users"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('registered user', function () { pm.response.to.have.status(201); });",
+              "const body = pm.response.json();",
+              "const token = body.authorizedUser?.token || body.authorized_user?.token;",
+              "if (token) pm.collectionVariables.set('accessToken', token);",
+              "if (body.userId || body.user_id) pm.collectionVariables.set('userId', body.userId || body.user_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Login Demo User",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{demoEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/login",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "login"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('logged in', function () { pm.response.to.have.status(202); });",
+              "const body = pm.response.json();",
+              "const token = body.authorizedUser?.token || body.authorized_user?.token;",
+              "pm.test('token present', function () { pm.expect(token).to.be.a('string').and.not.empty; });",
+              "pm.collectionVariables.set('accessToken', token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Upload Resume Context",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "sample.txt"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/extract-resume",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "extract-resume"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('resume uploaded', function () { pm.response.to.have.status(202); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Create HR and Communications Job Profile",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jobName\": \"HR and Communications Interview\",\n  \"jobDescription\": \"Assess fresher HR, communications, customer-service readiness, workplace professionalism, self-awareness, collaboration, productivity, and spoken English communication.\",\n  \"companyName\": \"Amazon\",\n  \"experienceLevel\": \"fresher\",\n  \"skills\": [\"communication\", \"professionalism\", \"teamwork\", \"time-management\", \"customer-service\"],\n  \"additionalContext\": \"Focus on HR and English communication interview prompts.\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/job-profiles",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "job-profiles"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('job profile created', function () { pm.response.to.have.status(201); });",
+              "const body = pm.response.json();",
+              "const id = body.jobProfileId || body.job_profile_id;",
+              "pm.test('job profile id present', function () { pm.expect(id).to.exist; });",
+              "pm.collectionVariables.set('jobProfileId', id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 List Job Profiles Includes HR Job",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/job-profiles",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "job-profiles"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('job profiles listed', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "const wanted = String(pm.collectionVariables.get('jobProfileId'));",
+              "const found = (body.items || []).some((item) => String(item.jobProfileId || item.job_profile_id) === wanted);",
+              "pm.test('created HR job is listed', function () { pm.expect(found).to.eql(true); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Generate HR Non-Tech Interview Questions",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"jobProfileId\": {{jobProfileId}},\n  \"difficulty\": \"hard\",\n  \"useResume\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/interviews/non-tech/generate-questions",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "interviews",
+            "non-tech",
+            "generate-questions"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('questions generated', function () { pm.response.to.have.status(201); });",
+              "const body = pm.response.json();",
+              "const items = body.items || [];",
+              "const interviewId = body.interviewId || body.interview_id;",
+              "pm.collectionVariables.set('interviewId', interviewId);",
+              "pm.collectionVariables.set('questionId', items[0]?.interviewQuestionId || items[0]?.interview_question_id);",
+              "pm.test('track is non-tech HR', function () { pm.expect(body.track).to.include('Non-Tech:'); pm.expect(body.track).to.include('Hr And Communications Interview'); });",
+              "pm.test('five questions generated', function () { pm.expect(items.length).to.eql(5); });",
+              "const categories = items.map((item) => item.category).sort();",
+              "pm.test('one question per canonical category', function () {",
+              "  pm.expect(categories).to.eql(['behavioral', 'company_candidate', 'general', 'productivity', 'self']);",
+              "});",
+              "const difficulties = [...new Set(items.map((item) => String(item.difficulty || '').toLowerCase()))];",
+              "pm.test('non-tech difficulty is fixed to medium', function () { pm.expect(difficulties).to.eql(['medium']); });",
+              "const followUpReady = items.filter((item) => item.followUpStrategy || item.follow_up_strategy);",
+              "pm.test('at least two follow-up-ready questions', function () { pm.expect(followUpReady.length).to.be.at.least(2); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Create Question Attempt",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"interviewId\": {{interviewId}},\n  \"questionId\": {{questionId}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/interviews/question-attempts",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "interviews",
+            "question-attempts"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('question attempt created', function () { pm.response.to.have.status(201); });",
+              "const body = pm.response.json();",
+              "const id = body.questionAttemptId || body.question_attempt_id;",
+              "pm.test('question attempt id present', function () { pm.expect(id).to.exist; });",
+              "pm.collectionVariables.set('questionAttemptId', id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Answer Question With Audio",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "question_attempt_id",
+              "value": "{{questionAttemptId}}",
+              "type": "text"
+            },
+            {
+              "key": "language",
+              "value": "en",
+              "type": "text"
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "src": "assets/Speech.mp3"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/transcribe-whisper",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "transcribe-whisper"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('audio transcribed', function () { pm.response.to.have.status(202); });",
+              "const body = pm.response.json();",
+              "const text = body.transcription?.text;",
+              "pm.test('transcription text present', function () { pm.expect(text).to.be.a('string').and.not.empty; });",
+              "const followUp = body.followUpQuestion || body.follow_up_question;",
+              "if (followUp) {",
+              "  pm.collectionVariables.set('followUpQuestionId', followUp.interviewQuestionId || followUp.interview_question_id);",
+              "  pm.collectionVariables.set('followUpAttemptId', followUp.questionAttemptId || followUp.question_attempt_id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 Complete Analysis",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question_attempt_id\": {{questionAttemptId}},\n  \"analysis_types\": [\"domain\", \"communication\", \"pace\", \"pause\"]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/complete-analysis",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "complete-analysis"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('analysis completed', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test('analysisComplete true', function () { pm.expect(body.analysisComplete || body.analysis_complete).to.eql(true); });",
+              "const aggregated = body.aggregatedAnalysis || body.aggregated_analysis || {};",
+              "pm.test('communication, pace, and pause present', function () {",
+              "  pm.expect(aggregated.communication).to.exist;",
+              "  pm.expect(aggregated.pace).to.exist;",
+              "  pm.expect(aggregated.pause).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 Complete Interview",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"interviewId\": {{interviewId}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/interviews/complete",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "interviews",
+            "complete"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('interview completed', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test('status completed', function () { pm.expect(body.status).to.eql('completed'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 Generate Classic Summary Report",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"interviewId\": {{interviewId}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/summary-report",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "summary-report"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('classic summary report generated', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "const speech = body.scoreSummary?.speechAndStructure || body.score_summary?.speech_and_structure;",
+              "pm.test('classic report has speech score', function () { pm.expect(speech?.score).to.be.a('number'); });",
+              "pm.collectionVariables.set('classicSpeechScore', speech?.score);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Generate V2 Summary Report",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"interviewId\": {{interviewId}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/summary-report",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "summary-report"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('v2 summary report generated', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "const speech = body.scoreSummary?.speechAndStructure || body.score_summary?.speech_and_structure;",
+              "pm.test('v2 report has speech score', function () { pm.expect(speech?.score).to.be.a('number'); });",
+              "pm.collectionVariables.set('v2SpeechScore', speech?.score);",
+              "const labels = (body.questionAnalysis || body.question_analysis || []).map((item) => item.type);",
+              "pm.test('v2 report includes non-tech labels', function () {",
+              "  pm.expect(labels).to.include('Self question');",
+              "  pm.expect(labels).to.include('Behavioral question');",
+              "  pm.expect(labels).to.include('Productivity question');",
+              "  pm.expect(labels).to.include('Company and Candidate question');",
+              "  pm.expect(labels).to.include('General question');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 Fetch V2 Summary Report",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/summary-report/{{interviewId}}",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "summary-report",
+            "{{interviewId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('v2 summary report fetched', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 Cleanup HR Job Profile",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}{{apiPrefix}}/v2/job-profiles/{{jobProfileId}}",
+          "host": [
+            "{{baseUrl}}{{apiPrefix}}"
+          ],
+          "path": [
+            "v2",
+            "job-profiles",
+            "{{jobProfileId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('job profile deleted', function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test('deleted true', function () { pm.expect(body.deleted).to.eql(true); });"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "apiPrefix",
+      "value": "/api"
+    },
+    {
+      "key": "demoEmail",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": "pass123!"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "jobProfileId",
+      "value": ""
+    },
+    {
+      "key": "interviewId",
+      "value": ""
+    },
+    {
+      "key": "questionId",
+      "value": ""
+    },
+    {
+      "key": "questionAttemptId",
+      "value": ""
+    },
+    {
+      "key": "followUpQuestionId",
+      "value": ""
+    },
+    {
+      "key": "followUpAttemptId",
+      "value": ""
+    },
+    {
+      "key": "classicSpeechScore",
+      "value": ""
+    },
+    {
+      "key": "v2SpeechScore",
+      "value": ""
+    }
+  ]
+}

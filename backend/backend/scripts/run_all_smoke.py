@@ -25,6 +25,12 @@ def main() -> None:
     # Run pacing practice
     import scripts.smoke_pacing_practice as pacing
     pacing.main()
+    # Run analytics
+    import scripts.smoke_analytics as analytics
+    analytics.main()
+    # Run non-tech interview + job profile flow
+    import scripts.smoke_non_tech_jobs as non_tech_jobs
+    non_tech_jobs.main()
 
 
 if __name__ == "__main__":

@@ -92,6 +92,12 @@ class GenerateQuestionsRequest(BaseSchemaModel):
     }
 
 
+class GenerateNonTechQuestionsRequest(BaseSchemaModel):
+    job_profile_id: int
+    difficulty: str | None = None
+    use_resume: bool = True
+
+
 class InterviewInResponse(BaseSchemaModel):
     interview_id: int = pydantic.Field(description="Unique identifier for the interview")
     track: str
