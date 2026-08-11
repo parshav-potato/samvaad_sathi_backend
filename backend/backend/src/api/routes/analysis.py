@@ -2,6 +2,8 @@
 
 import fastapi
 import pydantic
+import logging
+import time
 import random
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import Any, Dict, List, Optional
@@ -29,7 +31,7 @@ from src.services.pace_analysis import provide_pace_feedback
 from src.services.pause_analysis import analyze_pauses_async
 from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
 from sqlalchemy.ext.asyncio import AsyncSession
-
+logger = logging.getLogger(__name__)
 
 router = fastapi.APIRouter(prefix="", tags=["analysis"])
 
@@ -53,6 +55,7 @@ async def complete_analysis(
     question_repo: QuestionAttemptCRUDRepository = fastapi.Depends(get_repository(repo_type=QuestionAttemptCRUDRepository)),
     db: AsyncSession = fastapi.Depends(get_async_session)
 ) -> CompleteAnalysisResponse:
+    start_time = time.perf_counter()
     """
     Main endpoint for complete analysis workflow:
     1. Validate user owns the question attempt
@@ -62,11 +65,28 @@ async def complete_analysis(
     5. Save to database
     6. Return comprehensive analysis with metadata
     """
-    
+    question_attempt_id = request.question_attempt_id
+    user_id = current_user.id
+
+    logger.info(
+        "COMPLETE_ANALYSIS START | Attempt=%s |User=%s | AnalysisTypes=%s",
+        question_attempt_id,
+        user_id,
+        request.analysis_types,
+    )
     # Extract token for service calls
     auth_token = credentials.credentials
     
     try:
+        aggregation_start = time.perf_counter()
+
+        logger.info(
+            "COMPLETE_ANALYSIS | Aggregation started for Attempt=%s | User=%s",
+            question_attempt_id,
+            user_id,
+            request.analysis_types,
+            aggregation_start,
+        )
         # Perform aggregated analysis
         aggregated_analysis, metadata, saved, save_error = await analysis_service.aggregate_question_analysis(
             question_attempt_id=request.question_attempt_id,
@@ -76,9 +96,35 @@ async def complete_analysis(
             db=db
         )
         
+        aggregation_time = time.perf_counter() - aggregation_start
+
+        logger.info(
+            "COMPLETE_ANALYSIS aggregation completed | "
+            "Attempt=%s | Time=%.2fs | Saved=%s",
+            question_attempt_id,
+            aggregation_time,
+            saved,
+        )
+
+        logger.info(
+            "COMPLETE_ANALYSIS metadata | "
+            "Attempt=%s | Completed=%s | Failed=%s",
+            question_attempt_id,
+            getattr(metadata, "completed_analyses", None),
+            getattr(metadata, "failed_analyses", None),
+        )
         # Determine completion status
         analysis_complete = len(metadata.failed_analyses) == 0
-        
+
+        logger.info(
+            "COMPLETE_ANALYSIS status | "
+            "Attempt=%s | Complete=%s | Completed=%s | Failed=%s",
+            question_attempt_id,
+            analysis_complete,
+            metadata.completed_analyses,
+            metadata.failed_analyses,
+        )
+
         # Build response message
         if analysis_complete:
             if saved:
@@ -90,41 +136,148 @@ async def complete_analysis(
                 message = f"Partial analysis completed. Failed: {', '.join(metadata.failed_analyses)}"
             else:
                 message = "All analyses failed"
-        
-        return CompleteAnalysisResponse(
-            question_attempt_id=request.question_attempt_id,
-            analysis_complete=analysis_complete,
-            aggregated_analysis=aggregated_analysis,
-            metadata=metadata,
-            saved=saved,
-            save_error=save_error,
-            message=message
+
+        logger.info(
+            "COMPLETE_ANALYSIS message generated | Attempt=%s | Message=%s",
+            question_attempt_id,
+            message,
         )
         
+        response_payload = {
+            "question_attempt_id": question_attempt_id,
+            "analysis_complete": analysis_complete,
+            "aggregated_analysis": aggregated_analysis,
+            "metadata": metadata,
+            "saved": saved,
+            "save_error": save_error,
+            "message": message,
+        }
+
+        logger.info(
+            "COMPLETE_ANALYSIS validating response | Attempt=%s",
+            question_attempt_id,
+        )
+
+        try:
+            response = CompleteAnalysisResponse(**response_payload)
+
+        except pydantic.ValidationError as validation_error:
+
+            logger.error(
+                "COMPLETE_ANALYSIS PYDANTIC VALIDATION FAILED | "
+                "Attempt=%s | Errors=%s",
+                question_attempt_id,
+                validation_error.errors(),
+                exc_info=True,
+            )
+
+            # Log only structure/types, not potentially sensitive transcript data
+            logger.error(
+                "COMPLETE_ANALYSIS invalid response structure | "
+                "Attempt=%s | Keys=%s | aggregated_type=%s | metadata_type=%s",
+                question_attempt_id,
+                list(response_payload.keys()),
+                type(aggregated_analysis).__name__,
+                type(metadata).__name__,
+            )
+
+            raise fastapi.HTTPException(
+                status_code=500,
+                detail="Complete analysis response validation failed",
+            )      
+
+        total_time = time.perf_counter() - start_time
+
+        logger.info(
+            "COMPLETE_ANALYSIS SUCCESS | "
+            "Attempt=%s | TotalTime=%.2fs | Complete=%s | Saved=%s",
+            question_attempt_id,
+            total_time,
+            analysis_complete,
+            saved,
+        )
+
+        return response
+
+    except fastapi.HTTPException:
+        raise
+
     except ValueError as e:
-        # Handle validation errors (missing question attempt, no transcription, etc.)
+
+        logger.error(
+            "COMPLETE_ANALYSIS VALUE ERROR | Attempt=%s | Error=%s",
+            question_attempt_id,
+            str(e),
+            exc_info=True,
+        )
+
         if "not found" in str(e).lower():
             raise fastapi.HTTPException(
                 status_code=fastapi.status.HTTP_404_NOT_FOUND,
-                detail=str(e)
+                detail=str(e),
             )
+
         elif "access denied" in str(e).lower():
             raise fastapi.HTTPException(
                 status_code=fastapi.status.HTTP_403_FORBIDDEN,
-                detail=str(e)
+                detail=str(e),
             )
-        else:
-            raise fastapi.HTTPException(
-                status_code=fastapi.status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    
+
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
     except Exception as e:
-        # Handle unexpected errors
+
+        logger.exception(
+            "COMPLETE_ANALYSIS UNEXPECTED ERROR | "
+            "Attempt=%s | ErrorType=%s | Error=%s",
+            question_attempt_id,
+            type(e).__name__,
+            str(e),
+        )
+
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Analysis aggregation failed: {str(e)}"
+            detail=f"Analysis aggregation failed: {str(e)}",
         )
+
+
+    #     return CompleteAnalysisResponse(
+    #         question_attempt_id=request.question_attempt_id,
+    #         analysis_complete=analysis_complete,
+    #         aggregated_analysis=aggregated_analysis,
+    #         metadata=metadata,
+    #         saved=saved,
+    #         save_error=save_error,
+    #         message=message
+    #     )
+        
+    # except ValueError as e:
+    #     # Handle validation errors (missing question attempt, no transcription, etc.)
+    #     if "not found" in str(e).lower():
+    #         raise fastapi.HTTPException(
+    #             status_code=fastapi.status.HTTP_404_NOT_FOUND,
+    #             detail=str(e)
+    #         )
+    #     elif "access denied" in str(e).lower():
+    #         raise fastapi.HTTPException(
+    #             status_code=fastapi.status.HTTP_403_FORBIDDEN,
+    #             detail=str(e)
+    #         )
+    #     else:
+    #         raise fastapi.HTTPException(
+    #             status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+    #             detail=str(e)
+    #         )
+    
+    # except Exception as e:
+    #     # Handle unexpected errors
+    #     raise fastapi.HTTPException(
+    #         status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         detail=f"Analysis aggregation failed: {str(e)}"
+    #     )
 
 
 # Domain analysis endpoint (LLM-backed)

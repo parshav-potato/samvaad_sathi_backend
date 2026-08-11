@@ -2,12 +2,12 @@ import json
 import random
 import time
 from typing import Any, Type, List, Dict, Literal, TypeVar
-
+import logging
 import pydantic
 from openai import AsyncOpenAI
 from src.config.manager import settings
 from src.models.schemas.summary_report import SummarySection, SummarySectionGroup, SummaryMetrics
-
+logger = logging.getLogger(__name__)
 # Lazy client holder; create only when needed and when API key is present
 _client: AsyncOpenAI | None = None
 
@@ -17,12 +17,21 @@ def _get_client() -> AsyncOpenAI | None:
         return _client
     api_key = settings.OPENAI_API_KEY
     if not api_key:
+        logger.error("OPENAI_API_KEY is missing; LLM client cannot be initialized")
         return None
+    
+    logger.info(
+        "Initializing OpenAI AsyncClient model=%s timeout=%s max_retries=3",
+        getattr(settings, "OPENAI_MODEL", None),
+        getattr(settings, "OPENAI_TIMEOUT_SECONDS", 60.0),
+    )
     _client = AsyncOpenAI(
         api_key=api_key,
         timeout=float(getattr(settings, "OPENAI_TIMEOUT_SECONDS", 60.0)),
         max_retries=3,
     )
+    logger.info("OpenAI AsyncClient initialized successfully")
+
     return _client
 
 
@@ -271,14 +280,31 @@ async def synthesize_summary_sections(
     Drive the LLM to create the restructured summary report from per-question analyses.
     Returns: (summary_json, error, latency_ms, model)
     """
+    logger.info(
+        "LLM summary synthesis START total_questions=%s input_count=%s max_questions=%s model=%s",
+        total_questions,
+        len(per_question_inputs),
+        max_questions,
+        settings.OPENAI_MODEL,
+    )
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
     if not api_key:
+        logger.error(
+            "LLM summary synthesis ABORTED: OPENAI_API_KEY missing"
+        )
         # No key: return empty structures; caller can fallback to heuristic
         return {}, None, None, model
 
     if max_questions is not None:
+        original_count = len(per_question_inputs)
         per_question_inputs = per_question_inputs[:max_questions]
+        logger.info(
+            "LLM summary inputs truncated original_count=%s final_count=%s max_questions=%s",
+            original_count,
+            len(per_question_inputs),
+            max_questions,
+        )
 
     sys_prompt = (
         "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
@@ -349,7 +375,23 @@ async def synthesize_summary_sections(
             "Ensure actionableSteps have clear titles and detailed descriptions"
         ],
     }
+    
+    logger.info(
+        "Calling structured_output for summary synthesis "
+        "schema=%s input_count=%s computed_metrics_keys=%s",
+        NewStrictSummarySynthesisLLM.__name__,
+        len(per_question_inputs),
+        list(computed_metrics.keys()) if isinstance(computed_metrics, dict) else type(computed_metrics).__name__,
+    )
 
+    logger.debug(
+        "Summary synthesis input question IDs=%s",
+        [
+            item.get("questionId") or item.get("question_id") or item.get("id")
+            for item in per_question_inputs
+            if isinstance(item, dict)
+        ],
+    )
     result, error, latency_ms, model = await structured_output(
         NewStrictSummarySynthesisLLM,
         system_prompt=sys_prompt,
@@ -357,9 +399,39 @@ async def synthesize_summary_sections(
         temperature=0,
     )
 
+    logger.info(
+        "structured_output returned for summary synthesis "
+        "result_present=%s error_present=%s latency_ms=%s model=%s",
+        result is not None,
+        bool(error),
+        latency_ms,
+        model,
+    )
+    if error:
+        logger.error(
+            "Summary synthesis LLM error: %s",
+            error,
+        )
+
     data: dict = {}
     if result:
+        logger.info(
+            "Summary synthesis Pydantic result validated successfully schema=%s",
+            type(result).__name__,
+        )
+
         data = result.model_dump()
+
+        logger.debug(
+            "Summary synthesis result keys=%s",
+            list(data.keys()),
+        )
+    else:
+        logger.error(
+            "Summary synthesis returned NO validated result error=%s",
+            error,
+        )
+
     return data, error, latency_ms, model
 
 
@@ -412,12 +484,18 @@ class LLMFinalTipStrict(pydantic.BaseModel):
 
 
 class NewStrictSummarySynthesisLLMLite(pydantic.BaseModel):
-    perQuestionScores: list[LLMPerQuestionScoresStrict]
-    perQuestionFeedback: list[LLMQuestionFeedbackLiteStrict]
-    recommendedPractice: LLMRecommendedPracticeStrict
-    speechFluencyFeedback: LLMSpeechFluencyFeedbackStrict
-    nextSteps: list[LLMNextStepStrict]
-    finalTip: LLMFinalTipStrict
+    perQuestionScores: list[LLMPerQuestionScoresStrict] = pydantic.Field(default_factory=list)
+    perQuestionFeedback: list[LLMQuestionFeedbackLiteStrict] = pydantic.Field(default_factory=list)
+    recommendedPractice: LLMRecommendedPracticeStrict | None = None
+    speechFluencyFeedback: LLMSpeechFluencyFeedbackStrict | None = None
+    nextSteps: list[LLMNextStepStrict] = pydantic.Field(default_factory=list)
+    finalTip: LLMFinalTipStrict | None = None
+    # perQuestionScores: list[LLMPerQuestionScoresStrict]
+    # perQuestionFeedback: list[LLMQuestionFeedbackLiteStrict]
+    # recommendedPractice: LLMRecommendedPracticeStrict
+    # speechFluencyFeedback: LLMSpeechFluencyFeedbackStrict
+    # nextSteps: list[LLMNextStepStrict]
+    # finalTip: LLMFinalTipStrict
 
 
 async def synthesize_summary_sections_lite(
@@ -434,6 +512,13 @@ async def synthesize_summary_sections_lite(
     Drive the LLM to create the restructured summary report (Lite) from per-question analyses.
     Returns: (summary_json, error, latency_ms, model)
     """
+    logger.info(
+        "LLM LITE summary synthesis START total_questions=%s input_count=%s max_questions=%s model=%s",
+        total_questions,
+        len(per_question_inputs),
+        max_questions,
+        settings.OPENAI_MODEL,
+    )
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
     if not api_key:
@@ -520,7 +605,13 @@ async def synthesize_summary_sections_lite(
             "For per-question feedback, provide ONLY single-sentence summaries for strengths and improvements"
         ],
     }
-
+    logger.info(
+        "Calling structured_output for LITE summary synthesis "
+        "schema=%s input_count=%s computed_metrics_keys=%s",
+        NewStrictSummarySynthesisLLMLite.__name__,
+        len(per_question_inputs),
+        list(computed_metrics.keys()) if isinstance(computed_metrics, dict) else type(computed_metrics).__name__,
+    )
     result, error, latency_ms, model = await structured_output(
         NewStrictSummarySynthesisLLMLite,
         system_prompt=sys_prompt,
@@ -528,9 +619,33 @@ async def synthesize_summary_sections_lite(
         temperature=0,
     )
 
+    logger.info(
+        "structured_output returned for LITE summary synthesis "
+        "result_present=%s error_present=%s latency_ms=%s model=%s",
+        result is not None,
+        bool(error),
+        latency_ms,
+        model,
+    )
+
+    if error:
+        logger.error(
+            "LITE summary synthesis LLM error: %s",
+            error,
+        )
+
     data: dict = {}
     if result:
+        logger.info(
+            "LITE summary synthesis Pydantic result validated successfully schema=%s",
+            type(result).__name__,
+        )
         data = result.model_dump()
+    else:
+        logger.error(
+            "LITE summary synthesis returned NO validated result error=%s",
+            error,
+        )
     return data, error, latency_ms, model
 
 # Base classes for common patterns
@@ -599,7 +714,18 @@ async def structured_output(
     """Call OpenAI asynchronously with JSON response_format and validate against Pydantic model."""
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
+    logger.info(
+        "[LLM] structured_output START | model=%s | schema=%s | temperature=%s",
+        model,
+        model_class.__name__,
+        temperature,
+    )
     if not api_key:
+        logger.warning(
+            "[LLM] structured_output SKIPPED | reason=missing_openai_api_key | model=%s | schema=%s",
+            model,
+            model_class.__name__,
+        )
         return None, None, None, model
 
     start = time.perf_counter()
@@ -609,8 +735,15 @@ async def structured_output(
             return None, None, None, model
         # Use Chat Completions for all models; switch token param for newer families
         raw = "{}"
-        is_new_family = any(model.lower().startswith(p) for p in ("gpt-5", "gpt-4.1", "o4", "o3"))
+        is_new_family = any(model.lower().startswith(p) for p in ("gpt-5","gpt-4o" "gpt-4.1", "o4", "o3"))
         token_param_key = "max_completion_tokens" if is_new_family else "max_tokens"
+        logger.info(
+            "[LLM] OpenAI REQUEST | model=%s | schema=%s | family=%s | token_param=%s",
+            model,
+            model_class.__name__,
+            "new" if is_new_family else "legacy",
+            token_param_key,
+        )
         kwargs: dict[str, Any] = {
             "model": model,
             "response_format": {"type": "json_object"},
@@ -623,15 +756,122 @@ async def structured_output(
         # Only include temperature for older models; new families accept only the default
         if not is_new_family:
             kwargs["temperature"] = temperature
+        request_start = time.perf_counter()
         resp = await client.chat.completions.create(**kwargs)
+        openai_latency_ms = int(
+            (time.perf_counter() - request_start) * 1000
+        )
+        logger.info(
+            "[LLM] OpenAI RESPONSE | model=%s | schema=%s | latency_ms=%s | choices=%s",
+            model,
+            model_class.__name__,
+            openai_latency_ms,
+            len(resp.choices) if resp.choices else 0,
+        )
         raw = resp.choices[0].message.content or "{}"
-        data = json.loads(raw)
-        parsed = model_class.model_validate(data)
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        return parsed, None, latency_ms, model
-    except Exception as e:  # noqa: BLE001
-        latency_ms = int((time.perf_counter() - start) * 1000)
+        logger.debug(
+            "[LLM] RAW RESPONSE | schema=%s | response_length=%s | response_preview=%s",
+            model_class.__name__,
+            len(raw),
+            raw[:1000],
+        )
+        # -----------------------------
+        # JSON parsing
+        # -----------------------------
+        try:
+            data = json.loads(raw)
+
+            logger.debug(
+                "[LLM] JSON PARSE SUCCESS | schema=%s | type=%s | keys=%s",
+                model_class.__name__,
+                type(data).__name__,
+                list(data.keys()) if isinstance(data, dict) else None,
+            )
+
+        except json.JSONDecodeError as json_error:
+            latency_ms = int(
+                (time.perf_counter() - start) * 1000
+            )
+
+            logger.error(
+                "[LLM] JSON PARSE FAILED | model=%s | schema=%s | latency_ms=%s | error=%s | raw_preview=%s",
+                model,
+                model_class.__name__,
+                latency_ms,
+                str(json_error),
+                raw[:2000],
+            )
+
+            return None, str(json_error), latency_ms, model
+
+        # -----------------------------
+        # Pydantic validation
+        # -----------------------------
+        try:
+            parsed = model_class.model_validate(data)
+
+            latency_ms = int(
+                (time.perf_counter() - start) * 1000
+            )
+
+            logger.info(
+                "[LLM] PYDANTIC VALIDATION SUCCESS | model=%s | schema=%s | latency_ms=%s",
+                model,
+                model_class.__name__,
+                latency_ms,
+            )
+
+            return parsed, None, latency_ms, model
+
+        except pydantic.ValidationError as validation_error:
+            latency_ms = int(
+                (time.perf_counter() - start) * 1000
+            )
+
+            logger.error(
+                "[LLM] PYDANTIC VALIDATION FAILED | model=%s | schema=%s | latency_ms=%s | error_count=%s",
+                model,
+                model_class.__name__,
+                latency_ms,
+                len(validation_error.errors()),
+            )
+
+            logger.error(
+                "[LLM] PYDANTIC VALIDATION DETAILS | schema=%s | errors=%s",
+                model_class.__name__,
+                validation_error.errors(),
+            )
+
+            logger.error(
+                "[LLM] PYDANTIC INVALID DATA | schema=%s | data=%s",
+                model_class.__name__,
+                data,
+            )
+
+            return None, str(validation_error), latency_ms, model
+
+    except Exception as e:
+        latency_ms = int(
+            (time.perf_counter() - start) * 1000
+        )
+
+        logger.exception(
+            "[LLM] OPENAI/STRUCTURED OUTPUT FAILED | model=%s | schema=%s | latency_ms=%s | exception_type=%s | error=%s",
+            model,
+            model_class.__name__,
+            latency_ms,
+            type(e).__name__,
+            str(e),
+        )
+
         return None, str(e), latency_ms, model
+        # data = json.loads(raw)
+        # parsed = model_class.model_validate(data)
+        # latency_ms = int((time.perf_counter() - start) * 1000)
+    #     return parsed, None, latency_ms, model
+    # except Exception as e:  # noqa: BLE001
+    #     latency_ms = int((time.perf_counter() - start) * 1000)
+    #     return None, str(e), latency_ms, model
 
 
 async def extract_resume_entities_with_llm(text: str) -> tuple[list[str], float | None, str | None, int | None, str]:
@@ -1020,7 +1260,16 @@ async def analyze_domain_with_llm(
     """
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
+    logger.info(
+        "[LLM DOMAIN] START | model=%s | question_length=%s | transcription_length=%s",
+        model,
+        len(question_text or ""),
+        len(transcription or ""),
+    )
     if not api_key:
+        logger.warning(
+            "[LLM DOMAIN] SKIPPED | reason=missing_openai_api_key"
+        )
         return {}, None, None, model
 
     start = time.perf_counter()
@@ -1075,6 +1324,25 @@ async def analyze_domain_with_llm(
         user_content=user_content,
         temperature=0,
     )
+    if error:
+        logger.error(
+            "[LLM DOMAIN] FAILED | model=%s | latency_ms=%s | error=%s",
+            model,
+            latency_ms,
+            error,
+        )
+    elif result:
+        logger.info(
+            "[LLM DOMAIN] SUCCESS | model=%s | latency_ms=%s",
+            model,
+            latency_ms,
+        )
+    else:
+        logger.warning(
+            "[LLM DOMAIN] EMPTY RESULT | model=%s | latency_ms=%s",
+            model,
+            latency_ms,
+        )
 
     analysis: dict[str, Any] = {}
     if result:
@@ -1095,7 +1363,17 @@ async def analyze_communication_with_llm(
     """
     model = settings.OPENAI_MODEL
     api_key = settings.OPENAI_API_KEY
+    logger.info(
+        "[LLM COMM] START | model=%s | question_length=%s | transcription_length=%s | aux_metrics_keys=%s",
+        model,
+        len(question_text or ""),
+        len(transcription or ""),
+        len(aux_metrics or ""),
+    )
     if not api_key:
+        logger.warning(
+            "[LLM COMM] SKIPPED | reason=missing_openai_api_key"
+        )
         return {}, None, None, model
 
     start = time.perf_counter()
@@ -1148,6 +1426,26 @@ async def analyze_communication_with_llm(
         user_content=payload,
         temperature=0,
     )
+
+    if error:
+        logger.error(
+            "[LLM COMM] FAILED | model=%s | latency_ms=%s | error=%s",
+            model,
+            latency_ms,
+            error,
+        )
+    elif result:
+        logger.info(
+            "[LLM COMM] SUCCESS | model=%s | latency_ms=%s",
+            model,
+            latency_ms,
+        )
+    else:
+        logger.warning(
+            "[LLM COMM] EMPTY RESULT | model=%s | latency_ms=%s",
+            model,
+            latency_ms,
+        )
 
     analysis: dict[str, Any] = {}
     if result:
