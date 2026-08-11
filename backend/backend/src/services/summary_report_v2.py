@@ -420,7 +420,7 @@ class SummaryReportServiceV2:
                     "tech_allied": "Technical Allied question", 
                     "behavioral": "Behavioral question",
                 }
-                question_type = category_map.get(iq.category, "Technical question")
+                question_type = category_map.get(iq.category or "", "Technical question")
                 
                 # Check if attempted
                 if iq.id not in actually_attempted_question_ids:
@@ -620,7 +620,7 @@ class SummaryReportServiceV2:
                 "tech_allied": "Technical Allied question", 
                 "behavioral": "Behavioral question",
             }
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = category_map.get(iq.category or "", "Technical question")
             
             # Check if this question was attempted with valid content
             attempt = attempts_by_question_id.get(iq.id)
@@ -653,8 +653,6 @@ class SummaryReportServiceV2:
                 "question": iq.text,
                 "feedback": feedback,
             })
-            
-            display_index += 1
         
         # Ensure overallFeedback has proper structure with all required fields
         overall_feedback_raw = llm_data.get("overallFeedback", {})
@@ -1327,7 +1325,7 @@ class SummaryReportServiceV2:
         
         for idx, iq in enumerate(all_questions):
             category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
-            question_type = category_map.get(iq.category, "Technical question")
+            question_type = category_map.get(iq.category or "", "Technical question")
             
             # Check if attempted
             if iq.id not in actually_attempted_question_ids:
