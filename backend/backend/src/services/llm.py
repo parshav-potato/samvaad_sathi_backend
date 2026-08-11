@@ -737,6 +737,9 @@ async def structured_output(
         raw = "{}"
         is_new_family = any(model.lower().startswith(p) for p in ("gpt-5","gpt-4o" "gpt-4.1", "o4", "o3"))
         token_param_key = "max_completion_tokens" if is_new_family else "max_tokens"
+        formatted_system_prompt = system_prompt
+        if "json" not in formatted_system_prompt.lower():
+            formatted_system_prompt += "\n\nIMPORTANT: Respond strictly in valid JSON format."
         logger.info(
             "[LLM] OpenAI REQUEST | model=%s | schema=%s | family=%s | token_param=%s",
             model,
@@ -749,7 +752,7 @@ async def structured_output(
             "response_format": {"type": "json_object"},
             token_param_key: 2048, 
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": formatted_system_prompt},
                 {"role": "user", "content": user_content if isinstance(user_content, str) else json.dumps(user_content, ensure_ascii=False)},
             ],
         }

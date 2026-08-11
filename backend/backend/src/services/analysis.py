@@ -49,7 +49,7 @@ class AnalysisAggregationService:
     
     def __init__(self, base_url: str = None):
         self.base_url = base_url or "http://127.0.0.1:8000/api"
-        self.timeout = 30.0  # 30 seconds per analysis
+        self.timeout = 90.0  # 90 seconds per analysis
         
     async def aggregate_question_analysis(
         self,
