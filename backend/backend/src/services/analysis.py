@@ -605,11 +605,21 @@ class AnalysisAggregationService:
                 
                 raw_pause_score = pause_result.get('score')
                 pause_score = float(raw_pause_score) * 20.0 if isinstance(raw_pause_score, (int, float)) and raw_pause_score <= 5 else float(raw_pause_score or 0.0)
+                raw_distribution = pause_result.get('distribution') or {}
+                default_distribution = {
+                   "long": "0.0%",
+                   "rushed": "0.0%",
+                   "strategic": "0.0%",
+                   "normal": "100.0%"
+                }
+# Merge defaults so required keys are never missing
+                final_distribution = {**default_distribution, **raw_distribution}
+
                 data = PauseAnalysisResponse(
                     question_attempt_id=question_attempt_id,
                     overview=pause_result.get('overview', 'Pause analysis completed'),
                     details=pause_result.get('details', []),
-                    distribution=pause_result.get('distribution', {}),
+                    distribution=final_distribution,
                     actionable_feedback=pause_result.get('actionable_feedback', 'Continue using natural pauses'),
                     pause_score=pause_score,
                 ).model_dump()
