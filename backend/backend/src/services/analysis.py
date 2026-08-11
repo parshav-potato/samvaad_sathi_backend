@@ -4,6 +4,8 @@ import asyncio
 import json
 import time
 import random
+import logging
+import pydantic
 from typing import Dict, List, Any, Tuple
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +21,7 @@ from src.models.schemas.analysis import (
     PauseAnalysisResponse
 )
 
-
+logger = logging.getLogger(__name__)
 DEFAULT_ANALYSIS_TYPES = ("domain", "communication", "pace", "pause")
 
 
@@ -71,6 +73,21 @@ class AnalysisAggregationService:
             Tuple of (aggregated_analysis, metadata, saved_successfully, save_error)
         """
         start_time = time.perf_counter()
+
+
+        logger.info(
+          "COMPLETE_ANALYSIS START | Attempt=%s | User=%s | AnalysisTypes=%s",
+           question_attempt_id,
+           user_id,
+           analysis_types,
+        )
+
+       # Verify question attempt exists and has transcription
+        logger.info(
+          "COMPLETE_ANALYSIS verifying question attempt | Attempt=%s | User=%s",
+           question_attempt_id,
+           user_id,
+        )
         
         # Verify question attempt exists and has transcription
         question_attempt = await self._verify_question_attempt(
@@ -78,14 +95,38 @@ class AnalysisAggregationService:
         )
         
         if not question_attempt:
+            logger.error(
+              "COMPLETE_ANALYSIS question attempt NOT FOUND/ACCESS DENIED | Attempt=%s | User=%s",
+              question_attempt_id,
+              user_id,
+            )
             raise ValueError("Question attempt not found or access denied")
             
+        logger.info(
+          "COMPLETE_ANALYSIS question attempt verified | Attempt=%s | HasTranscription=%s | HasAnalysisJSON=%s",
+          question_attempt_id,
+          bool(question_attempt.transcription),
+          bool(question_attempt.analysis_json),
+        )
         if not question_attempt.transcription:
+            logger.error(
+              "COMPLETE_ANALYSIS transcription missing | Attempt=%s",
+              question_attempt_id,
+            )
             raise ValueError("Question attempt does not have transcription data")
-        
+        logger.info(
+          "COMPLETE_ANALYSIS starting concurrent analyses | Attempt=%s | Types=%s",
+          question_attempt_id,
+          analysis_types,
+        )
         # Run analyses concurrently
         analysis_results = await self._run_concurrent_analyses(
             question_attempt_id, analysis_types, auth_token, question_attempt, user_id
+        )
+
+        logger.info(
+        "COMPLETE_ANALYSIS building aggregated response | Attempt=%s",
+        question_attempt_id,
         )
         
         # Aggregate results
@@ -110,10 +151,29 @@ class AnalysisAggregationService:
             failed_analyses=failed_analyses,
             partial_failure=len(failed_analyses) > 0 and len(completed_analyses) > 0
         )
-        
+
+        logger.info(
+          "COMPLETE_ANALYSIS metadata created | Attempt=%s | Completed=%s | Failed=%s | Latency=%sms",
+          question_attempt_id,
+          completed_analyses,
+          failed_analyses,
+          total_latency_ms,
+        )
+
+        logger.info(
+          "COMPLETE_ANALYSIS saving results to DB | Attempt=%s",
+          question_attempt_id,
+        )
         # Save to database (deep-merge to avoid losing other keys)
         saved, save_error = await self._save_analysis_to_db(
             question_attempt, aggregated_analysis, db
+        )
+
+        logger.info(
+          "COMPLETE_ANALYSIS DB save completed | Attempt=%s | Saved=%s | Error=%s",
+          question_attempt_id,
+          saved,
+          save_error,
         )
         
         return aggregated_analysis, metadata, saved, save_error
@@ -194,6 +254,11 @@ class AnalysisAggregationService:
         user_id: int
     ) -> Dict[str, Dict[str, Any]]:
         """Run multiple analyses concurrently with per-analysis timeouts."""
+        logger.info(
+          "ANALYSIS CONCURRENT START | Attempt=%s | Types=%s",
+          question_attempt_id,
+          analysis_types,
+        )
         # Define supported analysis types
         SUPPORTED_ANALYSIS_TYPES = {"domain", "communication", "pace", "pause"}
         
@@ -202,6 +267,11 @@ class AnalysisAggregationService:
         tasks: list[tuple[str, asyncio.Task]] = []
         for analysis_type in analysis_types:
             if analysis_type not in SUPPORTED_ANALYSIS_TYPES:
+                logger.error(
+                  "ANALYSIS UNSUPPORTED TYPE | Attempt=%s | Type=%s",
+                  question_attempt_id,
+                  analysis_type,
+                )
                 analysis_results[analysis_type] = {
                     "success": False,
                     "error": f"Unsupported analysis type: {analysis_type}. Supported: {SUPPORTED_ANALYSIS_TYPES}",
@@ -215,18 +285,59 @@ class AnalysisAggregationService:
                 )
             )
             tasks.append((analysis_type, task))
-
+            logger.info(
+              "ANALYSIS TASK CREATED | Attempt=%s | Type=%s",
+              question_attempt_id,
+              analysis_type,
+            )
         for analysis_type, task in tasks:
+            task_start = time.perf_counter()
             try:
+                logger.info(
+                  "ANALYSIS TASK WAITING | Attempt=%s | Type=%s",
+                  question_attempt_id,
+                  analysis_type,
+                )
                 result = await task
+                task_latency = int((time.perf_counter() - task_start) * 1000)
                 analysis_results[analysis_type] = result
+
+                if result.get("success"):
+                   logger.info(
+                    "ANALYSIS TASK SUCCESS | Attempt=%s | Type=%s | Latency=%sms",
+                    question_attempt_id,
+                    analysis_type,
+                    task_latency,
+                   )
+                else:
+                   logger.error(
+                    "ANALYSIS TASK FAILED | Attempt=%s | Type=%s | Latency=%sms | Error=%s",
+                    question_attempt_id,
+                    analysis_type,
+                    task_latency,
+                    result.get("error"),
+                )
+
+
             except asyncio.TimeoutError:
+                logger.exception(
+                  "ANALYSIS TASK TIMEOUT | Attempt=%s | Type=%s | Timeout=%ss",
+                  question_attempt_id,
+                  analysis_type,
+                  self.timeout,
+                )
                 analysis_results[analysis_type] = {
                     "success": False,
                     "error": f"Analysis timeout after {self.timeout}s",
                     "data": None,
                 }
             except Exception as e:
+                logger.exception(
+                  "ANALYSIS TASK EXCEPTION | Attempt=%s | Type=%s | Error=%s",
+                  question_attempt_id,
+                  analysis_type,
+                  str(e),
+                )
                 analysis_results[analysis_type] = {
                     "success": False,
                     "error": str(e),
@@ -243,7 +354,12 @@ class AnalysisAggregationService:
         user_id: int
     ) -> Dict[str, Any]:
         """Generate analysis result for a specific type using real analysis services."""
-        
+        logger.info(
+          "ANALYSIS GENERATION START | Attempt=%s | Type=%s | User=%s",
+          question_attempt_id,
+          analysis_type,
+          user_id,
+        )
         try:
             # Import the real analysis services
             from src.services.llm import analyze_domain_with_llm, analyze_communication_with_llm
@@ -254,7 +370,13 @@ class AnalysisAggregationService:
             transcription_text = None
             if question_attempt.transcription:
                 transcription_text = question_attempt.transcription.get("text") or question_attempt.transcription.get("transcript")
-            
+            logger.info(
+              "ANALYSIS TRANSCRIPTION CHECK | Attempt=%s | Type=%s | Exists=%s | Length=%s",
+              question_attempt_id,
+              analysis_type,
+              bool(transcription_text),
+              len(transcription_text or ""),
+            )
             if not transcription_text:
                 raise ValueError(f"No transcription available for {analysis_type} analysis")
             
@@ -266,12 +388,25 @@ class AnalysisAggregationService:
                     "job_role": None,
                     "track": None,
                 }
-                
+                logger.info(
+                  "DOMAIN LLM START | Attempt=%s",
+                  question_attempt_id,
+                )
                 # Call real LLM domain analysis
                 analysis, llm_error, latency_ms, llm_model = await analyze_domain_with_llm(
                     user_profile=profile,
                     question_text=getattr(question_attempt, "question_text", None),
                     transcription=transcription_text,
+                )
+
+                logger.info(
+                  "DOMAIN LLM COMPLETE | Attempt=%s | Model=%s | Latency=%sms | Error=%s | ResponseType=%s | Keys=%s",
+                  question_attempt_id,
+                  llm_model,
+                  latency_ms,
+                  llm_error,
+                  type(analysis).__name__,
+                  list(analysis.keys()) if isinstance(analysis, dict) else None,
                 )
                 
                 if not analysis:
@@ -291,7 +426,8 @@ class AnalysisAggregationService:
                     knowledge_areas = list(analysis["criteria"].keys())
                 strengths = analysis.get("strengths") or []
                 improvements = analysis.get("improvements") or analysis.get("suggestions") or []
-                
+
+
                 # Preserve the full analysis structure including criteria breakdown
                 data = {
                     "question_attempt_id": question_attempt_id,
@@ -307,6 +443,13 @@ class AnalysisAggregationService:
                     "suggestions": improvements,
                     "confidence": analysis.get("confidence", 0.0)
                 }
+                logger.info(
+                  "DOMAIN NORMALIZED DATA | Attempt=%s | DataKeys=%s | Score=%s | CriteriaType=%s",
+                  question_attempt_id,
+                  list(data.keys()),
+                  data.get("overall_score"),
+                  type(data.get("criteria")).__name__,
+                )
                 
             elif analysis_type == "communication":
                 # Build user profile for LLM analysis
@@ -316,13 +459,26 @@ class AnalysisAggregationService:
                     "job_role": None,
                     "track": None,
                 }
-                
+                logger.info(
+                  "COMMUNICATION LLM START | Attempt=%s",
+                   question_attempt_id,
+                )
                 # Call real LLM communication analysis
                 analysis, llm_error, latency_ms, llm_model = await analyze_communication_with_llm(
                     user_profile=profile,
                     question_text=getattr(question_attempt, "question_text", None),
                     transcription=transcription_text,
                     aux_metrics={},
+                )
+
+                logger.info(
+                  "COMMUNICATION LLM COMPLETE | Attempt=%s | Model=%s | Latency=%sms | Error=%s | ResponseType=%s | Keys=%s",
+                  question_attempt_id,
+                  llm_model,
+                  latency_ms,
+                  llm_error,
+                  type(analysis).__name__,
+                  list(analysis.keys()) if isinstance(analysis, dict) else None,
                 )
                 
                 if not analysis:
@@ -345,7 +501,6 @@ class AnalysisAggregationService:
                 base_score = _num(analysis.get("overall_score"), 0.0)
                 feedback = analysis.get("summary") or "Communication analysis completed"
                 recommendations = analysis.get("suggestions") or []
-                
                 # Preserve the full analysis structure including criteria breakdown
                 data = {
                     "question_attempt_id": question_attempt_id,
@@ -364,15 +519,37 @@ class AnalysisAggregationService:
                     "confidence": analysis.get("confidence", 0.0)
                 }
                 
+                logger.info(
+                  "COMMUNICATION NORMALIZED DATA | Attempt=%s | DataKeys=%s | Score=%s | CriteriaType=%s",
+                  question_attempt_id,
+                  list(data.keys()),
+                  data.get("overall_score"),
+                  type(data.get("criteria")).__name__,
+                )
             elif analysis_type == "pace":
                 # Get word-level timestamps for pace analysis
                 words_data = question_attempt.transcription.get("words", [])
                 if not words_data:
                     raise ValueError("No word-level timestamps available for pace analysis")
                 
+                logger.info(
+                  "PACE ANALYSIS START | Attempt=%s | WordCount=%s",
+                  question_attempt_id,
+                  len(words_data),
+                )
                 # Call real pace analysis
                 pace_result = provide_pace_feedback({"words": words_data})
                 
+                logger.info(
+                   "PACE ANALYSIS RESULT | Attempt=%s | ResultType=%s | ResultKeys=%s | Score=%s | WPM=%s",
+                   question_attempt_id,
+                   type(pace_result).__name__,
+                   list(pace_result.keys()) if isinstance(pace_result, dict) else None,
+                   pace_result.get("score") if isinstance(pace_result, dict) else None,
+                   pace_result.get("wpm") if isinstance(pace_result, dict) else None,
+                )
+
+
                 if not pace_result:
                     raise ValueError("Pace analysis failed to process word timestamps")
                 
@@ -407,10 +584,22 @@ class AnalysisAggregationService:
                 words_data = question_attempt.transcription.get("words", [])
                 if not words_data:
                     raise ValueError("No word-level timestamps available for pause analysis")
-                
+
+                logger.info(
+                  "PAUSE ANALYSIS START | Attempt=%s | WordCount=%s",
+                  question_attempt_id,
+                  len(words_data),
+                )
                 # Call real pause analysis
                 pause_result = await analyze_pauses_async({"words": words_data})
-                
+
+                logger.info(
+                    "PAUSE ANALYSIS RESULT | Attempt=%s | ResultType=%s | ResultKeys=%s | Score=%s",
+                    question_attempt_id,
+                    type(pause_result).__name__,
+                    list(pause_result.keys()) if isinstance(pause_result, dict) else None,
+                    pause_result.get("score") if isinstance(pause_result, dict) else None,
+                )
                 if not pause_result:
                     raise ValueError("Pause analysis failed to process word timestamps")
                 
@@ -427,7 +616,7 @@ class AnalysisAggregationService:
                 
             else:
                 raise ValueError(f"Unknown analysis type: {analysis_type}")
-            
+               
             return {
                 "success": True,
                 "error": None,
@@ -435,6 +624,12 @@ class AnalysisAggregationService:
             }
             
         except Exception as e:
+            logger.exception(
+               "ANALYSIS GENERATION EXCEPTION | Attempt=%s | Type=%s | Error=%s",
+               question_attempt_id,
+               analysis_type,
+               str(e),
+            )
             return {
                 "success": False,
                 "error": f"Error generating {analysis_type} analysis: {str(e)}",
@@ -446,21 +641,92 @@ class AnalysisAggregationService:
         analysis_results: Dict[str, Dict[str, Any]]
     ) -> AggregatedAnalysis:
         """Build aggregated analysis from individual results."""
-        
+        logger.info(
+        "AGGREGATION BUILD START | Results=%s",
+        {
+            k: {
+                "success": v.get("success"),
+                "data_type": type(v.get("data")).__name__,
+                "data_keys": (
+                    list(v.get("data").keys())
+                    if isinstance(v.get("data"), dict)
+                    else None
+                ),
+                "error": v.get("error"),
+            }
+            for k, v in analysis_results.items()
+        },
+        )
         # Get valid field names from the AggregatedAnalysis model
         valid_fields = set(AggregatedAnalysis.model_fields.keys())
-        
+
+        logger.info(
+           "AGGREGATION MODEL FIELDS | Fields=%s",
+           valid_fields,
+        )
         # Build payload dict with only valid model fields
         payload = {}
         for analysis_type, result in analysis_results.items():
+            logger.info(
+              "AGGREGATION PROCESSING | Type=%s | Success=%s",
+              analysis_type,
+              result.get("success"),
+            )
             if analysis_type in valid_fields:
                 if result.get("success", False) and result.get("data"):
                     payload[analysis_type] = result["data"]
+
+                    logger.info(
+                    "AGGREGATION PAYLOAD ADDED | Type=%s | DataKeys=%s",
+                    analysis_type,
+                    list(result["data"].keys())
+                    if isinstance(result["data"], dict)
+                    else None,
+                    )
                 else:
                     payload[analysis_type] = None
-        
+                    logger.warning(
+                    "AGGREGATION PAYLOAD NULL | Type=%s | Error=%s",
+                    analysis_type,
+                    result.get("error"),
+                    )
+
+            else:
+                logger.warning(
+                "AGGREGATION UNKNOWN MODEL FIELD | Type=%s | ValidFields=%s",
+                analysis_type,
+                valid_fields,
+                )
+
+            logger.info(
+              "AGGREGATION FINAL PAYLOAD | Payload=%s",
+               payload,
+            )        
         # Construct and validate AggregatedAnalysis instance
-        return AggregatedAnalysis(**payload)
+        # return AggregatedAnalysis(**payload)
+        try:
+
+           aggregated = AggregatedAnalysis(**payload)
+
+           logger.info(
+            "AGGREGATION PYDANTIC SUCCESS | Fields=%s",
+            list(aggregated.model_dump().keys()),
+           )
+
+           return aggregated
+
+        except pydantic.ValidationError as e:
+
+            logger.error(
+            "AGGREGATION PYDANTIC VALIDATION FAILED | Errors=%s | Payload=%s",
+            e.errors(),
+            payload,
+            )
+
+            logger.exception(
+            "AGGREGATION PYDANTIC TRACEBACK"
+            )
+        raise
     
     async def _save_analysis_to_db(
         self,
@@ -469,15 +735,29 @@ class AnalysisAggregationService:
         db: AsyncSession
     ) -> Tuple[bool, str | None]:
         """Save aggregated analysis to database."""
+        logger.info(
+        "ANALYSIS DB SAVE START | Attempt=%s",
+        question_attempt.id,
+        )
         try:
             # Convert Pydantic model to dict for JSON storage
             new_dict = aggregated_analysis.model_dump(exclude_none=True)
-
+            logger.info(
+            "ANALYSIS DB SERIALIZED | Attempt=%s | Keys=%s",
+            question_attempt.id,
+            list(new_dict.keys()),
+            )
             # Merge with existing JSON
             existing = question_attempt.analysis_json or {}
             merged = dict(existing)
             for k, v in new_dict.items():
                 merged[k] = v
+
+            logger.info(
+               "ANALYSIS DB MERGED JSON | Attempt=%s | Keys=%s",
+               question_attempt.id,
+               list(merged.keys()),
+            )
 
             # Update the question attempt using SQL update to avoid session issues
             stmt = (
@@ -487,7 +767,10 @@ class AnalysisAggregationService:
             )
             await db.execute(stmt)
             await db.commit()
-            
+            logger.info(
+            "ANALYSIS DB SAVE SUCCESS | Attempt=%s",
+            question_attempt.id,
+            )
             return True, None
             
         except Exception as e:
