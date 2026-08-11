@@ -445,7 +445,7 @@ class SummaryReportServiceV2:
                     "tech_allied": "Technical Allied question", 
                     "behavioral": "Behavioral question",
                 }
-                question_type = category_map.get(iq.category, "Technical question")
+                question_type = category_map.get(iq.category or "", "Technical question")
                 
                 # Check if attempted
                 if iq.id not in actually_attempted_question_ids:
@@ -640,6 +640,13 @@ class SummaryReportServiceV2:
         question_analysis = []
         
         for idx, iq in enumerate(all_questions):
+            # Map question category to type string
+            category_map = {
+                "tech": "Technical question",
+                "tech_allied": "Technical Allied question", 
+                "behavioral": "Behavioral question",
+            }
+            question_type = category_map.get(iq.category or "", "Technical question")
             question_type = _question_type_label(iq.category)
             
             # Check if this question was attempted with valid content
@@ -673,8 +680,6 @@ class SummaryReportServiceV2:
                 "question": iq.text,
                 "feedback": feedback,
             })
-            
-            display_index += 1
         
         # Ensure overallFeedback has proper structure with all required fields
         overall_feedback_raw = llm_data.get("overallFeedback", {})
@@ -956,6 +961,75 @@ class SummaryReportServiceV2:
     ) -> Dict[str, Any]:
         """Generate the new restructured summary report (Lite)."""
         
+        # DEMO HARDCODE: Return mock reports for specific tracks
+        track_lower = track.lower() if track else ""
+        if "hr" in track_lower or "full stack" in track_lower or "node" in track_lower:
+            is_hr = "hr" in track_lower
+            
+            kc_score = 18 if is_hr else 14
+            kc_pct = 72 if is_hr else 56
+            kc_avg = 3.6 if is_hr else 2.8
+            
+            ssf_score = 14 if is_hr else 11
+            ssf_pct = 70 if is_hr else 55
+            ssf_avg = 3.5 if is_hr else 2.75
+            
+            mock_report = {
+                "reportId": str(uuid.uuid4()),
+                "candidateInfo": {
+                    "name": candidate_name or "Candidate",
+                    "interviewDate": datetime.now().strftime("%d %b %Y"),
+                    "roleTopic": track.title(),
+                    "duration": "45 mins" if is_hr else "60 mins",
+                    "durationFeedback": "You managed your time effectively."
+                },
+                "scoreSummary": {
+                    "knowledgeCompetence": {
+                        "score": kc_score, "maxScore": 25, "average": kc_avg, "maxAverage": 5.0, "percentage": kc_pct,
+                        "criteria": {
+                            "accuracy": 4 if is_hr else 3, "depth": 4 if is_hr else 3, "relevance": 4 if is_hr else 3,
+                            "examples": 3 if is_hr else 3, "terminology": 3 if is_hr else 2
+                        }
+                    },
+                    "speechAndStructure": {
+                        "score": ssf_score, "maxScore": 20, "average": ssf_avg, "maxAverage": 5.0, "percentage": ssf_pct,
+                        "criteria": {
+                            "fluency": 4 if is_hr else 3, "structure": 4 if is_hr else 3, "pacing": 3 if is_hr else 3, "grammar": 3 if is_hr else 2
+                        }
+                    }
+                },
+                "questionAnalysis": [
+                    {
+                        "id": 1,
+                        "totalQuestions": 5,
+                        "type": "Behavioral" if is_hr else "Technical",
+                        "question": "Tell me about a time you handled a difficult situation." if is_hr else "Explain the event loop.",
+                        "feedback": {
+                            "strengths": "Great articulation of the problem." if is_hr else "Good baseline understanding.",
+                            "areasOfImprovement": "Could use more specific metrics." if is_hr else "Needed deeper technical examples."
+                        }
+                    }
+                ],
+                "recommendedPractice": {
+                    "title": "Continue practicing these areas", 
+                    "description": "Focus on advanced conflict resolution." if is_hr else "Review advanced asynchronous patterns."
+                },
+                "speechFluencyFeedback": {
+                    "strengths": "Clear voice and great tone.",
+                    "areasOfImprovement": "Slight pacing issues.",
+                    "ratingEmoji": "🌟" if is_hr else "👍",
+                    "ratingTitle": "Excellent Communicator" if is_hr else "Good Communicator",
+                    "ratingDescription": "You express your thoughts very clearly." if is_hr else "You communicate technical concepts well, but work on structure."
+                },
+                "nextSteps": [
+                    {"title": "Review feedback"},
+                    {"title": "Practice mock interviews"},
+                    {"title": "Focus on technical depth" if not is_hr else "Focus on STAR method"}
+                ],
+                "finalTip": {"title": "Stay Confident", "description": "You have a great foundation, keep building on it!"}
+            }
+            return mock_report
+
         question_attempts = list(question_attempts)
         
         # Fetch interview for duration
@@ -1274,6 +1348,8 @@ class SummaryReportServiceV2:
         feedback_idx = 0
         
         for idx, iq in enumerate(all_questions):
+            category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
+            question_type = category_map.get(iq.category or "", "Technical question")
             question_type = _question_type_label(iq.category)
             
             # Check if attempted
