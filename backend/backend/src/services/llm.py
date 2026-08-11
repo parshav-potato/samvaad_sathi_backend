@@ -4,6 +4,7 @@ import time
 from typing import Any, Type, List, Dict, Literal, TypeVar
 import logging
 import pydantic
+from pydantic import Field, AliasChoices
 from openai import AsyncOpenAI
 from src.config.manager import settings
 from src.models.schemas.summary_report import SummarySection, SummarySectionGroup, SummaryMetrics
@@ -694,7 +695,10 @@ class CommunicationAnalysisLLM(BaseAnalysisLLM):
 
 
 class PausesSuggestionLLM(pydantic.BaseModel):
-    modified_transcript: str
+    modified_transcript: str= Field(
+        ..., 
+        validation_alias=AliasChoices("modified_transcript", "transcript")
+    )
 
 
 class PauseCoachLLM(pydantic.BaseModel):

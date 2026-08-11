@@ -81,7 +81,7 @@ async def complete_analysis(
         aggregation_start = time.perf_counter()
 
         logger.info(
-            "COMPLETE_ANALYSIS | Aggregation started for Attempt=%s | User=%s",
+            "COMPLETE_ANALYSIS | Aggregation started for Attempt=%s | User=%s | Types=%s | StartTime=%s",
             question_attempt_id,
             user_id,
             request.analysis_types,
