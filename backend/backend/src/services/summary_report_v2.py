@@ -1160,7 +1160,9 @@ class SummaryReportServiceV2:
         
         return report.model_dump(exclude_none=True)
 
-    async def generate_for_interview_lite(
+
+
+async def generate_for_interview_lite(
         self,
         interview_id: int,
         question_attempts: Iterable[QuestionAttempt],
@@ -1169,9 +1171,9 @@ class SummaryReportServiceV2:
         candidate_name: str | None = None,
     ) -> Dict[str, Any]:
         logger.info(
-        "Generating lite summary report for interview_id=%s, track=%s",
-        interview_id,
-        track,
+            "Generating lite summary report for interview_id=%s, track=%s",
+            interview_id,
+            track,
         )
         """Generate the new restructured summary report (Lite)."""
         
@@ -1183,16 +1185,16 @@ class SummaryReportServiceV2:
         interview = interview_res.scalar_one_or_none()
 
         if interview:
-           logger.debug("Interview %s loaded for lite summary generation", interview_id)
+            logger.debug("Interview %s loaded for lite summary generation", interview_id)
         else:
-           logger.warning("Interview %s not found while generating lite summary", interview_id)
+            logger.warning("Interview %s not found while generating lite summary", interview_id)
         
         duration_str = "0 mins"
 
         logger.debug(
-        "Calculated interview duration=%s for interview_id=%s",
-        duration_str,
-        interview_id,
+            "Calculated interview duration=%s for interview_id=%s",
+            duration_str,
+            interview_id,
         )
         duration_feedback = "You managed your time effectively."
         
@@ -1219,9 +1221,9 @@ class SummaryReportServiceV2:
         result = await self._db.execute(stmt)
         all_interview_questions = list(result.scalars().all())
         logger.debug(
-        "Loaded %d interview questions for interview_id=%s",
-        len(all_interview_questions),
-        interview_id,
+            "Loaded %d interview questions for interview_id=%s",
+            len(all_interview_questions),
+            interview_id,
         )
         # Build a map of question_id -> QuestionAttempt
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
@@ -1240,10 +1242,10 @@ class SummaryReportServiceV2:
         attempted_questions = len(actually_attempted_question_ids)
 
         logger.info(
-        "Interview %s has %d/%d attempted questions",
-        interview_id,
-        attempted_questions,
-        total_questions,
+            "Interview %s has %d/%d attempted questions",
+            interview_id,
+            attempted_questions,
+            total_questions,
         )
         
         # Collect metrics
@@ -1259,6 +1261,15 @@ class SummaryReportServiceV2:
         speech_strengths: List[str] = []
         speech_improvements: List[str] = []
         per_question_inputs: List[dict] = []
+
+        # SAFE SCORE EXTRACTION HELPER (Handles both int and dict outputs)
+        def _extract_score(crit_data: Any) -> Optional[float]:
+            if isinstance(crit_data, (int, float)):
+                return float(crit_data)
+            if isinstance(crit_data, dict):
+                return _as_float(crit_data.get("score"))
+            return None
+
         logger.debug("Collecting metrics for lite summary report")
         for interview_question in all_interview_questions:
             qa = attempts_by_question_id.get(interview_question.id)
@@ -1271,15 +1282,19 @@ class SummaryReportServiceV2:
             d = analysis.get("domain") or {}
             criteria = d.get("criteria") or {}
             
-            accuracy_score = _as_float(((criteria.get("correctness") or {}).get("score")))
+            accuracy_score = _extract_score(criteria.get("correctness"))
             if accuracy_score is not None: kc_accuracy.append(max(0.0, min(100.0, accuracy_score)))
-            depth_score = _as_float(((criteria.get("depth") or {}).get("score")))
+
+            depth_score = _extract_score(criteria.get("depth"))
             if depth_score is not None: kc_depth.append(max(0.0, min(100.0, depth_score)))
-            relevance_score = _as_float(((criteria.get("relevance") or {}).get("score")))
+
+            relevance_score = _extract_score(criteria.get("relevance"))
             if relevance_score is not None: kc_relevance.append(max(0.0, min(100.0, relevance_score)))
-            examples_score = _as_float(((criteria.get("examples") or {}).get("score")))
+
+            examples_score = _extract_score(criteria.get("examples"))
             if examples_score is not None: kc_examples.append(max(0.0, min(100.0, examples_score)))
-            terminology_score = _as_float(((criteria.get("terminology") or {}).get("score")))
+
+            terminology_score = _extract_score(criteria.get("terminology"))
             if terminology_score is not None: kc_terminology.append(max(0.0, min(100.0, terminology_score)))
             
             c = analysis.get("communication") or {}
@@ -1330,14 +1345,14 @@ class SummaryReportServiceV2:
         }
 
         logger.debug(
-        "Computed aggregate metrics for %d attempted questions",
-        attempted_questions,
+            "Computed aggregate metrics for %d attempted questions",
+            attempted_questions,
         )
         
         interview_date = datetime.now(timezone.utc).isoformat()
         logger.info(
-        "Calling LLM to synthesize lite summary report for interview_id=%s",
-        interview_id,
+            "Calling LLM to synthesize lite summary report for interview_id=%s",
+            interview_id,
         )
         llm_data, llm_error, latency_ms, model_name = await synthesize_summary_sections_lite(
             per_question_inputs=per_question_inputs,
@@ -1349,16 +1364,16 @@ class SummaryReportServiceV2:
             total_questions=total_questions,
         )
         logger.info(
-        "Lite summary synthesis completed (model=%s latency=%sms error=%s)",
-        model_name,
-        latency_ms,
-        llm_error,
+            "Lite summary synthesis completed (model=%s latency=%sms error=%s)",
+            model_name,
+            latency_ms,
+            llm_error,
         )
         if not llm_data or llm_error:
             logger.warning(
-            "Lite summary LLM generation failed for interview_id=%s (error=%s). Using fallback report.",
-            interview_id,
-            llm_error,
+                "Lite summary LLM generation failed for interview_id=%s (error=%s). Using fallback report.",
+                interview_id,
+                llm_error,
             )
             # Fallback logic for error case
             fallback_std = self._build_fallback_report(
@@ -1382,8 +1397,8 @@ class SummaryReportServiceV2:
                 ))
             
             logger.info(
-            "Returning fallback lite summary report for interview_id=%s",
-            interview_id,
+                "Returning fallback lite summary report for interview_id=%s",
+                interview_id,
             )
             return SummaryReportResponseLite(
                 reportId=str(uuid.uuid4()),
@@ -1404,8 +1419,8 @@ class SummaryReportServiceV2:
 
         try:
             logger.debug(
-            "Calculating final lite report scores for interview_id=%s",
-            interview_id,
+                "Calculating final lite report scores for interview_id=%s",
+                interview_id,
             )
             final_report = self._calculate_final_scores_lite(
                 llm_data=llm_data,
@@ -1421,15 +1436,15 @@ class SummaryReportServiceV2:
             )
             parsed = SummaryReportResponseLite(**final_report)
             logger.info(
-            "Lite summary report generated successfully for interview_id=%s",
-            interview_id,
+                "Lite summary report generated successfully for interview_id=%s",
+                interview_id,
             )
             return parsed.model_dump(exclude_none=True)
         except Exception as e:
             # Fallback on exception
             logger.exception(
-            "Failed to build lite summary report for interview_id=%s",
-            interview_id,
+                "Failed to build lite summary report for interview_id=%s",
+                interview_id,
             )
             # Return minimal valid response (same as above)
             return SummaryReportResponseLite(
@@ -1451,87 +1466,94 @@ class SummaryReportServiceV2:
                 finalTip={"title": "Error", "description": "Error"}
             ).model_dump(exclude_none=True)
 
-    def _calculate_final_scores_lite(
-        self,
-        llm_data: Dict[str, Any],
-        total_questions: int,
-        all_questions: List[InterviewQuestion],
-        attempts_by_question_id: Dict[int, QuestionAttempt],
-        actually_attempted_question_ids: set[int],
-        track: str,
-        interview_date: str,
-        candidate_name: str | None,
-        duration_str: str,
-        duration_feedback: str,
+def _calculate_final_scores_lite(
+    self,
+    llm_data: Dict[str, Any],
+    total_questions: int,
+    all_questions: List[InterviewQuestion],
+    attempts_by_question_id: Dict[int, QuestionAttempt],
+    actually_attempted_question_ids: set[int],
+    track: str,
+    interview_date: str,
+    candidate_name: str | None,
+    duration_str: str,
+    duration_feedback: str,
     ) -> Dict[str, Any]:
         logger.info(
-        "Calculating lite summary scores (track=%s total_questions=%d)",
-        track,
-        total_questions,
+            "Calculating lite summary scores (track=%s total_questions=%d)",
+            track,
+            total_questions,
         )
-        """Calculate final scores for Lite report."""
         per_question_scores = llm_data.get("perQuestionScores", [])
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
-        attempted_questions = len(per_question_scores)
-        logger.debug(
-        "Received LLM scores for %d attempted questions",
-        attempted_questions,
-        )
+        
+        # 🛠️ Map feedback and scores safely using questionId
+        feedback_by_q_id: Dict[int, Dict[str, Any]] = {}
+        scores_by_q_id: Dict[int, Dict[str, Any]] = {}
+
+        for idx, q_score in enumerate(per_question_scores):
+            q_id = q_score.get("questionId")
+            if q_id:
+                scores_by_q_id[q_id] = q_score
+                if idx < len(per_question_feedback):
+                    fb_data = per_question_feedback[idx]
+                    if fb_data:
+                        feedback_by_q_id[q_id] = fb_data
+
         kc_accuracy_sum = kc_depth_sum = kc_relevance_sum = kc_examples_sum = kc_terminology_sum = 0
         ssf_fluency_sum = ssf_structure_sum = ssf_pacing_sum = ssf_grammar_sum = 0
         
-        for q_scores in per_question_scores:
+        attempted_questions = len(scores_by_q_id) if scores_by_q_id else len(actually_attempted_question_ids)
+
+        for q_id, q_scores in scores_by_q_id.items():
             k = q_scores.get("knowledgeScores", {})
             kc_accuracy_sum += k.get("accuracy", 0)
             kc_depth_sum += k.get("depth", 0)
             kc_relevance_sum += k.get("relevance", 0)
             kc_examples_sum += k.get("examples", 0)
             kc_terminology_sum += k.get("terminology", 0)
+            
             s = q_scores.get("speechScores", {})
             ssf_fluency_sum += s.get("fluency", 0)
             ssf_structure_sum += s.get("structure", 0)
             ssf_pacing_sum += s.get("pacing", 0)
             ssf_grammar_sum += s.get("grammar", 0)
-            
+
         kc_total_from_attempted = (kc_accuracy_sum + kc_depth_sum + kc_relevance_sum + kc_examples_sum + kc_terminology_sum)
         ssf_total_from_attempted = (ssf_fluency_sum + ssf_structure_sum + ssf_pacing_sum + ssf_grammar_sum)
-        
+
         if attempted_questions > 0:
             kc_avg_per_question = kc_total_from_attempted / attempted_questions
             ssf_avg_per_question = ssf_total_from_attempted / attempted_questions
         else:
             kc_avg_per_question = ssf_avg_per_question = 0
-            
+
         completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
-        logger.debug(
-        "Lite score completion ratio: %.2f",
-        completion_ratio,
-        )
-        kc_score_total = round(kc_avg_per_question * completion_ratio)
-        ssf_score_total = round(ssf_avg_per_question * completion_ratio)
-        
+        kc_score_total = round(kc_avg_per_question * completion_ratio) if completion_ratio > 0 else round(kc_total_from_attempted)
+        ssf_score_total = round(ssf_avg_per_question * completion_ratio) if completion_ratio > 0 else round(ssf_total_from_attempted)
+
         if kc_total_from_attempted > 0:
             kc_accuracy_final = round(kc_score_total * (kc_accuracy_sum / kc_total_from_attempted))
             kc_depth_final = round(kc_score_total * (kc_depth_sum / kc_total_from_attempted))
             kc_relevance_final = round(kc_score_total * (kc_relevance_sum / kc_total_from_attempted))
             kc_examples_final = round(kc_score_total * (kc_examples_sum / kc_total_from_attempted))
-            kc_terminology_final = kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final)
+            kc_terminology_final = max(0, kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final))
         else:
             kc_accuracy_final = kc_depth_final = kc_relevance_final = kc_examples_final = kc_terminology_final = 0
-            
+
         if ssf_total_from_attempted > 0:
             ssf_fluency_final = round(ssf_score_total * (ssf_fluency_sum / ssf_total_from_attempted))
             ssf_structure_final = round(ssf_score_total * (ssf_structure_sum / ssf_total_from_attempted))
             ssf_pacing_final = round(ssf_score_total * (ssf_pacing_sum / ssf_total_from_attempted))
-            ssf_grammar_final = ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final)
+            ssf_grammar_final = max(0, ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final))
         else:
             ssf_fluency_final = ssf_structure_final = ssf_pacing_final = ssf_grammar_final = 0
-            
+
         kc_avg = kc_score_total / 5.0
         ssf_avg = ssf_score_total / 4.0
-        kc_pct = int((kc_score_total / 25.0) * 100)
-        ssf_pct = int((ssf_score_total / 20.0) * 100)
-        
+        kc_pct = int((kc_score_total / 25.0) * 100) if kc_score_total <= 25 else int(kc_score_total)
+        ssf_pct = int((ssf_score_total / 20.0) * 100) if ssf_score_total <= 20 else int(ssf_score_total)
+
         score_summary = {
             "knowledgeCompetence": {
                 "score": kc_score_total, "maxScore": 25, "average": round(kc_avg, 2), "maxAverage": 5.0, "percentage": kc_pct,
@@ -1548,11 +1570,7 @@ class SummaryReportServiceV2:
             }
         }
         score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
-        logger.debug(
-        "Lite score summary prepared (knowledge=%s speech=%s)",
-        kc_score_total,
-        ssf_score_total,
-        )
+
         candidate_info = {
             "name": candidate_name,
             "interviewDate": interview_date,
@@ -1560,35 +1578,30 @@ class SummaryReportServiceV2:
             "duration": duration_str,
             "durationFeedback": duration_feedback,
         }
-        
+
+        # Build questionAnalysis with non-null feedback objects
         question_analysis = []
-        feedback_idx = 0
-        logger.debug("Preparing lite question analysis")
         for idx, iq in enumerate(all_questions):
-            logger.debug(
-            "Processing lite feedback for question_id=%s",
-            iq.id,
-            )
             question_type = _question_type_label(iq.category)
             
-            # Check if attempted
-            if iq.id not in actually_attempted_question_ids:
-                # Not attempted
+            attempt = attempts_by_question_id.get(iq.id)
+            is_attempted = iq.id in actually_attempted_question_ids or (attempt is not None and (attempt.transcription or attempt.analysis_json))
+
+            if not is_attempted:
                 feedback_item = {
                     "strengths": "",
                     "areasOfImprovement": "Not attempted"
                 }
             else:
-                # Attempted - get feedback from LLM
-                feedback_item = None
-                if feedback_idx < len(per_question_feedback):
-                    fb_data = per_question_feedback[feedback_idx]
-                    feedback_item = {
-                        "strengths": fb_data.get("strengths", ""),
-                        "areasOfImprovement": fb_data.get("areasOfImprovement", "")
-                    }
-                    feedback_idx += 1
-            
+                fb_data = feedback_by_q_id.get(iq.id, {})
+                strengths = fb_data.get("strengths") if isinstance(fb_data, dict) else None
+                areas = fb_data.get("areasOfImprovement") if isinstance(fb_data, dict) else None
+
+                feedback_item = {
+                    "strengths": strengths or "Answer provided and recorded.",
+                    "areasOfImprovement": areas or "Review topic key concepts for deeper coverage."
+                }
+
             question_analysis.append({
                 "id": idx + 1,
                 "totalQuestions": total_questions,
@@ -1596,17 +1609,464 @@ class SummaryReportServiceV2:
                 "question": iq.text,
                 "feedback": feedback_item,
             })
-            logger.info(
-            "Lite summary score calculation completed with %d question analyses",
-            len(question_analysis),
-            )
+
         return {
             "reportId": str(uuid.uuid4()),
             "candidateInfo": candidate_info,
             "scoreSummary": score_summary,
             "questionAnalysis": question_analysis,
-            "recommendedPractice": llm_data.get("recommendedPractice"),
-            "speechFluencyFeedback": llm_data.get("speechFluencyFeedback"),
-            "nextSteps": llm_data.get("nextSteps"),
-            "finalTip": llm_data.get("finalTip"),
+            "recommendedPractice": llm_data.get("recommendedPractice") or {"title": "Practice", "description": "Review key interview concepts."},
+            "speechFluencyFeedback": llm_data.get("speechFluencyFeedback") or {"strengths": "Good clarity", "areasOfImprovement": "Maintain pace", "ratingEmoji": "Good", "ratingTitle": "Good", "ratingDescription": "Clear communication"},
+            "nextSteps": llm_data.get("nextSteps") or [{"title": "Practice mock interviews"}],
+            "finalTip": llm_data.get("finalTip") or {"title": "Stay confident", "description": "Keep practicing your explanations."},
         }
+    # async def generate_for_interview_lite(
+    #     self,
+    #     interview_id: int,
+    #     question_attempts: Iterable[QuestionAttempt],
+    #     track: str,
+    #     resume_used: bool | None = None,
+    #     candidate_name: str | None = None,
+    # ) -> Dict[str, Any]:
+    #     logger.info(
+    #     "Generating lite summary report for interview_id=%s, track=%s",
+    #     interview_id,
+    #     track,
+    #     )
+    #     """Generate the new restructured summary report (Lite)."""
+        
+    #     question_attempts = list(question_attempts)
+        
+    #     # Fetch interview for duration
+    #     interview_stmt = sqlalchemy.select(Interview).where(Interview.id == interview_id)
+    #     interview_res = await self._db.execute(interview_stmt)
+    #     interview = interview_res.scalar_one_or_none()
+
+    #     if interview:
+    #        logger.debug("Interview %s loaded for lite summary generation", interview_id)
+    #     else:
+    #        logger.warning("Interview %s not found while generating lite summary", interview_id)
+        
+    #     duration_str = "0 mins"
+
+    #     logger.debug(
+    #     "Calculated interview duration=%s for interview_id=%s",
+    #     duration_str,
+    #     interview_id,
+    #     )
+    #     duration_feedback = "You managed your time effectively."
+        
+    #     if interview and interview.created_at:
+    #         start_time = interview.created_at
+    #         end_time = start_time
+    #         for qa in question_attempts:
+    #             if qa.created_at and qa.created_at > end_time:
+    #                 end_time = qa.created_at
+            
+    #         # Ensure end_time is timezone aware if start_time is
+    #         if end_time.tzinfo is None and start_time.tzinfo is not None:
+    #             end_time = end_time.replace(tzinfo=start_time.tzinfo)
+                
+    #         diff = (end_time - start_time).total_seconds()
+    #         mins = int(diff / 60)
+    #         if mins < 1: mins = 1
+    #         duration_str = f"{mins} mins"
+        
+    #     # Fetch all InterviewQuestions for this interview
+    #     stmt = sqlalchemy.select(InterviewQuestion).where(
+    #         InterviewQuestion.interview_id == interview_id
+    #     ).order_by(InterviewQuestion.order.asc())
+    #     result = await self._db.execute(stmt)
+    #     all_interview_questions = list(result.scalars().all())
+    #     logger.debug(
+    #     "Loaded %d interview questions for interview_id=%s",
+    #     len(all_interview_questions),
+    #     interview_id,
+    #     )
+    #     # Build a map of question_id -> QuestionAttempt
+    #     attempts_by_question_id: Dict[int, QuestionAttempt] = {}
+    #     actually_attempted_question_ids: set[int] = set()
+        
+    #     for qa in question_attempts:
+    #         if qa.question_id is not None:
+    #             attempts_by_question_id[qa.question_id] = qa
+    #             has_transcription = qa.transcription is not None and len(str(qa.transcription).strip()) > 0
+    #             analysis = getattr(qa, "analysis_json", None) or {}
+    #             has_analysis = bool(analysis)
+    #             if has_transcription or has_analysis:
+    #                 actually_attempted_question_ids.add(qa.question_id)
+        
+    #     total_questions = len(all_interview_questions)
+    #     attempted_questions = len(actually_attempted_question_ids)
+
+    #     logger.info(
+    #     "Interview %s has %d/%d attempted questions",
+    #     interview_id,
+    #     attempted_questions,
+    #     total_questions,
+    #     )
+        
+    #     # Collect metrics
+    #     kc_accuracy: List[float] = []
+    #     kc_depth: List[float] = []
+    #     kc_relevance: List[float] = []
+    #     kc_examples: List[float] = []
+    #     kc_terminology: List[float] = []
+    #     ssf_fluency: List[float] = []
+    #     ssf_structure: List[float] = []
+    #     ssf_pacing: List[float] = []
+    #     ssf_grammar: List[float] = []
+    #     speech_strengths: List[str] = []
+    #     speech_improvements: List[str] = []
+    #     per_question_inputs: List[dict] = []
+    #     logger.debug("Collecting metrics for lite summary report")
+    #     for interview_question in all_interview_questions:
+    #         qa = attempts_by_question_id.get(interview_question.id)
+    #         if interview_question.id not in actually_attempted_question_ids:
+    #             continue
+    #         if qa is None:
+    #             continue
+            
+    #         analysis: Dict[str, Any] = getattr(qa, "analysis_json", None) or {}
+    #         d = analysis.get("domain") or {}
+    #         criteria = d.get("criteria") or {}
+            
+    #         accuracy_score = _as_float(((criteria.get("correctness") or {}).get("score")))
+    #         if accuracy_score is not None: kc_accuracy.append(max(0.0, min(100.0, accuracy_score)))
+    #         depth_score = _as_float(((criteria.get("depth") or {}).get("score")))
+    #         if depth_score is not None: kc_depth.append(max(0.0, min(100.0, depth_score)))
+    #         relevance_score = _as_float(((criteria.get("relevance") or {}).get("score")))
+    #         if relevance_score is not None: kc_relevance.append(max(0.0, min(100.0, relevance_score)))
+    #         examples_score = _as_float(((criteria.get("examples") or {}).get("score")))
+    #         if examples_score is not None: kc_examples.append(max(0.0, min(100.0, examples_score)))
+    #         terminology_score = _as_float(((criteria.get("terminology") or {}).get("score")))
+    #         if terminology_score is not None: kc_terminology.append(max(0.0, min(100.0, terminology_score)))
+            
+    #         c = analysis.get("communication") or {}
+    #         ccrit = c.get("criteria") or {}
+    #         structure_val = _as_float(c.get("structure_score") or (ccrit.get("structure", {}) or {}).get("score"))
+    #         if structure_val is not None: ssf_structure.append(max(0.0, min(100.0, structure_val)))
+    #         grammar_val = _as_float(c.get("grammar_score") or (ccrit.get("grammar", {}) or {}).get("score"))
+    #         if grammar_val is not None: ssf_grammar.append(max(0.0, min(100.0, grammar_val)))
+            
+    #         p = analysis.get("pace") or {}
+    #         z = analysis.get("pause") or {}
+    #         pace_raw = p.get("score")
+    #         if isinstance(pace_raw, (int, float)):
+    #             pace_scaled = pace_raw * 20 if pace_raw <= 5 else pace_raw
+    #             ssf_pacing.append(max(0.0, min(100.0, pace_scaled)))
+            
+    #         speech_strengths.extend(_as_list_str(c.get("strengths")))
+    #         speech_improvements.extend(_as_list_str(c.get("recommendations")))
+    #         speech_improvements.extend(_as_list_str(p.get("recommendations")))
+    #         speech_improvements.extend(_as_list_str(z.get("recommendations")))
+            
+    #         per_question_inputs.append({
+    #             "questionId": interview_question.id,
+    #             "questionAttemptId": qa.id,
+    #             "questionText": interview_question.text,
+    #             "questionCategory": interview_question.category,
+    #             "attempted": True,
+    #             "domain": d,
+    #             "communication": c,
+    #             "pace": p,
+    #             "pause": z,
+    #         })
+            
+    #     computed_metrics = {
+    #         "kc_accuracy_pct": _avg(kc_accuracy),
+    #         "kc_depth_pct": _avg(kc_depth),
+    #         "kc_relevance_pct": _avg(kc_relevance),
+    #         "kc_examples_pct": _avg(kc_examples) if kc_examples else 0.0,
+    #         "kc_terminology_pct": _avg(kc_terminology) if kc_terminology else 0.0,
+    #         "ssf_fluency_pct": _avg(ssf_fluency) if ssf_fluency else _avg([x for x in [_avg(ssf_structure), _avg(ssf_grammar)] if x is not None]),
+    #         "ssf_structure_pct": _avg(ssf_structure),
+    #         "ssf_pacing_pct": _avg(ssf_pacing),
+    #         "ssf_grammar_pct": _avg(ssf_grammar),
+    #         "total_questions": total_questions,
+    #         "attempted_questions": attempted_questions,
+    #         "speech_strengths": _unique(speech_strengths)[:6],
+    #         "speech_improvements": _unique(speech_improvements)[:6],
+    #     }
+
+    #     logger.debug(
+    #     "Computed aggregate metrics for %d attempted questions",
+    #     attempted_questions,
+    #     )
+        
+    #     interview_date = datetime.now(timezone.utc).isoformat()
+    #     logger.info(
+    #     "Calling LLM to synthesize lite summary report for interview_id=%s",
+    #     interview_id,
+    #     )
+    #     llm_data, llm_error, latency_ms, model_name = await synthesize_summary_sections_lite(
+    #         per_question_inputs=per_question_inputs,
+    #         computed_metrics=computed_metrics,
+    #         max_questions=None,
+    #         interview_track=track,
+    #         interview_date=interview_date,
+    #         candidate_name=candidate_name,
+    #         total_questions=total_questions,
+    #     )
+    #     logger.info(
+    #     "Lite summary synthesis completed (model=%s latency=%sms error=%s)",
+    #     model_name,
+    #     latency_ms,
+    #     llm_error,
+    #     )
+    #     if not llm_data or llm_error:
+    #         logger.warning(
+    #         "Lite summary LLM generation failed for interview_id=%s (error=%s). Using fallback report.",
+    #         interview_id,
+    #         llm_error,
+    #         )
+    #         # Fallback logic for error case
+    #         fallback_std = self._build_fallback_report(
+    #             interview_id=interview_id,
+    #             track=track,
+    #             computed_metrics=computed_metrics,
+    #             all_questions=all_interview_questions,
+    #             attempts_map=attempts_by_question_id,
+    #             interview_date=interview_date,
+    #             candidate_name=candidate_name,
+    #         )
+    #         # Construct minimal valid response
+    #         qa_items = []
+    #         for item in fallback_std.get("questionAnalysis", []):
+    #             qa_items.append(QuestionAnalysisItemLite(
+    #                 id=item["id"],
+    #                 totalQuestions=item["totalQuestions"],
+    #                 type=item["type"],
+    #                 question=item["question"],
+    #                 feedback=QuestionFeedbackLite(strengths="N/A", areasOfImprovement="N/A")
+    #             ))
+            
+    #         logger.info(
+    #         "Returning fallback lite summary report for interview_id=%s",
+    #         interview_id,
+    #         )
+    #         return SummaryReportResponseLite(
+    #             reportId=str(uuid.uuid4()),
+    #             candidateInfo=CandidateInfoLite(
+    #                 name=candidate_name,
+    #                 interviewDate=interview_date,
+    #                 roleTopic=track.title(),
+    #                 duration=duration_str,
+    #                 durationFeedback=duration_feedback
+    #             ),
+    #             scoreSummary=ScoreSummary(**self._maybe_strip_knowledge_summary(track=track, score_summary=dict(fallback_std["scoreSummary"]))),
+    #             questionAnalysis=qa_items,
+    #             recommendedPractice={"title": "Practice", "description": "Practice more."},
+    #             speechFluencyFeedback={"strengths": "N/A", "areasOfImprovement": "N/A", "ratingEmoji": "Neutral", "ratingTitle": "N/A", "ratingDescription": "N/A"},
+    #             nextSteps=[{"title": "Practice"}],
+    #             finalTip={"title": "Tip", "description": "Keep practicing."}
+    #         ).model_dump(exclude_none=True)
+
+    #     try:
+    #         logger.debug(
+    #         "Calculating final lite report scores for interview_id=%s",
+    #         interview_id,
+    #         )
+    #         final_report = self._calculate_final_scores_lite(
+    #             llm_data=llm_data,
+    #             total_questions=total_questions,
+    #             all_questions=all_interview_questions,
+    #             attempts_by_question_id=attempts_by_question_id,
+    #             actually_attempted_question_ids=actually_attempted_question_ids,
+    #             track=track,
+    #             interview_date=interview_date,
+    #             candidate_name=candidate_name,
+    #             duration_str=duration_str,
+    #             duration_feedback=duration_feedback,
+    #         )
+    #         parsed = SummaryReportResponseLite(**final_report)
+    #         logger.info(
+    #         "Lite summary report generated successfully for interview_id=%s",
+    #         interview_id,
+    #         )
+    #         return parsed.model_dump(exclude_none=True)
+    #     except Exception as e:
+    #         # Fallback on exception
+    #         logger.exception(
+    #         "Failed to build lite summary report for interview_id=%s",
+    #         interview_id,
+    #         )
+    #         # Return minimal valid response (same as above)
+    #         return SummaryReportResponseLite(
+    #             reportId=str(uuid.uuid4()),
+    #             candidateInfo=CandidateInfoLite(
+    #                 name=candidate_name,
+    #                 interviewDate=interview_date,
+    #                 roleTopic=track.title(),
+    #                 duration=duration_str,
+    #                 durationFeedback=duration_feedback
+    #             ),
+    #             scoreSummary=ScoreSummary(
+    #                 speechAndStructure=SpeechAndStructureScore(score=0, maxScore=20, average=0, maxAverage=5, percentage=0, criteria=SpeechCriteria())
+    #             ),
+    #             questionAnalysis=[],
+    #             recommendedPractice={"title": "Error", "description": "Could not generate report."},
+    #             speechFluencyFeedback={"strengths": "Error", "areasOfImprovement": "Error", "ratingEmoji": "Sad", "ratingTitle": "Error", "ratingDescription": "Error"},
+    #             nextSteps=[],
+    #             finalTip={"title": "Error", "description": "Error"}
+    #         ).model_dump(exclude_none=True)
+
+    # def _calculate_final_scores_lite(
+    #     self,
+    #     llm_data: Dict[str, Any],
+    #     total_questions: int,
+    #     all_questions: List[InterviewQuestion],
+    #     attempts_by_question_id: Dict[int, QuestionAttempt],
+    #     actually_attempted_question_ids: set[int],
+    #     track: str,
+    #     interview_date: str,
+    #     candidate_name: str | None,
+    #     duration_str: str,
+    #     duration_feedback: str,
+    # ) -> Dict[str, Any]:
+    #     logger.info(
+    #     "Calculating lite summary scores (track=%s total_questions=%d)",
+    #     track,
+    #     total_questions,
+    #     )
+    #     """Calculate final scores for Lite report."""
+    #     per_question_scores = llm_data.get("perQuestionScores", [])
+    #     per_question_feedback = llm_data.get("perQuestionFeedback", [])
+    #     attempted_questions = len(per_question_scores)
+    #     logger.debug(
+    #     "Received LLM scores for %d attempted questions",
+    #     attempted_questions,
+    #     )
+    #     kc_accuracy_sum = kc_depth_sum = kc_relevance_sum = kc_examples_sum = kc_terminology_sum = 0
+    #     ssf_fluency_sum = ssf_structure_sum = ssf_pacing_sum = ssf_grammar_sum = 0
+        
+    #     for q_scores in per_question_scores:
+    #         k = q_scores.get("knowledgeScores", {})
+    #         kc_accuracy_sum += k.get("accuracy", 0)
+    #         kc_depth_sum += k.get("depth", 0)
+    #         kc_relevance_sum += k.get("relevance", 0)
+    #         kc_examples_sum += k.get("examples", 0)
+    #         kc_terminology_sum += k.get("terminology", 0)
+    #         s = q_scores.get("speechScores", {})
+    #         ssf_fluency_sum += s.get("fluency", 0)
+    #         ssf_structure_sum += s.get("structure", 0)
+    #         ssf_pacing_sum += s.get("pacing", 0)
+    #         ssf_grammar_sum += s.get("grammar", 0)
+            
+    #     kc_total_from_attempted = (kc_accuracy_sum + kc_depth_sum + kc_relevance_sum + kc_examples_sum + kc_terminology_sum)
+    #     ssf_total_from_attempted = (ssf_fluency_sum + ssf_structure_sum + ssf_pacing_sum + ssf_grammar_sum)
+        
+    #     if attempted_questions > 0:
+    #         kc_avg_per_question = kc_total_from_attempted / attempted_questions
+    #         ssf_avg_per_question = ssf_total_from_attempted / attempted_questions
+    #     else:
+    #         kc_avg_per_question = ssf_avg_per_question = 0
+            
+    #     completion_ratio = attempted_questions / total_questions if total_questions > 0 else 0.0
+    #     logger.debug(
+    #     "Lite score completion ratio: %.2f",
+    #     completion_ratio,
+    #     )
+    #     kc_score_total = round(kc_avg_per_question * completion_ratio)
+    #     ssf_score_total = round(ssf_avg_per_question * completion_ratio)
+        
+    #     if kc_total_from_attempted > 0:
+    #         kc_accuracy_final = round(kc_score_total * (kc_accuracy_sum / kc_total_from_attempted))
+    #         kc_depth_final = round(kc_score_total * (kc_depth_sum / kc_total_from_attempted))
+    #         kc_relevance_final = round(kc_score_total * (kc_relevance_sum / kc_total_from_attempted))
+    #         kc_examples_final = round(kc_score_total * (kc_examples_sum / kc_total_from_attempted))
+    #         kc_terminology_final = kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final)
+    #     else:
+    #         kc_accuracy_final = kc_depth_final = kc_relevance_final = kc_examples_final = kc_terminology_final = 0
+            
+    #     if ssf_total_from_attempted > 0:
+    #         ssf_fluency_final = round(ssf_score_total * (ssf_fluency_sum / ssf_total_from_attempted))
+    #         ssf_structure_final = round(ssf_score_total * (ssf_structure_sum / ssf_total_from_attempted))
+    #         ssf_pacing_final = round(ssf_score_total * (ssf_pacing_sum / ssf_total_from_attempted))
+    #         ssf_grammar_final = ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final)
+    #     else:
+    #         ssf_fluency_final = ssf_structure_final = ssf_pacing_final = ssf_grammar_final = 0
+            
+    #     kc_avg = kc_score_total / 5.0
+    #     ssf_avg = ssf_score_total / 4.0
+    #     kc_pct = int((kc_score_total / 25.0) * 100)
+    #     ssf_pct = int((ssf_score_total / 20.0) * 100)
+        
+    #     score_summary = {
+    #         "knowledgeCompetence": {
+    #             "score": kc_score_total, "maxScore": 25, "average": round(kc_avg, 2), "maxAverage": 5.0, "percentage": kc_pct,
+    #             "criteria": {
+    #                 "accuracy": kc_accuracy_final, "depth": kc_depth_final, "relevance": kc_relevance_final,
+    #                 "examples": kc_examples_final, "terminology": kc_terminology_final
+    #             }
+    #         },
+    #         "speechAndStructure": {
+    #             "score": ssf_score_total, "maxScore": 20, "average": round(ssf_avg, 2), "maxAverage": 5.0, "percentage": ssf_pct,
+    #             "criteria": {
+    #                 "fluency": ssf_fluency_final, "structure": ssf_structure_final, "pacing": ssf_pacing_final, "grammar": ssf_grammar_final
+    #             }
+    #         }
+    #     }
+    #     score_summary = self._maybe_strip_knowledge_summary(track=track, score_summary=score_summary)
+    #     logger.debug(
+    #     "Lite score summary prepared (knowledge=%s speech=%s)",
+    #     kc_score_total,
+    #     ssf_score_total,
+    #     )
+    #     candidate_info = {
+    #         "name": candidate_name,
+    #         "interviewDate": interview_date,
+    #         "roleTopic": track.title(),
+    #         "duration": duration_str,
+    #         "durationFeedback": duration_feedback,
+    #     }
+        
+    #     question_analysis = []
+    #     feedback_idx = 0
+    #     logger.debug("Preparing lite question analysis")
+    #     for idx, iq in enumerate(all_questions):
+    #         logger.debug(
+    #         "Processing lite feedback for question_id=%s",
+    #         iq.id,
+    #         )
+    #         question_type = _question_type_label(iq.category)
+            
+    #         # Check if attempted
+    #         if iq.id not in actually_attempted_question_ids:
+    #             # Not attempted
+    #             feedback_item = {
+    #                 "strengths": "",
+    #                 "areasOfImprovement": "Not attempted"
+    #             }
+    #         else:
+    #             # Attempted - get feedback from LLM
+    #             feedback_item = None
+    #             if feedback_idx < len(per_question_feedback):
+    #                 fb_data = per_question_feedback[feedback_idx]
+    #                 feedback_item = {
+    #                     "strengths": fb_data.get("strengths", ""),
+    #                     "areasOfImprovement": fb_data.get("areasOfImprovement", "")
+    #                 }
+    #                 feedback_idx += 1
+            
+    #         question_analysis.append({
+    #             "id": idx + 1,
+    #             "totalQuestions": total_questions,
+    #             "type": question_type,
+    #             "question": iq.text,
+    #             "feedback": feedback_item,
+    #         })
+    #         logger.info(
+    #         "Lite summary score calculation completed with %d question analyses",
+    #         len(question_analysis),
+    #         )
+    #     return {
+    #         "reportId": str(uuid.uuid4()),
+    #         "candidateInfo": candidate_info,
+    #         "scoreSummary": score_summary,
+    #         "questionAnalysis": question_analysis,
+    #         "recommendedPractice": llm_data.get("recommendedPractice"),
+    #         "speechFluencyFeedback": llm_data.get("speechFluencyFeedback"),
+    #         "nextSteps": llm_data.get("nextSteps"),
+    #         "finalTip": llm_data.get("finalTip"),
+    #     }
