@@ -1162,7 +1162,7 @@ class SummaryReportServiceV2:
 
 
 
-async def generate_for_interview_lite(
+    async def generate_for_interview_lite(
         self,
         interview_id: int,
         question_attempts: Iterable[QuestionAttempt],
@@ -1466,7 +1466,7 @@ async def generate_for_interview_lite(
                 finalTip={"title": "Error", "description": "Error"}
             ).model_dump(exclude_none=True)
 
-def _calculate_final_scores_lite(
+    def _calculate_final_scores_lite(
     self,
     llm_data: Dict[str, Any],
     total_questions: int,
@@ -1487,7 +1487,7 @@ def _calculate_final_scores_lite(
         per_question_scores = llm_data.get("perQuestionScores", [])
         per_question_feedback = llm_data.get("perQuestionFeedback", [])
         
-        # 🛠️ Map feedback and scores safely using questionId
+        # Map feedback and scores safely using questionId
         feedback_by_q_id: Dict[int, Dict[str, Any]] = {}
         scores_by_q_id: Dict[int, Dict[str, Any]] = {}
 
