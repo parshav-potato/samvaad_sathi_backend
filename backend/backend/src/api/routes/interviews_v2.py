@@ -1,3 +1,4 @@
+import json
 import fastapi
 import logging
 import re
@@ -182,7 +183,7 @@ async def create_or_resume_interview_v2(
 ) -> InterviewInResponse:
     active = await interview_repo.get_active_by_user(user_id=current_user.id)
     if active is not None and active.track == payload.track:
-        return InterviewInResponse(
+        res = InterviewInResponse(
             interview_id=active.id,
             track=active.track,
             difficulty=active.difficulty,
@@ -190,6 +191,15 @@ async def create_or_resume_interview_v2(
             created_at=active.created_at,
             resumed=True,
         )
+
+        # Resumed Interview Response
+        logger.info(
+            "POST /interviews/create RESUMED RESPONSE | User=%s | Response=\n%s",
+            current_user.id,
+            json.dumps(res.model_dump(), indent=2, default=str)
+        )
+
+        return res
 
     difficulty = (payload.difficulty or "medium").lower()
     if difficulty not in ("easy", "medium", "hard", "expert"):
@@ -218,7 +228,7 @@ async def create_or_resume_interview_v2(
         interview_id=interview.id,
         event_data={"track": interview.track, "source": "interviews_v2.create"},
     )
-    return InterviewInResponse(
+    res = InterviewInResponse(
         interview_id=interview.id,
         track=interview.track,
         difficulty=interview.difficulty,
@@ -226,6 +236,18 @@ async def create_or_resume_interview_v2(
         created_at=interview.created_at,
         resumed=False,
     )
+
+    # =========================================================================
+    # NEWLY CREATED INTERVIEW RESPONSE PAYLOAD
+    # =========================================================================
+    logger.info(
+        "POST /interviews/create NEW RESPONSE | User=%s | Interview=%s | Response=\n%s",
+        current_user.id,
+        interview.id,
+        json.dumps(res.model_dump(), indent=2, default=str)
+    )
+
+    return res
 
 
 @router.post(
@@ -282,7 +304,7 @@ async def generate_questions_v2(
                 "llm_model": "static",
                 "items": [{"text": "Before proceeding with a Medium level Full Stack Developer interview, please add your resume.", "topic": "System", "category": "system", "isFollowUp": False, "parentQuestionId": None, "followUpStrategy": None, "supplement": None, "difficulty": interview.difficulty, "interviewQuestionId": 0}]
             }
-            return GeneratedQuestionsInResponse(
+            res = GeneratedQuestionsInResponse(
                 interview_id=interview.id,
                 track=interview.track,
                 count=1,
@@ -307,6 +329,15 @@ async def generate_questions_v2(
                 llm_latency_ms=qs.get("latency_ms"),
                 llm_error=qs.get("llm_error"),
             )
+
+            # Static Resume Warning Response
+            logger.info(
+                "POST /interviews/generate-questions RESUME WARNING | Interview=%s | Response=\n%s",
+                interview.id,
+                json.dumps(res.model_dump(), indent=2, default=str)
+            )
+
+            return res
 
         question_count = 7 if interview.track == FULL_STACK_ROLE else 5  # Base questions, leaves room for dynamic follow-ups
 
@@ -425,7 +456,7 @@ async def generate_questions_v2(
             "items": response_items,
         }
 
-    return GeneratedQuestionsInResponse(
+    response_payload = GeneratedQuestionsInResponse(
         interview_id=interview.id,
         track=interview.track,
         count=len(persisted),
@@ -447,6 +478,18 @@ async def generate_questions_v2(
         llm_latency_ms=qs.get("latency_ms"),
         llm_error=qs.get("llm_error"),
     )
+
+    # =========================================================================
+    # FULL GENERATED QUESTIONS API RESPONSE PAYLOAD
+    # =========================================================================
+    logger.info(
+        "POST /interviews/generate-questions FULL RESPONSE PAYLOAD | Interview=%s | Cached=%s | Response=\n%s",
+        interview.id,
+        cached,
+        json.dumps(response_payload.model_dump(), indent=2, default=str)
+    )
+
+    return response_payload
 
 
 @router.post(

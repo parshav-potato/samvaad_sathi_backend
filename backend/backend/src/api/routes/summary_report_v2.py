@@ -1,6 +1,7 @@
 """V2 Summary Report routes with Lite response format."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 import fastapi
@@ -153,6 +154,14 @@ async def generate_summary_report_v2(
     interview.id,
     time.perf_counter() - request_start,
     )
+
+
+    logger.info(
+        "POST /v2/summary-report FULL RESPONSE PAYLOAD | Interview=%s | Payload=\n%s",
+        interview.id,
+        json.dumps(result, indent=2, default=str)
+    )
+    
     return SummaryReportResponseLite(**result)
 
 

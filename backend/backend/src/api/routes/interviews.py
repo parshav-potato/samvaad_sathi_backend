@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 import fastapi
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -77,7 +78,7 @@ async def create_or_resume_interview(
         interview_id=interview.id,
         event_data={"track": interview.track, "source": "interviews.create"},
     )
-    return InterviewInResponse(
+    res = InterviewInResponse(
         interview_id=interview.id,
         track=interview.track,
         difficulty=interview.difficulty,
@@ -85,6 +86,15 @@ async def create_or_resume_interview(
         created_at=interview.created_at,
         resumed=False,
     )
+    
+    logger.info(
+        "POST /interviews/create NEW RESPONSE | User=%s | Interview=%s | Response=\n%s",
+        current_user.id,
+        interview.id,
+        json.dumps(res.model_dump(), indent=2, default=str)
+    )
+
+    return res
 
 
 @router.post(
@@ -301,7 +311,7 @@ async def generate_questions(
             "items": existing_items,
         }
 
-    return GeneratedQuestionsInResponse(
+    response = GeneratedQuestionsInResponse(
         interview_id=interview.id,
         track=interview.track,
         count=len(persisted),
@@ -313,6 +323,13 @@ async def generate_questions(
         llm_latency_ms=qs.get("latency_ms"),  # type: ignore[union-attr]
         llm_error=qs.get("llm_error"),  # type: ignore[union-attr]
     )
+    logger.info(
+        "POST /interviews/generate-questions FULL RESPONSE PAYLOAD | Interview=%s | Cached=%s | Response=\n%s",
+        interview.id,
+        cached,
+        json.dumps(response.model_dump(), indent=2, default=str)
+    )
+    return response
 
 
 @router.post(
