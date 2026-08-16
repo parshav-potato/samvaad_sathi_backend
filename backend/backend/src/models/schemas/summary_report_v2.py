@@ -14,7 +14,7 @@ This response is restructured to provide a cleaner, more actionable format:
 from __future__ import annotations
 
 import pydantic
-from typing import List
+from typing import List, Union, Any
 
 from src.models.schemas.base import BaseSchemaModel
 from src.models.schemas.summary_report import (
@@ -72,5 +72,20 @@ class SummaryReportResponseLite(BaseSchemaModel):
     questionAnalysis: List[QuestionAnalysisItemLite]
     recommendedPractice: RecommendedPracticeLite | None = pydantic.Field(default=None, description="Recommended practice exercise")
     speechFluencyFeedback: SpeechFluencyFeedbackLite | None = pydantic.Field(default=None, description="Speech fluency feedback")
-    nextSteps: List[NextStepLite] | None = pydantic.Field(default=None, description="List of next steps")
+    nextSteps: List[Union[NextStepLite, str]] | None = pydantic.Field(default=None, description="List of next steps")
     finalTip: FinalTipLite | None = pydantic.Field(default=None, description="Final tip for candidate")
+@pydantic.field_validator("nextSteps", mode="after")
+@classmethod
+def normalize_next_steps(cls, v: List[Any] | None) -> List[NextStepLite] | None:
+    """Automatically convert raw strings like ['Review Node.js'] into [{'title': 'Review Node.js'}]"""
+    if v is None:
+        return None
+    normalized = []
+    for item in v:
+        if isinstance(item, str):
+            normalized.append(NextStepLite(title=item))
+        elif isinstance(item, dict):
+            normalized.append(NextStepLite(**item))
+        elif isinstance(item, NextStepLite):
+            normalized.append(item)
+        return normalized
