@@ -220,7 +220,7 @@ class NewStrictSummarySynthesisLLMLite(pydantic.BaseModel):
     perQuestionFeedback: list[LLMQuestionFeedbackLite]
     recommendedPractice: LLMRecommendedPracticeStrict | None = None
     speechFluencyFeedback: LLMSpeechFluencyFeedbackLiteStrict | None = None
-    nextSteps: list[pydantic.Union[LLMNextStepStrict, str]] = pydantic.Field(default_factory=list)
+    nextSteps: list[Union[LLMNextStepStrict, str]] = pydantic.Field(default_factory=list)
     finalTip: LLMFinalTipStrict | None = None
 
     @pydantic.field_validator("nextSteps", mode="after")
