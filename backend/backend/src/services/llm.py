@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from typing import Any, Type, List, Dict, Literal, TypeVar
+from typing import Any, Type, List, Dict, Literal, TypeVar, Optional, Union
 import logging
 import pydantic
 from pydantic import Field, AliasChoices
@@ -192,13 +192,52 @@ class LLMQuestionFeedbackLite(pydantic.BaseModel):
     strengths: str
     areasOfImprovement: str
 
+class LLMNextStepStrict(pydantic.BaseModel):
+    """Individual next step object expected by schema."""
+    title: str
+
+
+class LLMRecommendedPracticeStrict(pydantic.BaseModel):
+    title: str
+    description: str
+
+
+class LLMSpeechFluencyFeedbackLiteStrict(pydantic.BaseModel):
+    strengths: str
+    areasOfImprovement: str
+    ratingEmoji: str
+    ratingTitle: str
+    ratingDescription: str
+
+class LLMFinalTipStrict(pydantic.BaseModel):
+    title: str
+    description: str
 
 class NewStrictSummarySynthesisLLMLite(pydantic.BaseModel):
     """Restructured summary report output (Lite) - LLM provides only scores and simplified feedback."""
     perQuestionScores: list[LLMQuestionScores]
     overallFeedback: LLMOverallFeedback
     perQuestionFeedback: list[LLMQuestionFeedbackLite]
+    recommendedPractice: LLMRecommendedPracticeStrict | None = None
+    speechFluencyFeedback: LLMSpeechFluencyFeedbackLiteStrict | None = None
+    nextSteps: list[pydantic.Union[LLMNextStepStrict, str]] = pydantic.Field(default_factory=list)
+    finalTip: LLMFinalTipStrict | None = None
 
+    @pydantic.field_validator("nextSteps", mode="after")
+    @classmethod
+    def normalize_next_steps(cls, v: list[Any] | None) -> list[LLMNextStepStrict]:
+        """Automatically converts raw strings like ['Review Node.js'] into [{'title': 'Review Node.js'}]"""
+        if not v:
+            return []
+        normalized = []
+        for item in v:
+            if isinstance(item, str):
+                normalized.append(LLMNextStepStrict(title=item))
+            elif isinstance(item, dict):
+                normalized.append(LLMNextStepStrict(**item))
+            elif isinstance(item, LLMNextStepStrict):
+                normalized.append(item)
+        return normalized
 
 
 # Legacy models (deprecated - kept for backward compatibility)
