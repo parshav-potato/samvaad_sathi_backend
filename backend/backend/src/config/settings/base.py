@@ -121,6 +121,10 @@ class BackendBaseSettings(BaseSettings):
     ELEVENLABS_API_KEY: str = decouple.config("ELEVENLABS_API_KEY", cast=str, default="")  # type: ignore
     ELEVENLABS_VOICE_ID: str = decouple.config("ELEVENLABS_VOICE_ID", cast=str, default="hpp4J3VqNfWAUOO0d1Us")  # type: ignore
 
+    # Barabari Sampark Saathi resume-round callback
+    BARABARI_SAMPARK_API_KEY: str = decouple.config("BARABARI_SAMPARK_API_KEY", cast=str, default="")  # type: ignore
+    BARABARI_SAMPARK_BASE_URL: str = decouple.config("BARABARI_SAMPARK_BASE_URL", cast=str, default="")  # type: ignore
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=f"{str(ROOT_DIR)}/.env",
