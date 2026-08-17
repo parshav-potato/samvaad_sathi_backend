@@ -1,9 +1,5 @@
-"""Outbound callback to Barabari's Sampark Saathi service for the resume round.
-
-Fires whenever a resume score is available for a user who arrived via Barabari's
-WhatsApp link (i.e. has User.student_id set). Best-effort - never blocks or fails
-the caller's own request if Barabari's side is down.
-"""
+"""Callback to Barabari's resume-score endpoint. Best-effort - never blocks or
+fails the caller's request if Barabari's side is down."""
 
 import logging
 

@@ -86,8 +86,7 @@ class UserCRUDRepository(BaseCRUDRepository):
         return user
 
     async def set_student_id_if_unset(self, *, user_id: int, student_id: str) -> User:
-        """Links a Barabari student to this account - only if not already linked,
-        so a stray/duplicate link click can't overwrite an existing link."""
+        """Only sets it if empty, so a duplicate link click can't clobber an existing link."""
         stmt = sqlalchemy.select(User).where(User.id == user_id)
         query = await self.async_session.execute(statement=stmt)
         user: User | None = query.scalar()  # type: ignore

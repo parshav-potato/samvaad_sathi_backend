@@ -39,8 +39,7 @@ def _get_oauth(request: Request) -> OAuth:
 async def login(request: Request, studentId: str | None = None):
     oauth = _get_oauth(request)
     redirect_uri = request.url_for("auth_cognito_authorize")
-    # Stash in the session (not the OAuth state param, which Authlib owns for CSRF) so it
-    # survives the round trip to Cognito and back - only set when a Barabari link supplied it.
+    # session, not the OAuth state param - authlib owns that for CSRF
     if studentId:
         request.session["pending_student_id"] = studentId
     return await oauth.cognito.authorize_redirect(request, redirect_uri)
