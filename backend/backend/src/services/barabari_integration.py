@@ -18,12 +18,12 @@ async def submit_resume_score_to_barabari(
     request_id: str,
     target_role: str | None = None,
 ) -> None:
-    api_key = settings.BARABARI_SAMPARK_API_KEY
-    base_url = settings.BARABARI_SAMPARK_BASE_URL
+    api_key = settings.SAMPARK_SAATHI_API_KEY
+    base_url = settings.SAMPARK_SAATHI_BASE_URL
 
     if not api_key or not base_url:
         logger.warning(
-            "RequestId: %s | BARABARI_SAMPARK_API_KEY/BASE_URL not configured, skipping resume-score callback",
+            "RequestId: %s | SAMPARK_SAATHI_API_KEY/BASE_URL not configured, skipping resume-score callback",
             request_id,
         )
         return
