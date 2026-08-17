@@ -28,6 +28,14 @@ class ATSCalculator:
         final_ats_score = int(round((raw_grand_total / 70.0) * 100.0))
         final_ats_score = min(max(final_ats_score, 0), 100)
 
+        # Calculate project match percentage from project_report (Max 35.0 pts)
+        project_total_score = float(project_report.get("totalScore", 0.0))
+        project_match_percentage = int(round((project_total_score / 35.0) * 100.0))
+        project_match_percentage = min(max(project_match_percentage, 0), 100)
+
+        # Extract total months to detect if candidate is a fresher
+        total_months = int(experience_report.get("totalMonths", 0))
+        is_fresher = total_months == 0 or experience_report.get("detectedLevel") == "Fresher"
         enriched_projects = self._enrich_project_nodes(project_report, link_report)
 
         project_report_enriched = {
@@ -43,8 +51,11 @@ class ATSCalculator:
             "scoreBreakdown": {
                 "skillsMatch": int(round((skills_score / 25.0) * 100)),
                 "experienceMatch": int(round((experience_combined_score / 35.0) * 100)),
+                "projectMatch": project_match_percentage,
                 "linkIntegrity": int(round((links_score / 5.0) * 100)),
-                "educationScore": int(round((education_score / 5.0) * 100))
+                "educationScore": int(round((education_score / 5.0) * 100)),
+                "totalMonths": total_months,                 
+                "isFresher": is_fresher
             },
             "deterministicMetrics": {
                 "linksModule": link_report,

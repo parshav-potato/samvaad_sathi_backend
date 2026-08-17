@@ -1,11 +1,15 @@
+from fileinput import filename
 import os
 import time
+import logging
 import tempfile
 from typing import Tuple
 
 import openai
 from openai import AsyncOpenAI
 from src.config.manager import settings
+
+logger = logging.getLogger(__name__)
 
 _client: AsyncOpenAI | None = None
 
@@ -50,9 +54,18 @@ async def transcribe_audio_with_whisper(
         return None, "Empty audio file", None, model_name
 
     start_time = time.perf_counter()
+
+    logger.info(
+    "Whisper transcription started | File=%s | Size=%d bytes | Language=%s | Model=%s",
+    filename,
+    len(audio_bytes),
+    language,
+    model_name,
+   )
     
     try:
         client = _get_client()
+        logger.debug("OpenAI Whisper client initialized")
         if client is None:
             return None, "OpenAI API key not configured", None, model_name
 
@@ -64,6 +77,11 @@ async def transcribe_audio_with_whisper(
         try:
             # Call Whisper API with word-level timestamps
             with open(temp_file_path, "rb") as audio_file:
+                api_start = time.perf_counter()
+                logger.info(
+                "OpenAI Whisper API request started | File=%s",
+                filename,
+                )
                 transcript = await client.audio.transcriptions.create(
                     model=model_name,
                     file=audio_file,
@@ -71,10 +89,14 @@ async def transcribe_audio_with_whisper(
                     response_format="verbose_json",  # Required for word-level timestamps
                     timestamp_granularities=["word"]  # Enable word-level timestamps
                 )
+                logger.info(
+                "OpenAI Whisper API completed | File=%s | Duration=%.2fs",
+                filename,
+                time.perf_counter() - api_start,
+                )
 
             end_time = time.perf_counter()
             latency_ms = int((end_time - start_time) * 1000)
-
             # Convert response to dictionary format
             transcription_dict = {
                 "task": getattr(transcript, "task", "transcribe"),
@@ -83,7 +105,6 @@ async def transcribe_audio_with_whisper(
                 "text": getattr(transcript, "text", ""),
                 "words": []
             }
-
             # Extract word-level timestamps if available
             if hasattr(transcript, "words") and getattr(transcript, "words"):
                 transcription_dict["words"] = [
@@ -95,33 +116,67 @@ async def transcribe_audio_with_whisper(
                     for word in transcript.words
                 ]
 
+
+            logger.info(
+              "Whisper transcription successful | File=%s | TotalLatency=%d ms | TranscriptLength=%d chars | Words=%d",
+              filename,
+              latency_ms,
+              len(transcription_dict["text"]),
+              len(transcription_dict["words"]),
+            )
             return transcription_dict, None, latency_ms, model_name
 
         finally:
             # Ensure temp file is cleaned up
             try:
                 os.unlink(temp_file_path)
+                logger.debug(
+                "Temporary audio file cleaned up | File=%s",
+                filename,
+                )
             except Exception:
                 pass
     
     except openai.AuthenticationError:
         end_time = time.perf_counter()
         latency_ms = int((end_time - start_time) * 1000)
+        logger.error(
+        "Whisper authentication failed | File=%s",
+        filename,
+        )
         return None, "Invalid OpenAI API key", latency_ms, model_name
     
     except openai.RateLimitError:
         end_time = time.perf_counter()
         latency_ms = int((end_time - start_time) * 1000)
+        logger.error(
+        "Whisper rate limit exceeded | File=%s",
+        filename,
+        )
+        logger.warning(
+        "OpenAI Whisper rate limit exceeded | File=%s | Latency=%d ms",
+        filename,
+        latency_ms,
+        )
         return None, "OpenAI API rate limit exceeded", latency_ms, model_name
     
     except openai.BadRequestError as e:
         end_time = time.perf_counter()
         latency_ms = int((end_time - start_time) * 1000)
+        logger.error(
+        "Whisper API error | File=%s | Error=%s",
+        filename,
+        str(e),
+        )
         return None, f"Whisper API error: {str(e)}", latency_ms, model_name
     
     except Exception as e:
         end_time = time.perf_counter()
         latency_ms = int((end_time - start_time) * 1000)
+        logger.exception(
+        "Unexpected Whisper transcription failure | File=%s",
+        filename,
+        )
         return None, f"Transcription failed: {str(e)}", latency_ms, model_name
 
 

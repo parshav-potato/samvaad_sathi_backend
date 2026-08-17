@@ -70,31 +70,63 @@ async def convert_text_to_speech(
     Converts ``payload.text`` to speech using ElevenLabs and streams back an
     MP3 file directly.
     """
-    audio_bytes, error, latency_ms = await generate_tts_audio(
-        text=payload.text,
-        voice_id=payload.voice_id,
-    )
-
-    if error:
-        status = (
-            fastapi.status.HTTP_503_SERVICE_UNAVAILABLE
-            if "not configured" in error or "not installed" in error
-            else fastapi.status.HTTP_502_BAD_GATEWAY
+    try:
+        audio_bytes, error, latency_ms = await generate_tts_audio(
+           text=payload.text,
+           voice_id=payload.voice_id,
         )
-        raise fastapi.HTTPException(status_code=status, detail=error)
 
-    logger.info(
-        "TTS convert: user=%s chars=%d latency=%dms",
-        current_user.id,
-        len(payload.text),
-        latency_ms,
-    )
+        if error:
+        # status = (
+        #     fastapi.status.HTTP_503_SERVICE_UNAVAILABLE
+        #     if "not configured" in error or "not installed" in error
+        #     else fastapi.status.HTTP_502_BAD_GATEWAY
+        # )
+        # raise fastapi.HTTPException(status_code=status, detail=error)
+            logger.warning(
+            "TTS convert failed (fallback triggered) | User=%s | Error=%s",
+            getattr(current_user, "id", None),
+            error,
+            )
+            return Response(
+                content=b"",
+                media_type="audio/mpeg",
+                headers={
+                    "X-Latency-Ms": str(latency_ms or 0),
+                    "X-TTS-Status": "fallback_failed",
+                    "X-TTS-Error": str(error)[:200],
+                },
+            )
+        logger.info(
+            "TTS convert success | User=%s | Chars=%d | Latency=%dms",
+            getattr(current_user, "id", None),
+            len(payload.text),
+            latency_ms or 0,
+        )
 
-    return Response(
-        content=audio_bytes,
-        media_type="audio/mpeg",
-        headers={
-            "X-Latency-Ms": str(latency_ms),
-            "Content-Disposition": 'attachment; filename="tts_output.mp3"',
-        },
-    )
+        return Response(
+            content=audio_bytes,
+            media_type="audio/mpeg",
+            headers={
+                "X-Latency-Ms": str(latency_ms or 0),
+                "X-TTS-Status": "success",
+                "Content-Disposition": 'attachment; filename="tts_output.mp3"',
+            },
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "Unexpected error in TTS conversion | User=%s | Error=%s",
+            getattr(current_user, "id", None),
+            str(exc),
+        )
+        #UNHANDLED EXCEPTION CATCH: Never crash the API with 500/502
+        return Response(
+            content=b"",
+            media_type="audio/mpeg",
+            headers={
+                "X-TTS-Status": "fallback_exception",
+                "X-TTS-Error": str(exc)[:200],
+            },
+        )

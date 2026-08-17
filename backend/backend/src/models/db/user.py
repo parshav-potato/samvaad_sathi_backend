@@ -26,6 +26,12 @@ class User(Base):  # type: ignore
     __tablename__ = "user"
 
     id: SQLAlchemyMapped[int] = sqlalchemy_mapped_column(primary_key=True, autoincrement="auto")
+    student_id: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+    sqlalchemy.String(length=128),
+    nullable=True,
+    unique=True,
+    doc="Unique student identifier provided by Sampark Saathi"
+    )
     email: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(
         sqlalchemy.String(length=254), nullable=False, unique=True, index=True
     )

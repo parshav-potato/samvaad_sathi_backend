@@ -1,27 +1,26 @@
 import re
 from typing import Set
 
+
 class SkillNormalizer:
     """
     Production-grade Skill Normalizer.
-    Converts diverse text representations and variations of technologies 
-    into unified canonical tokens for 100% accurate set intersection matching.
+    Converts common technology variations into canonical IDs.
     """
 
     def __init__(self):
-        # Clean up punctuation except technical essentials like +, #, .
-        self.cleanup_pattern = re.compile(r'[^\w\s\-\#\.\+]')
-        
-        # Comprehensive canonical mapping database (Expandable to 250+ entries easily)
+        self.cleanup_pattern = re.compile(r'[^\w\s\-\#\.\+\/]')
+
         self.alias_matrix = {
-            # --- API & Protocols ---
+            # --- API / PROTOCOLS ---
             "rest": "rest", "rest api": "rest", "rest apis": "rest",
             "restful api": "rest", "restful apis": "rest", "restful": "rest",
-            "restful web services": "rest", "graphql": "graphql", "soap": "soap",
-            "websockets": "websockets", "websocket": "websockets", "ws": "websockets",
+            "graphql": "graphql", "soap": "soap",
+            "websocket": "websockets", "websockets": "websockets", "ws": "websockets",
 
-            # --- Languages ---
-            "javascript": "javascript", "js": "javascript", "ecmascript": "javascript", "es6": "javascript",
+            # --- LANGUAGES ---
+            "javascript": "javascript", "js": "javascript", "ecmascript": "javascript",
+            "es6": "javascript", "es6+": "javascript",
             "typescript": "typescript", "ts": "typescript",
             "python": "python", "py": "python",
             "java": "java",
@@ -30,119 +29,111 @@ class SkillNormalizer:
             "golang": "go", "go": "go",
             "ruby": "ruby", "rust": "rust", "php": "php",
 
-            # --- Frontend Frameworks & Libraries ---
+            # --- FRONTEND ---
             "react": "react", "reactjs": "react", "react.js": "react", "react js": "react",
             "nextjs": "nextjs", "next.js": "nextjs", "next js": "nextjs", "next": "nextjs",
-            "vue": "vue", "vuejs": "vue", "vue.js": "vue", "vue js": "vue",
-            "angular": "angular", "angularjs": "angular", "angular.js": "angular", "angular js": "angular",
-            "svelte": "svelte", "sveltekit": "svelte",
+            "vue": "vue", "vuejs": "vue", "vue.js": "vue",
+            "angular": "angular", "angularjs": "angular", "angular.js": "angular",
+            "svelte": "svelte", "svelte.js": "svelte", "sveltekit": "sveltekit",
             "tailwind": "tailwindcss", "tailwind css": "tailwindcss", "tailwindcss": "tailwindcss",
             "bootstrap": "bootstrap", "bootstrap5": "bootstrap",
             "html": "html", "html5": "html",
-            "css": "css", "css3": "css", "sass": "sass", "scss": "sass",
+            "css": "css", "css3": "css",
+            "sass": "sass", "scss": "sass",
 
-            # --- Backend Frameworks ---
-            "nodejs": "nodejs", "node": "nodejs", "node.js": "nodejs", "node js": "nodejs",
-            "express": "express", "expressjs": "express", "express.js": "express", "express js": "express",
-            "django": "django",
-            "fastapi": "fastapi", "fast api": "fastapi",
-            "flask": "flask",
-            "spring": "springboot", "springboot": "springboot", "spring boot": "springboot",
+            # --- BACKEND ---
+            "node": "nodejs", "nodejs": "nodejs", "node.js": "nodejs", "node js": "nodejs",
+            "express": "express", "expressjs": "express", "express.js": "express",
+            "django": "django", "fastapi": "fastapi", "fast api": "fastapi", "flask": "flask",
+            "spring": "spring", "springboot": "springboot", "spring boot": "springboot",
 
-            # --- Databases ---
+            # --- DATABASES ---
             "postgres": "postgresql", "postgresql": "postgresql", "postgres db": "postgresql",
             "mongo": "mongodb", "mongodb": "mongodb", "mongo db": "mongodb",
             "mysql": "mysql", "my sql": "mysql",
-            "sqlite": "sqlite", "sqlite3": "sqlite",
-            "redis": "redis",
+            "sqlite": "sqlite", "sqlite3": "sqlite", "redis": "redis",
             "oracle": "oracle", "oracledb": "oracle",
-            "dynamodb": "dynamodb", "dynamo db": "dynamodb",
-            "cassandra": "cassandra",
+            "dynamodb": "dynamodb", "dynamo db": "dynamodb", "cassandra": "cassandra",
 
-            # --- Cloud & DevOps ---
+            # --- CLOUD / DEVOPS ---
             "aws": "aws", "amazon web services": "aws",
             "gcp": "gcp", "google cloud": "gcp", "google cloud platform": "gcp",
             "azure": "azure", "microsoft azure": "azure",
-            "docker": "docker", "containerization": "docker", "containers": "docker",
+            "docker": "docker", "docker containers": "docker",
             "kubernetes": "kubernetes", "k8s": "kubernetes",
-            "ci/cd": "cicd", "cicd": "cicd", "continuous integration": "cicd", "ci cd": "cicd",
+            "ci/cd": "cicd", "cicd": "cicd", "continuous integration": "cicd",
+            "continuous delivery": "cicd", "continuous deployment": "cicd", "ci cd": "cicd",
             "git": "git", "github": "github", "gitlab": "gitlab", "bitbucket": "bitbucket",
-            "jenkins": "jenkins", "terraform": "terraform", "ansible": "terraform",
+            "jenkins": "jenkins", "terraform": "terraform", "ansible": "ansible",
 
-            # --- Design & Tools ---
+            # --- TOOLS & METHODOLOGIES ---
             "figma": "figma", "adobe xd": "adobexd", "postman": "postman",
+            "jwt": "jwt", "jwt authentication": "jwt",
+            "agile": "agile", "agile development": "agile",
 
-            # --- AI / ML / Data ---
-            "openai": "openai", "langchain": "langchain", "tensorflow": "tensorflow",
-            "pytorch": "pytorch", "pandas": "pandas", "numpy": "numpy"
+            # --- AI / ML / DATA ---
+            "openai": "openai", "langchain": "langchain",
+            "tensorflow": "tensorflow", "pytorch": "pytorch",
+            "pandas": "pandas", "numpy": "numpy"
         }
 
-        # Human-readable presentation mapping for clean React Dashboard display cards
         self.display_names = {
-            "rest": "REST APIs",
-            "websockets": "WebSockets",
-            "graphql": "GraphQL",
-            "soap": "SOAP",
-            "javascript": "JavaScript",
-            "typescript": "TypeScript",
-            "python": "Python",
-            "java": "Java",
-            "cpp": "C++",
-            "csharp": "C#",
-            "go": "Go",
-            "react": "React.js",
-            "nextjs": "Next.js",
-            "vue": "Vue.js",
-            "angular": "Angular",
-            "svelte": "Svelte",
-            "tailwindcss": "Tailwind CSS",
-            "bootstrap": "Bootstrap",
-            "html": "HTML5",
-            "css": "CSS3",
-            "sass": "Sass",
-            "nodejs": "Node.js",
-            "express": "Express.js",
-            "django": "Django",
-            "fastapi": "FastAPI",
-            "flask": "Flask",
-            "springboot": "Spring Boot",
-            "postgresql": "PostgreSQL",
-            "mongodb": "MongoDB",
-            "mysql": "MySQL",
-            "sqlite": "SQLite",
-            "redis": "Redis",
-            "aws": "AWS",
-            "gcp": "GCP",
-            "azure": "Azure",
-            "docker": "Docker",
-            "kubernetes": "Kubernetes",
-            "cicd": "CI/CD",
-            "git": "Git",
-            "github": "GitHub",
-            "figma": "Figma",
-            "postman": "Postman",
-            "openai": "OpenAI",
-            "langchain": "LangChain"
+            "rest": "REST APIs", "websockets": "WebSockets", "graphql": "GraphQL", "soap": "SOAP",
+            "javascript": "JavaScript", "typescript": "TypeScript", "python": "Python", "java": "Java",
+            "cpp": "C++", "csharp": "C#", "go": "Go", "ruby": "Ruby", "rust": "Rust", "php": "PHP",
+            "react": "React.js", "nextjs": "Next.js", "vue": "Vue.js", "angular": "Angular",
+            "svelte": "Svelte", "sveltekit": "SvelteKit", "tailwindcss": "Tailwind CSS",
+            "bootstrap": "Bootstrap", "html": "HTML5", "css": "CSS3", "sass": "Sass",
+            "nodejs": "Node.js", "express": "Express.js", "django": "Django", "fastapi": "FastAPI",
+            "flask": "Flask", "spring": "Spring", "springboot": "Spring Boot",
+            "postgresql": "PostgreSQL", "mongodb": "MongoDB", "mysql": "MySQL", "sqlite": "SQLite",
+            "redis": "Redis", "oracle": "Oracle", "dynamodb": "DynamoDB", "cassandra": "Cassandra",
+            "aws": "AWS", "gcp": "GCP", "azure": "Azure", "docker": "Docker", "kubernetes": "Kubernetes",
+            "cicd": "CI/CD", "git": "Git", "github": "GitHub", "gitlab": "GitLab", "bitbucket": "Bitbucket",
+            "jenkins": "Jenkins", "terraform": "Terraform", "ansible": "Ansible",
+            "figma": "Figma", "adobexd": "Adobe XD", "postman": "Postman", "jwt": "JWT", "agile": "Agile",
+            "openai": "OpenAI", "langchain": "LangChain", "tensorflow": "TensorFlow",
+            "pytorch": "PyTorch", "pandas": "Pandas", "numpy": "NumPy"
         }
+
+        self.related_skill_groups = [
+            {"react", "angular", "vue", "svelte", "sveltekit"},
+            {"express", "django", "fastapi", "flask", "spring", "springboot"},
+            {"postgresql", "mysql", "mongodb", "sqlite", "redis", "oracle", "dynamodb", "cassandra"},
+            {"rest", "graphql", "soap", "websockets"},
+            {"aws", "azure", "gcp"},
+            {"docker", "kubernetes", "cicd", "terraform", "ansible"},
+            {"javascript", "typescript", "python", "java", "go", "cpp", "csharp", "ruby", "rust", "php"}
+        ]
+
     def normalize(self, raw_string: str) -> str:
-        """Normalizes an individual token or short phrase phrase into its canonical tech ID."""
-        if not raw_string:
+        if not raw_string or not isinstance(raw_string, str):
             return ""
-        
-        # Structural sanitation tracking loop
-        clean_target = raw_string.strip().lower()
-        
-        # Direct structural translation match check
-        if clean_target in self.alias_matrix:
-            return self.alias_matrix[clean_target]
-            
-        # Fallback mutation step: strip spaces, dots, dashes, and trailing 'js' tags
-        mutated = clean_target.replace(" ", "").replace(".", "").replace("-", "").replace("js", "")
+
+        clean = raw_string.strip().lower()
+        clean = re.sub(r'\(.*?\)', '', clean).strip()
+
+        if clean in self.alias_matrix:
+            return self.alias_matrix[clean]
+
+        clean_processed = re.sub(r'\brestful\b', 'rest', clean)
+        clean_processed = re.sub(r'\bapis\b', 'api', clean_processed)
+        clean_processed = re.sub(r'[\.\-\_]', ' ', clean_processed).strip()
+
+        if clean_processed in self.alias_matrix:
+            return self.alias_matrix[clean_processed]
+
+        mutated = clean.replace(" ", "").replace(".", "").replace("-", "")
         if mutated in self.alias_matrix:
             return self.alias_matrix[mutated]
-            
-        return clean_target
+
+        return clean
+
+    def get_related_skills(self, canonical_skill: str) -> Set[str]:
+        for group in self.related_skill_groups:
+            if canonical_skill in group:
+                return group - {canonical_skill}
+        return set()
 
     def get_display_name(self, canonical_token: str) -> str:
-        """Converts internal raw tokens back to elegant UI display names."""
-        return self.display_names.get(canonical_token, canonical_token.capitalize())
+        return self.display_names.get(canonical_token, canonical_token.title())

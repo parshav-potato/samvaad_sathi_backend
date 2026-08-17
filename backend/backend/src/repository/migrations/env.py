@@ -1,4 +1,5 @@
 import asyncio
+import ssl
 from logging.config import fileConfig
 
 from alembic import context
@@ -56,12 +57,17 @@ async def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
     connectable = AsyncEngine(
         engine_from_config(
             config.get_section(config.config_ini_section),  # type: ignore
             prefix="sqlalchemy.",
             poolclass=SQLAlchemyNullPool,
             future=True,
+            connect_args={"ssl": ssl_context},
         )
     )
 

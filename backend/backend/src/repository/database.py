@@ -16,8 +16,8 @@ class AsyncDatabase:
     def __init__(self):
         # Create SSL context for asyncpg
         ssl_context = ssl.create_default_context()
-        # ssl_context.check_hostname = False
-        # ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
         print(self.set_async_db_uri)
         self.async_engine: SQLAlchemyAsyncEngine = create_sqlalchemy_async_engine(
             url=self.set_async_db_uri,

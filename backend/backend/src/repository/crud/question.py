@@ -1,13 +1,22 @@
 import sqlalchemy
+import logging
+import time
 from typing import Any
 
 from src.models.db.question_attempt import QuestionAttempt
 from src.models.db.interview_question import InterviewQuestion
 from src.repository.crud.base import BaseCRUDRepository
-
+logger = logging.getLogger(__name__)
 
 class QuestionAttemptCRUDRepository(BaseCRUDRepository):
     async def create_attempt(self, *, interview_id: int, question_id: int, question_text: str) -> QuestionAttempt:
+        db_start = time.perf_counter()
+
+        logger.info(
+          "Creating question attempt | Interview=%s | Question=%s",
+          interview_id,
+          question_id,
+        )
         """Create a new question attempt linked to a specific question"""
         attempt = QuestionAttempt(
             interview_id=interview_id,
@@ -17,6 +26,13 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         self.async_session.add(attempt)
         await self.async_session.commit()
         await self.async_session.refresh(attempt)
+        logger.info(
+          "Question attempt created | Attempt=%s | Interview=%s | Question=%s | DBTime=%.2fs",
+          attempt.id,
+          interview_id,
+          question_id,
+          time.perf_counter() - db_start,
+        )
         return attempt
 
     async def create_batch(self, *, interview_id: int, questions: list[str], metadata: dict[str, Any] | None = None) -> list[QuestionAttempt]:
@@ -61,6 +77,11 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         )
         query = await self.async_session.execute(statement=stmt)
         rows = query.scalars().all()
+        logger.debug(
+           "Loaded interview attempts | Interview=%s | Count=%d",
+           interview_id,
+           len(rows),
+        )
         return list(rows)
 
     async def list_by_interview_cursor(self, *, interview_id: int, limit: int, cursor_id: int | None) -> tuple[list[QuestionAttempt], int | None]:
@@ -106,12 +127,22 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         return rows, next_cursor
 
     async def get_by_id(self, *, question_attempt_id: int) -> QuestionAttempt | None:
+        db_start = time.perf_counter()
         """Get a question attempt by ID"""
         stmt = sqlalchemy.select(QuestionAttempt).where(QuestionAttempt.id == question_attempt_id)
         query = await self.async_session.execute(statement=stmt)
-        return query.scalar_one_or_none()
+        result = query.scalar_one_or_none()
+        logger.info(
+          "Fetched question attempt | Attempt=%s | Found=%s | DBTime=%.2fs",
+          question_attempt_id,
+          result is not None,
+          time.perf_counter() - db_start,
+        ) 
+
+        return result
 
     async def get_by_id_and_user(self, *, question_attempt_id: int, user_id: int) -> QuestionAttempt | None:
+        db_start = time.perf_counter()
         """Get a question attempt by ID, ensuring it belongs to the specified user"""
         stmt = (
             sqlalchemy.select(QuestionAttempt)
@@ -122,7 +153,17 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
             )
         )
         query = await self.async_session.execute(statement=stmt)
-        return query.scalar_one_or_none()
+        result = query.scalar_one_or_none()
+
+        logger.info(
+        "Verified question attempt ownership | Attempt=%s | User=%s | Found=%s | DBTime=%.2fs",
+        question_attempt_id,
+        user_id,
+        result is not None,
+        time.perf_counter() - db_start,
+        )
+
+        return result
 
     async def update_audio_transcription(
         self,
@@ -131,6 +172,12 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         audio_url: str,
         transcription: dict
     ) -> QuestionAttempt | None:
+        db_start = time.perf_counter()
+
+        logger.info(
+          "Updating transcription | Attempt=%s",
+          question_attempt_id,
+        )
         """Update a question attempt with audio URL and transcription data"""
         stmt = sqlalchemy.select(QuestionAttempt).where(QuestionAttempt.id == question_attempt_id)
         query = await self.async_session.execute(statement=stmt)
@@ -141,6 +188,18 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
             question_attempt.transcription = transcription
             await self.async_session.commit()
             await self.async_session.refresh(question_attempt)
+            logger.info(
+            "Transcription saved | Attempt=%s | Audio=%s | TranscriptChars=%d | DBTime=%.2fs",
+            question_attempt_id,
+            bool(audio_url),
+            len(transcription.get("text", "")),
+            time.perf_counter() - db_start,
+            )
+        else:
+            logger.warning(
+                "Question attempt not found while saving analysis | Attempt=%s",
+                question_attempt_id,
+            )
         
         return question_attempt
 
@@ -150,6 +209,11 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
         question_attempt_id: int,
         analysis_json: dict
     ) -> QuestionAttempt | None:
+        db_start = time.perf_counter()
+        logger.info(
+         "Saving analysis JSON | Attempt=%s",
+         question_attempt_id,
+        )
         """Update a question attempt with analysis results"""
         stmt = sqlalchemy.select(QuestionAttempt).where(QuestionAttempt.id == question_attempt_id)
         query = await self.async_session.execute(statement=stmt)
@@ -159,7 +223,16 @@ class QuestionAttemptCRUDRepository(BaseCRUDRepository):
             question_attempt.analysis_json = analysis_json
             await self.async_session.commit()
             await self.async_session.refresh(question_attempt)
-        
+            logger.info(
+              "Analysis JSON saved | Attempt=%s | DBTime=%.2fs",
+              question_attempt_id,
+              time.perf_counter() - db_start,
+            )
+        else:
+            logger.warning(
+            "Question attempt not found while saving analysis JSON | Attempt=%s",
+            question_attempt_id,
+            )
         return question_attempt
 
     async def get_first_by_question_id(self, *, question_id: int) -> QuestionAttempt | None:

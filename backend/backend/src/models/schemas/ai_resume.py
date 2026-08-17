@@ -4,8 +4,11 @@ from typing import List, Optional, Dict, Any
 class ScoreBreakdown(BaseModel):
     skillsMatch: int
     experienceMatch: int  
-    formattingScore: int  
-    keywordDensity: int
+    projectMatch: Optional[int] = 0 
+    linkIntegrity: int
+    educationScore: int
+    totalMonths: Optional[int] = 0     
+    isFresher: Optional[bool] = False  
 
 class SkillsAnalysis(BaseModel):
     strongSkills: List[str]

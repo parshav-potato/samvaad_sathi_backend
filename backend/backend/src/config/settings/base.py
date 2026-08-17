@@ -70,6 +70,7 @@ class BackendBaseSettings(BaseSettings):
         "https://dev-backend-samvaadsathi.barabaricollective.org",  # Dev backend (for local frontend testing)
         "https://samvaad-saathi-dashboard.onrender.com",  # Dashboard frontend on Render
         "https://samvaad-dashboard.barabaricollective.org",
+        "https://samvaad-saathi.barabaricollective.org", #new domain for production
         "https://master.d30wpikvvj1kc2.amplifyapp.com",
         "https://main.d36hlrn367i0rr.amplifyapp.com", #new aws production
         "https://master.d1ljdkppy5vau1.amplifyapp.com", #new aws dashboard prod
@@ -119,6 +120,10 @@ class BackendBaseSettings(BaseSettings):
     # ElevenLabs TTS
     ELEVENLABS_API_KEY: str = decouple.config("ELEVENLABS_API_KEY", cast=str, default="")  # type: ignore
     ELEVENLABS_VOICE_ID: str = decouple.config("ELEVENLABS_VOICE_ID", cast=str, default="hpp4J3VqNfWAUOO0d1Us")  # type: ignore
+
+    # Barabari Sampark Saathi resume-round callback
+    BARABARI_SAMPARK_API_KEY: str = decouple.config("BARABARI_SAMPARK_API_KEY", cast=str, default="")  # type: ignore
+    BARABARI_SAMPARK_BASE_URL: str = decouple.config("BARABARI_SAMPARK_BASE_URL", cast=str, default="")  # type: ignore
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

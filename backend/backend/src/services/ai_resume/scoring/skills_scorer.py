@@ -1,12 +1,16 @@
-from typing import Dict, Any, List, Set
+import re
+from typing import Dict, Any, List, Set, Optional
 from src.services.ai_resume.scoring.skill_normalizer import SkillNormalizer
 
 
 class SkillsScorer:
     """
     Deterministic Skills Scorer for the ATS Engine.
-    Evaluates technology keyword intersections matching real Job Description items.
-    Uses SkillNormalizer to guarantee canonical equivalence (e.g. RESTful API == REST APIs).
+    - Normalizes resume/JD skills into canonical IDs.
+    - Uses exact skill matching for strong skills.
+    - Reports related technologies separately.
+    - Avoids treating different technologies as exact equivalents.
+    - Scans raw text using symbol-safe boundary regex.
     """
 
     def __init__(self):
@@ -14,8 +18,8 @@ class SkillsScorer:
 
     def score_skills(
         self,
-        resume_skills: List[str] = None,
-        jd_skills: List[str] = None,
+        resume_skills: Optional[List[str]] = None,
+        jd_skills: Optional[List[str]] = None,
         raw_resume_text: str = "",
         raw_jd_text: str = ""
     ) -> Dict[str, Any]:
@@ -23,67 +27,109 @@ class SkillsScorer:
         final_resume_set = self._extract_and_normalize(resume_skills, raw_resume_text)
         final_jd_set = self._extract_and_normalize(jd_skills, raw_jd_text)
 
-        # Secure default baseline only if JD input is explicitly empty
         if not final_jd_set:
-            final_jd_set = {"javascript", "react", "nodejs", "express", "mongodb", "git", "html", "css", "rest"}
+            return {
+                "totalScore": 0.0,
+                "maxScore": 25.0,
+                "skillsAnalysis": {
+                    "strongSkills": [],
+                    "missingSkills": [],
+                    "relatedSkills": [],
+                    "additionalSkills": [],
+                    "error": "No skills could be extracted from the job description."
+                }
+            }
 
-        # Equivalence groups (having one item satisfies category requirement)
-        skill_groups = [
-            {"react", "angular", "vue", "svelte"},                   # Frontend
-            {"nodejs", "python", "java", "go", "cpp"},                # Backend Languages
-            {"express", "django", "fastapi", "springboot", "flask"}, # Backend Frameworks
-            {"postgresql", "mysql", "mongodb", "sqlite", "redis"},   # Databases
-            {"rest", "graphql", "soap", "websockets"},               # APIs
-            {"html", "css", "javascript", "typescript", "tailwindcss"}# Web Basics
-        ]
-
+        # Exact matches only.
         strong_skills = final_jd_set.intersection(final_resume_set)
 
-        # Filter missing skills: Only flag an item as missing if NO skill from its group is present
-        missing_skills = set()
-        for jd_item in final_jd_set.difference(final_resume_set):
-            has_group_equivalent = False
-            for group in skill_groups:
-                if jd_item in group and group.intersection(final_resume_set):
-                    has_group_equivalent = True
-                    break
+        # JD skills that are not directly present.
+        missing_candidates = final_jd_set.difference(final_resume_set)
 
-            if not has_group_equivalent:
-                missing_skills.add(jd_item)
+        # Related technology mapping.
+        related_skills = set()
+        for jd_skill in missing_candidates:
+            related = self.normalizer.get_related_skills(jd_skill)
+            if related.intersection(final_resume_set):
+                related_skills.update(related.intersection(final_resume_set))
 
-        additional_skills = final_resume_set.difference(final_jd_set)
+        # Missing means genuinely not present AND no related technology exists.
+        missing_skills = {
+            skill
+            for skill in missing_candidates
+            if not self.normalizer.get_related_skills(skill).intersection(final_resume_set)
+        }
 
-        # Fair score math
-        matched_count = len(strong_skills) + (len(final_jd_set.difference(final_resume_set)) - len(missing_skills))
+        # Resume-only recognized skills.
+        known_canonical_skills = set(self.normalizer.alias_matrix.values())
+        additional_skills = {
+            skill
+            for skill in final_resume_set.difference(final_jd_set)
+            if skill in known_canonical_skills
+        }
+
+        # Score ONLY exact matches.
         required_count = len(final_jd_set)
-
-        raw_score = (matched_count / required_count) * 25.0 if required_count > 0 else 0.0
+        raw_score = (len(strong_skills) / required_count) * 25.0 if required_count > 0 else 0.0
         total_score = round(min(raw_score, 25.0), 1)
 
         return {
             "totalScore": total_score,
             "maxScore": 25.0,
             "skillsAnalysis": {
-                "strongSkills": sorted([self.normalizer.get_display_name(s) for s in strong_skills]),
-                "missingSkills": sorted([self.normalizer.get_display_name(s) for s in missing_skills]),
-                "additionalSkills": sorted([self.normalizer.get_display_name(s) for s in additional_skills])
+                "strongSkills": sorted(self._display_skills(strong_skills)),
+                "missingSkills": sorted(self._display_skills(missing_skills)),
+                "relatedSkills": sorted(self._display_skills(related_skills)),
+                "additionalSkills": sorted(self._display_skills(additional_skills))
             }
         }
 
-    def _extract_and_normalize(self, explicit_list: List[str], raw_text: str) -> Set[str]:
-        """Extracts and normalizes tokens from array or raw text buffer using canonical dictionary."""
-        normalized_set = set()
+    def _extract_and_normalize(
+        self,
+        explicit_list: Optional[List[str]],
+        raw_text: str
+    ) -> Set[str]:
 
+        normalized_set: Set[str] = set()
+
+        # 1. Explicit parsed skill list
         if explicit_list and isinstance(explicit_list, list):
             for skill in explicit_list:
                 canonical = self.normalizer.normalize(skill)
                 if canonical:
                     normalized_set.add(canonical)
 
+        # 2. Raw text fallback scan with symbol-safe boundaries
         if raw_text and isinstance(raw_text, str):
             text_lower = raw_text.lower()
-            for phrase, canonical_token in self.normalizer.alias_matrix.items():
-                if phrase in text_lower:
+
+            # Sort longer aliases first (e.g. "rest api" before "rest")
+            aliases = sorted(
+                self.normalizer.alias_matrix.items(),
+                key=lambda item: len(item[0]),
+                reverse=True
+            )
+
+            for phrase, canonical_token in aliases:
+                if not phrase:
+                    continue
+
+                escaped_phrase = re.escape(phrase.lower())
+
+                # Symbol-safe boundary: Works for C++, .NET, C#, Go, TS, JS
+                pattern = (
+                    r'(?:^|(?<=[^a-zA-Z0-9_]))' +
+                    escaped_phrase +
+                    r'(?:$|(?=[^a-zA-Z0-9_]))'
+                )
+
+                if re.search(pattern, text_lower):
                     normalized_set.add(canonical_token)
 
         return normalized_set
+
+    def _display_skills(self, skills: Set[str]) -> List[str]:
+        return [
+            self.normalizer.get_display_name(skill)
+            for skill in skills
+        ]
