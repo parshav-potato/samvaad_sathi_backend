@@ -342,6 +342,7 @@ class SummaryReportServiceV2:
             question_analysis = []
             for idx, iq in enumerate(all_questions):
                 question_type = _question_type_label(iq.category)
+                #feedback
                 feedback = {
                     "knowledgeRelated": {
                         "strengths": [],
