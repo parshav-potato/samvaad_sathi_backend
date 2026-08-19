@@ -341,12 +341,6 @@ class SummaryReportServiceV2:
             
             question_analysis = []
             for idx, iq in enumerate(all_questions):
-                question_type = _question_type_label(iq.category)
-                feedback = {
-                    "knowledgeRelated": {
-                        "strengths": [],
-                        "areasOfImprovement": ["Not attempted"],
-                        "actionableInsights": []
                 category_map = {
                     "tech": "Technical question",
                     "tech_allied": "Technical Allied question", 
@@ -363,7 +357,8 @@ class SummaryReportServiceV2:
                             "actionableInsights": []
                         }
                     }
-                } if iq.id not in actually_attempted_question_ids else None
+                else:
+                    feedback = None
                 
                 question_analysis.append({
                     "id": idx + 1,
