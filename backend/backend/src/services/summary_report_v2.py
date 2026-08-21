@@ -341,6 +341,7 @@ class SummaryReportServiceV2:
             
             question_analysis = []
             for idx, iq in enumerate(all_questions):
+                #feedback
                 category_map = {
                     "tech": "Technical question",
                     "tech_allied": "Technical Allied question", 
