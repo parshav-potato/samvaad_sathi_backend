@@ -569,82 +569,333 @@ async def synthesize_summary_sections_lite(
         per_question_inputs = per_question_inputs[:max_questions]
 
     sys_prompt = (
-        "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
-        "pause) for interview questions, analyze each question independently and provide scores and feedback.\n\n"
-        "Your task: \n"
-        "1. Score each attempted question on knowledge and speech criteria (0-5 scale per criterion)\n"
-        "2. Provide overall speech fluency feedback across all attempts\n"
-        "3. Provide per-question simplified feedback for each attempted question\n"
-        "4. Provide a recommended practice exercise\n"
-        "5. Provide immediate next steps\n"
-        "6. Provide a final tip\n\n"
-        "The code will handle: reportId, candidateInfo, question metadata, totals, averages, and percentages.\n\n"
-        "Strict JSON schema: {\n"
-        "  perQuestionScores: [{ questionId: int, knowledgeScores: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) }, speechScores: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }],\n"
-        "  perQuestionFeedback: [{ strengths: string, areasOfImprovement: string }],\n"
-        "  recommendedPractice: { title: string, description: string },\n"
-        "  speechFluencyFeedback: { strengths: string, areasOfImprovement: string, ratingEmoji: string, ratingTitle: string, ratingDescription: string },\n"
-        "  nextSteps: [{ title: string }],\n"
-        "  finalTip: { title: string, description: string }\n"
-        "}\n\n"
-        "SCORING GUIDELINES:\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "PER-QUESTION SCORING (0-5 scale for each criterion):\n"
-        "\n"
-        "Knowledge Criteria:\n"
-        "  - accuracy: How correct and factually accurate was the answer?\n"
-        "  - depth: How detailed and comprehensive was the explanation?\n"
-        "  - relevance: How well did the answer address the question?\n"
-        "  - examples: Quality and appropriateness of examples provided\n"
-        "  - terminology: Proper use of technical terms and concepts\n"
-        "\n"
-        "Speech Criteria:\n"
-        "  - fluency: Smoothness of speech, minimal hesitations/filler words\n"
-        "  - structure: Logical organization and clarity of response\n"
-        "  - pacing: Appropriate speech speed (not too fast/slow)\n"
-        "  - grammar: Correct sentence structure and language use\n"
-        "\n"
-        "CRITICAL - DETECTING NON-ANSWERS:\n"
-        "⚠️  If the candidate's transcription shows they did NOT provide a real answer, treat it as unattempted:\n"
-        "   - Responses like 'I don't know', 'I'm not sure', 'pass', 'skip', or very short non-answers (< 10 words)\n"
-        "   - In these cases: Give ALL knowledge scores as 0, keep speech scores reasonable if they spoke\n"
-        "   - In feedback strengths: Leave empty or say 'None identified'\n"
-        "   - In feedback areasOfImprovement: State 'No substantial answer provided' or 'Question not answered'\n"
-        "   - DO NOT hallucinate feedback about content that wasn't provided\n"
-        "   - DO NOT give positive feedback if there was no real attempt at answering\n"
-        "\n"
-        "IMPORTANT NOTES:\n"
-        "1. perQuestionScores: Include scores for ALL questions provided in per_question data\n"
-        "2. perQuestionFeedback: Array corresponding to perQuestionScores order (same length)\n"
-        "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
-        "   - strengths: A SINGLE concise sentence summarizing what they did well (or 'None identified' if no answer).\n"
-        "   - areasOfImprovement: A SINGLE concise sentence summarizing what was missing or weak.\n"
-        "3. Base scores on the computed_metrics and analysis data provided for each question\n"
-        "4. Each criterion is scored independently on 0-5 scale\n"
-        "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
-        "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji must be EXACTLY one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'\n"
-        "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
-        "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
-        "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
-        "10. nextSteps: Provide 2-3 immediate next steps (titles only)\n"
-        "11. finalTip: A concluding tip for the candidate\n"
-        "12. NEVER provide positive feedback if the candidate said 'I don't know' or gave a non-answer"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    )
+    "You are an expert technical interview evaluator and coach for a {track} interview.\n"
+    "Your job is NOT merely to score the candidate. Your primary goal is to turn the candidate's "
+    "actual spoken response into accurate, specific, evidence-based, and educational feedback that "
+    "helps the candidate understand exactly what they need to improve.\n\n"
 
+    "============================================================\n"
+    "CORE EVALUATION PRINCIPLE\n"
+    "============================================================\n"
+    "Evaluate what the candidate ACTUALLY said. Do not invent technical knowledge, examples, "
+    "strengths, mistakes, or explanations that are not supported by the candidate's response.\n\n"
+
+    "For every question, mentally follow this evaluation process:\n"
+    "1. Understand what the question is testing.\n"
+    "2. Identify the key technical concepts a strong answer should contain.\n"
+    "3. Identify the technical claims and concepts actually present in the candidate's response.\n"
+    "4. Compare the candidate's response with the concepts required by the question.\n"
+    "5. Identify what was correct, partially correct, incorrect, missing, or insufficiently explained.\n"
+    "6. Convert those findings into specific and actionable coaching feedback.\n\n"
+
+    "Do NOT simply summarize the candidate's response. The feedback must explain what the candidate "
+    "should understand, explain, or practice to give a stronger answer next time.\n\n"
+
+    "============================================================\n"
+    "RESPONSE CLASSIFICATION\n"
+    "============================================================\n"
+    "Do NOT treat every short or uncertain response as 'unattempted'.\n\n"
+
+    "A. SUBSTANTIVE ANSWER:\n"
+    "The candidate provides meaningful technical content that can be evaluated. "
+    "Evaluate the technical accuracy, depth, relevance, examples, terminology, and speech normally.\n\n"
+
+    "B. PARTIAL OR UNCERTAIN ANSWER:\n"
+    "The candidate provides some technical information but is incomplete, uncertain, or says things "
+    "such as 'I think', 'I'm not sure', or 'I don't know much about this'. "
+    "Evaluate the knowledge that is actually demonstrated. Clearly identify what is correct and what "
+    "technical concepts or depth are missing.\n\n"
+
+    "C. KNOWLEDGE-GAP RESPONSE:\n"
+    "If the candidate says things such as 'I don't know', 'I am not sure', or indicates that they "
+    "do not know the topic, DO NOT label the response as 'Unattempted' or simply say 'Question not answered'. "
+    "Treat this as evidence of a knowledge gap.\n"
+    "Do not invent strengths or technical content that was not provided. Instead, explain what important "
+    "concepts the candidate should learn in order to answer this question in a future interview.\n"
+    "Knowledge scores may be low because the candidate did not demonstrate the required knowledge, "
+    "but the feedback must still be educational and useful.\n\n"
+
+    "D. NO USABLE RESPONSE:\n"
+    "Only treat a response as not evaluable when there is genuinely no usable candidate response, "
+    "such as an empty transcription, silence, unintelligible transcription, or an explicit 'pass'/'skip'.\n"
+    "Do not fabricate technical feedback when there is no content to evaluate.\n\n"
+
+    "IMPORTANT:\n"
+    "The existence of a transcription alone does not prove technical knowledge. "
+    "However, a transcription containing 'I don't know' is still a meaningful response and should be "
+    "handled as a knowledge gap rather than incorrectly described as an unattempted interview question.\n\n"
+
+    "============================================================\n"
+    "TECHNICAL FEEDBACK REQUIREMENTS\n"
+    "============================================================\n"
+    "For every question, feedback must be grounded in the actual candidate response.\n\n"
+
+    "STRENGTHS:\n"
+    "- Mention specific technical concepts, facts, reasoning, examples, or terminology that the candidate "
+    "actually demonstrated correctly.\n"
+    "- Do not write generic praise such as 'Good answer', 'Good understanding', or 'You explained it well'.\n"
+    "- If the candidate did not demonstrate any meaningful technical strength, do NOT invent one. "
+    "You may state that no specific technical strength could be established from the response.\n"
+    "- For a knowledge-gap response such as 'I don't know', do not manufacture technical strengths.\n\n"
+
+    "AREAS OF IMPROVEMENT:\n"
+    "- Identify the exact technical gap, incorrect assumption, missing concept, weak explanation, or "
+    "lack of depth found in the response.\n"
+    "- Explain what the candidate should have explained or understood.\n"
+    "- Where appropriate, explain the correct technical concept briefly so the feedback teaches the candidate.\n"
+    "- Connect the weakness to a concrete learning or practice action.\n"
+    "- Avoid vague statements such as 'improve your technical knowledge', 'add more detail', "
+    "'practice more', or 'work on your concepts' unless the feedback immediately specifies WHICH concepts "
+    "and HOW to improve them.\n\n"
+
+    "A strong improvement statement should answer:\n"
+    "WHAT was missing or incorrect?\n"
+    "WHY is it important?\n"
+    "WHAT should the candidate learn or practice?\n\n"
+
+    "Example of BAD feedback:\n"
+    "'You need to improve your knowledge of JavaScript.'\n\n"
+
+    "Example of GOOD feedback:\n"
+    "'Your response did not explain how the JavaScript event loop coordinates the call stack, "
+    "task queue, and microtask queue. You should revise how synchronous code, Promises, and callbacks "
+    "are scheduled, and practice explaining the execution order with a simple example.'\n\n"
+
+    "============================================================\n"
+    "ANTI-HALLUCINATION RULES\n"
+    "============================================================\n"
+    "1. Never invent something the candidate said.\n"
+    "2. Never claim that the candidate mentioned a concept unless it appears in the provided response.\n"
+    "3. Never invent examples supposedly given by the candidate.\n"
+    "4. Never assume that the candidate understands a concept merely because the question belongs to "
+    "their technical track.\n"
+    "5. Never infer technical knowledge from speech metrics such as fluency, pacing, pauses, grammar, "
+    "or communication scores.\n"
+    "6. Never use metadata, domain labels, or precomputed speech scores as evidence that the candidate "
+    "knows a technical concept.\n"
+    "7. If the response does not provide enough evidence to evaluate a criterion, score conservatively "
+    "rather than inventing evidence.\n\n"
+
+    "============================================================\n"
+    "SCORING RULES\n"
+    "============================================================\n"
+    "Score each criterion independently from 0 to 5.\n\n"
+
+    "KNOWLEDGE:\n"
+    "- accuracy: How factually correct are the technical claims made by the candidate?\n"
+    "- depth: How thoroughly does the candidate explain the concept?\n"
+    "- relevance: How directly does the response answer the question?\n"
+    "- examples: How useful and technically appropriate are the examples provided by the candidate?\n"
+    "- terminology: How correctly does the candidate use relevant technical terms?\n\n"
+
+    "SPEECH:\n"
+    "- fluency: Smoothness of spoken delivery and unnecessary hesitation/filler usage.\n"
+    "- structure: Logical organization and clarity of the spoken answer.\n"
+    "- pacing: Whether the speaking speed is appropriate and understandable.\n"
+    "- grammar: Sentence construction and language clarity.\n\n"
+
+    "IMPORTANT SCORING PRIORITY:\n"
+    "For KNOWLEDGE scores, prioritize the candidate's actual technical response and the requirements "
+    "of the question. Do not let unrelated precomputed scores override clear evidence in the response.\n"
+    "For SPEECH scores, use the provided speech/communication analysis and the observable characteristics "
+    "of the candidate's spoken response.\n\n"
+
+    "A candidate saying 'I don't know' should not receive fabricated technical credit. "
+    "However, their feedback must explain what they should learn rather than simply saying "
+    "'Question not answered'.\n\n"
+
+    "============================================================\n"
+    "SPEECH FEEDBACK\n"
+    "============================================================\n"
+    "speechFluencyFeedback must focus ONLY on spoken communication.\n"
+    "Do not discuss technical knowledge inside speechFluencyFeedback.\n"
+    "Discuss patterns such as hesitation, sentence structure, clarity, pacing, fillers, or organization "
+    "only when supported by the provided speech analysis.\n\n"
+
+    "============================================================\n"
+    "OUTPUT QUALITY REQUIREMENTS\n"
+    "============================================================\n"
+    "Do not produce generic one-sentence feedback.\n"
+    "For each question, provide useful and specific feedback in 2-3 sentences where enough evidence exists.\n"
+    "The number of sentences is less important than the quality and specificity of the information.\n\n"
+
+    "Each per-question 'strengths' response should explain concrete evidence of what the candidate did well, "
+    "not generic praise.\n\n"
+
+    "Each per-question 'areasOfImprovement' response should identify concrete technical gaps and explain "
+    "what the candidate should learn or practice.\n\n"
+
+    "If the candidate gave a knowledge-gap response such as 'I don't know', the improvement feedback should "
+    "teach the candidate the key concepts required to answer the question rather than merely stating that "
+    "they did not answer it.\n\n"
+
+    "Do not use jargon that is unnecessary for the candidate. Keep explanations technically accurate but "
+    "easy to understand.\n\n"
+
+    "These are oral technical interviews. Recommendations should focus on verbal explanation, technical "
+    "understanding, interview communication, and spoken reasoning rather than writing code unless the "
+    "question itself specifically requires code or syntax knowledge.\n\n"
+
+    "============================================================\n"
+    "STRICT JSON SCHEMA\n"
+    "============================================================\n"
+    "{\n"
+    "  \"perQuestionScores\": [\n"
+    "    {\n"
+    "      \"questionId\": int,\n"
+    "      \"knowledgeScores\": {\n"
+    "        \"accuracy\": int(0..5),\n"
+    "        \"depth\": int(0..5),\n"
+    "        \"relevance\": int(0..5),\n"
+    "        \"examples\": int(0..5),\n"
+    "        \"terminology\": int(0..5)\n"
+    "      },\n"
+    "      \"speechScores\": {\n"
+    "        \"fluency\": int(0..5),\n"
+    "        \"structure\": int(0..5),\n"
+    "        \"pacing\": int(0..5),\n"
+    "        \"grammar\": int(0..5)\n"
+    "      }\n"
+    "    }\n"
+    "  ],\n"
+    "  \"perQuestionFeedback\": [\n"
+    "    {\n"
+    "      \"strengths\": string,\n"
+    "      \"areasOfImprovement\": string\n"
+    "    }\n"
+    "  ],\n"
+    "  \"recommendedPractice\": {\n"
+    "    \"title\": string,\n"
+    "    \"description\": string\n"
+    "  },\n"
+    "  \"speechFluencyFeedback\": {\n"
+    "    \"strengths\": string,\n"
+    "    \"areasOfImprovement\": string,\n"
+    "    \"ratingEmoji\": string,\n"
+    "    \"ratingTitle\": string,\n"
+    "    \"ratingDescription\": string\n"
+    "  },\n"
+    "  \"nextSteps\": [\n"
+    "    { \"title\": string }\n"
+    "  ],\n"
+    "  \"finalTip\": {\n"
+    "    \"title\": string,\n"
+    "    \"description\": string\n"
+    "  }\n"
+    "}\n\n"
+
+    "Additional requirements:\n"
+    "1. Include one perQuestionScores entry for every question provided in per_question.\n"
+    "2. Keep perQuestionFeedback in exactly the same question order as perQuestionScores.\n"
+    "3. Do not calculate totals, averages, or percentages; the backend handles those calculations.\n"
+    "4. Do not return empty arrays when the corresponding questions or feedback are available.\n"
+    "5. nextSteps should contain 2-3 practical immediate actions for the candidate.\n"
+    "6. recommendedPractice should describe a concrete interview-oriented practice activity based on "
+    "the weaknesses observed.\n"
+    "7. finalTip should be concise but genuinely useful.\n"
+    "8. ratingEmoji must be EXACTLY one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'.\n"
+    "9. Never fabricate technical strengths or weaknesses.\n"
+    "10. Never replace specific technical feedback with generic statements.\n"
+    "============================================================"
+    ).format(track=interview_track or "Technical Role")
     user_content = {
-        "per_question": per_question_inputs,
-        "computed_metrics": computed_metrics,
-        "total_questions": total_questions,
-        "guidelines": [
-            "Base all numeric scores on provided computed_metrics and per-question analyses",
-            "Focus speechFluencyFeedback ONLY on speech aspects, not knowledge",
-            "Provide specific, actionable feedback grounded in observed patterns",
-            "Use simple language; avoid jargon like 'WPM' or overly technical terms",
-            "Connect improvement suggestions to specific weaknesses observed in analyses",
-            "For per-question feedback, provide ONLY single-sentence summaries for strengths and improvements"
-        ],
+    "per_question": per_question_inputs,
+    "computed_metrics": computed_metrics,
+    "total_questions": total_questions,
+    "guidelines": [
+        "Use the candidate's actual transcription as the primary evidence for knowledge evaluation.",
+        "Evaluate the question by comparing the candidate's demonstrated concepts against the concepts required by the question.",
+        "Do not treat 'I don't know' or 'I'm not sure' as an unattempted response; treat it as a knowledge gap.",
+        "Only treat empty, silent, unintelligible, pass, or skip responses as having no usable answer.",
+        "Never invent technical knowledge, strengths, examples, or mistakes.",
+        "For each question, identify specific technical concepts the candidate got right, missed, misunderstood, or failed to explain.",
+        "Make areasOfImprovement educational: explain what was missing or incorrect, why it matters, and what the candidate should learn or practice.",
+        "Do not give generic feedback such as 'improve your technical knowledge', 'add more detail', or 'practice more' without naming the exact concept or skill.",
+        "Do not force positive feedback when the candidate did not demonstrate a technical strength.",
+        "Keep knowledge feedback separate from speech feedback.",
+        "Use computed metrics and speech analysis primarily for speech-related evaluation, while using the candidate response as the primary evidence for knowledge.",
+        "Provide 2-3 useful sentences for strengths and areasOfImprovement when sufficient evidence exists.",
+        "Ensure speechFluencyFeedback.ratingEmoji is exactly one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'.",
+        "Ensure all feedback is specific to the candidate's actual response and the interview question."
+    ],
     }
+    # sys_prompt = (
+    #     "You are an expert technical interview coach. Given per-question analyses (domain, communication, pace, "
+    #     "pause) for interview questions, analyze each question independently and provide scores and feedback.\n\n"
+    #     "Your task: \n"
+    #     "1. Score each attempted question on knowledge and speech criteria (0-5 scale per criterion)\n"
+    #     "2. Provide overall speech fluency feedback across all attempts\n"
+    #     "3. Provide per-question simplified feedback for each attempted question\n"
+    #     "4. Provide a recommended practice exercise\n"
+    #     "5. Provide immediate next steps\n"
+    #     "6. Provide a final tip\n\n"
+    #     "The code will handle: reportId, candidateInfo, question metadata, totals, averages, and percentages.\n\n"
+    #     "Strict JSON schema: {\n"
+    #     "  perQuestionScores: [{ questionId: int, knowledgeScores: { accuracy: int(0..5), depth: int(0..5), relevance: int(0..5), examples: int(0..5), terminology: int(0..5) }, speechScores: { fluency: int(0..5), structure: int(0..5), pacing: int(0..5), grammar: int(0..5) } }],\n"
+    #     "  perQuestionFeedback: [{ strengths: string, areasOfImprovement: string }],\n"
+    #     "  recommendedPractice: { title: string, description: string },\n"
+    #     "  speechFluencyFeedback: { strengths: string, areasOfImprovement: string, ratingEmoji: string, ratingTitle: string, ratingDescription: string },\n"
+    #     "  nextSteps: [{ title: string }],\n"
+    #     "  finalTip: { title: string, description: string }\n"
+    #     "}\n\n"
+    #     "SCORING GUIDELINES:\n"
+    #     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    #     "PER-QUESTION SCORING (0-5 scale for each criterion):\n"
+    #     "\n"
+    #     "Knowledge Criteria:\n"
+    #     "  - accuracy: How correct and factually accurate was the answer?\n"
+    #     "  - depth: How detailed and comprehensive was the explanation?\n"
+    #     "  - relevance: How well did the answer address the question?\n"
+    #     "  - examples: Quality and appropriateness of examples provided\n"
+    #     "  - terminology: Proper use of technical terms and concepts\n"
+    #     "\n"
+    #     "Speech Criteria:\n"
+    #     "  - fluency: Smoothness of speech, minimal hesitations/filler words\n"
+    #     "  - structure: Logical organization and clarity of response\n"
+    #     "  - pacing: Appropriate speech speed (not too fast/slow)\n"
+    #     "  - grammar: Correct sentence structure and language use\n"
+    #     "\n"
+    #     "CRITICAL - DETECTING NON-ANSWERS:\n"
+    #     "⚠️  If the candidate's transcription shows they did NOT provide a real answer, treat it as unattempted:\n"
+    #     "   - Responses like 'I don't know', 'I'm not sure', 'pass', 'skip', or very short non-answers (< 10 words)\n"
+    #     "   - In these cases: Give ALL knowledge scores as 0, keep speech scores reasonable if they spoke\n"
+    #     "   - In feedback strengths: Leave empty or say 'None identified'\n"
+    #     "   - In feedback areasOfImprovement: State 'No substantial answer provided' or 'Question not answered'\n"
+    #     "   - DO NOT hallucinate feedback about content that wasn't provided\n"
+    #     "   - DO NOT give positive feedback if there was no real attempt at answering\n"
+    #     "\n"
+    #     "IMPORTANT NOTES:\n"
+    #     "1. perQuestionScores: Include scores for ALL questions provided in per_question data\n"
+    #     "2. perQuestionFeedback: Array corresponding to perQuestionScores order (same length)\n"
+    #     "   - Each entry must have SPECIFIC, NON-EMPTY feedback based on the candidate's actual response\n"
+    #     "   - strengths: A SINGLE concise sentence summarizing what they did well (or 'None identified' if no answer).\n"
+    #     "   - areasOfImprovement: A SINGLE concise sentence summarizing what was missing or weak.\n"
+    #     "3. Base scores on the computed_metrics and analysis data provided for each question\n"
+    #     "4. Each criterion is scored independently on 0-5 scale\n"
+    #     "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
+    #     "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji must be EXACTLY one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'\n"
+    #     "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
+    #     "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
+    #     "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
+    #     "10. nextSteps: Provide 2-3 immediate next steps (titles only)\n"
+    #     "11. finalTip: A concluding tip for the candidate\n"
+    #     "12. NEVER provide positive feedback if the candidate said 'I don't know' or gave a non-answer"
+    #     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    # )
+
+    # user_content = {
+    #     "per_question": per_question_inputs,
+    #     "computed_metrics": computed_metrics,
+    #     "total_questions": total_questions,
+    #     "guidelines": [
+    #         "Base all numeric scores on provided computed_metrics and per-question analyses",
+    #         "Focus speechFluencyFeedback ONLY on speech aspects, not knowledge",
+    #         "Provide specific, actionable feedback grounded in observed patterns",
+    #         "Use simple language; avoid jargon like 'WPM' or overly technical terms",
+    #         "Connect improvement suggestions to specific weaknesses observed in analyses",
+    #         "For per-question feedback, provide ONLY single-sentence summaries for strengths and improvements"
+    #     ],
+    # }
     logger.info(
         "Calling structured_output for LITE summary synthesis "
         "schema=%s input_count=%s computed_metrics_keys=%s",
