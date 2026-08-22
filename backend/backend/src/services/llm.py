@@ -1276,11 +1276,22 @@ async def generate_interview_questions_with_llm(
     structured_items: list[dict[str, Any]] | None = None
 
     sys_prompt = (
-        "You are an expert interviewer. Generate concise, specific interview questions for a candidate. "
-        "Avoid open-ended prompts; ask targeted questions that require concrete answers, but keep in mind to ask deep questions that will take time to answer NOT one sentence or one word answers"
-        "Return ONLY valid JSON with key: 'items' (array of objects with fields: text, topic, difficulty, category, keywords, concepts_covered, expected_answer, example_output)."
-        "Understand that this is a verbal interview setting, so questions should STRICTLY be suitable for strictly spoken responses."
-    )
+        "You are an expert technical interviewer generating a set of exactly {count} interview questions for a candidate in the {track} role.\n\n"
+        "STRICT CATEGORY DISTRIBUTION MANDATE:\n"
+        "You MUST generate the questions following this EXACT category mix:\n"
+        "- Tech (core domain technical questions): 2 questions\n"
+        "- Tech Allied (related tools, architecture, databases, or workflow): 2 questions\n"
+        "- Behavioral (soft skills, past conflict, team collaboration, STAR method): 1 question\n\n"
+        "RULES FOR QUESTION GENERATION:\n"
+        "1. The 'category' field for each item MUST strictly be set to one of: 'tech', 'tech_allied', or 'behavioral'.\n"
+        "2. Ensure questions are suitable for spoken verbal answers (no coding or writing code).\n"
+        "3. Ask deep, targeted technical and situational questions that require thoughtful answers.\n"
+        "4. Return ONLY valid JSON with key 'items' containing array of objects with fields: text, topic, difficulty, category, keywords, concepts_covered, expected_answer, example_output."
+    ).format(count=total, track=track)
+        # "You are an expert interviewer. Generate concise, specific interview questions for a candidate. "
+        # "Avoid open-ended prompts; ask targeted questions that require concrete answers, but keep in mind to ask deep questions that will take time to answer NOT one sentence or one word answers"
+        # "Return ONLY valid JSON with key: 'items' (array of objects with fields: text, topic, difficulty, category, keywords, concepts_covered, expected_answer, example_output)."
+        # "Understand that this is a verbal interview setting, so questions should STRICTLY be suitable for strictly spoken responses."
     knowledge_reference_context = (influence or {}).get("knowledge_reference_context")
     if knowledge_reference_context:
         sys_prompt += (
