@@ -342,6 +342,7 @@ class SummaryReportServiceV2:
             question_analysis = []
             for idx, iq in enumerate(all_questions):
                 question_type = _question_type_label(iq.category)
+                #feedback
                 feedback = {
                     "knowledgeRelated": {
                         "strengths": [],
@@ -651,7 +652,7 @@ class SummaryReportServiceV2:
         result = await self._db.execute(stmt)
         fetched_questions = list(result.scalars().all())
         
-        # 🛠️ CRITICAL FIX: Reorder questions so follow-ups appear immediately after their parent question
+        # Reorder questions so follow-ups appear immediately after their parent question
         all_interview_questions = self._order_questions_with_followups(fetched_questions)
         
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
