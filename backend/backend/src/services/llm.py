@@ -797,7 +797,8 @@ async def synthesize_summary_sections_lite(
     "9. Never fabricate technical strengths or weaknesses.\n"
     "10. Never replace specific technical feedback with generic statements.\n"
     "============================================================"
-    ).format(track=interview_track or "Technical Role")
+    )
+    sys_prompt = sys_prompt.replace("{track}", interview_track or "Technical Role")
     user_content = {
     "per_question": per_question_inputs,
     "computed_metrics": computed_metrics,
