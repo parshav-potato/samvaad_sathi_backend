@@ -180,6 +180,7 @@ async def create_or_resume_interview_v2(
     payload: InterviewCreate,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
+    job_profile_repo: JobProfileCRUDRepository = fastapi.Depends(get_repository(repo_type=JobProfileCRUDRepository)),
 ) -> InterviewInResponse:
     active = await interview_repo.get_active_by_user(user_id=current_user.id)
     if active is not None and active.track == payload.track and active.job_profile_id == payload.job_profile_id:
@@ -212,6 +213,11 @@ async def create_or_resume_interview_v2(
                 status_code=fastapi.status.HTTP_400_BAD_REQUEST, 
                 detail="Cannot use resume for interview: No resume is saved to your profile."
             )
+
+    if payload.job_profile_id is not None:
+        job_profile = await job_profile_repo.get_by_id(job_profile_id=payload.job_profile_id)
+        if job_profile is None:
+            raise fastapi.HTTPException(status_code=404, detail="Job profile not found")
 
     interview = await interview_repo.create_interview(user_id=current_user.id, track=payload.track, difficulty=difficulty, job_profile_id=payload.job_profile_id)
     await track_analytics_event(
@@ -486,7 +492,7 @@ async def generate_questions_v2(
     raw_items = qs.get("items")
     items_list = raw_items if isinstance(raw_items, list) else []
     raw_latency = qs.get("latency_ms")
-    latency_val = int(raw_latency) if isinstance(raw_latency, (int, float, str)) and raw_latency else None
+    latency_val = int(raw_latency) if isinstance(raw_latency, (int, float, str)) and raw_latency is not None else None
     
     response_payload = GeneratedQuestionsInResponse(
         interview_id=interview.id,
@@ -681,7 +687,7 @@ async def generate_non_tech_questions_v2(
     raw_items = qs.get("items")
     items_list = raw_items if isinstance(raw_items, list) else []
     raw_latency = qs.get("latency_ms")
-    latency_val = int(raw_latency) if isinstance(raw_latency, (int, float, str)) and raw_latency else None
+    latency_val = int(raw_latency) if isinstance(raw_latency, (int, float, str)) and raw_latency is not None else None
     
     return GeneratedQuestionsInResponse(
         interview_id=interview.id,
