@@ -360,9 +360,21 @@ async def generate_questions_v2(
             admin_questions = await job_profile_repo.get_job_profile_questions(interview.job_profile_id)
             level_questions = [q for q in admin_questions if q.level == mapped_level]
             if level_questions:
-                import random
-                random.seed(f"{current_user.id}:{interview.id}")
-                selected = random.sample(level_questions, min(len(level_questions), 5))
+                # Get the number of previous interviews the user took for this specific profile and difficulty
+                past_interview_count = await interview_repo.count_user_interviews_by_profile_and_difficulty(
+                    user_id=current_user.id,
+                    job_profile_id=interview.job_profile_id,
+                    difficulty=interview.difficulty,
+                    current_interview_id=interview.id
+                )
+                
+                # Pick 5 questions sequentially
+                start_idx = (past_interview_count * 5) % len(level_questions)
+                selected = []
+                for i in range(min(5, len(level_questions))):
+                    idx = (start_idx + i) % len(level_questions)
+                    selected.append(level_questions[idx])
+                
                 questions = [q.question_text for q in selected]
                 items = []
                 for q in selected:
@@ -595,10 +607,18 @@ async def generate_non_tech_questions_v2(
     cached = bool(existing)
 
     if not existing:
+        past_interview_count = await interview_repo.count_user_interviews_by_profile_and_difficulty(
+            user_id=current_user.id,
+            job_profile_id=job_profile.id,
+            difficulty=difficulty,
+            current_interview_id=interview.id
+        )
+
         questions_data = select_non_tech_interview_questions(
             role_name=normalized_job_name,
             company_name=job_profile.company_name,
             seed=f"{current_user.id}:{job_profile.id}:{interview.id}",
+            past_interview_count=past_interview_count,
         )
 
         if payload.use_resume and isinstance(getattr(current_user, "resume_text", None), str):

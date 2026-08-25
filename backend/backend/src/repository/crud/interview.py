@@ -161,4 +161,17 @@ class InterviewCRUDRepository(BaseCRUDRepository):
         
         return result, next_cursor
 
+    async def count_user_interviews_by_profile_and_difficulty(self, user_id: int, job_profile_id: int, difficulty: str, current_interview_id: int) -> int:
+        """Counts the number of previous interviews the user has created for this profile/difficulty."""
+        stmt = (
+            sqlalchemy.select(sqlalchemy.func.count(Interview.id))
+            .where(Interview.user_id == user_id)
+            .where(Interview.job_profile_id == job_profile_id)
+            .where(Interview.difficulty == difficulty)
+            .where(Interview.id < current_interview_id)
+        )
+        query = await self.async_session.execute(statement=stmt)
+        count = query.scalar()
+        return count or 0
+
 
