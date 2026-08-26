@@ -585,6 +585,7 @@ async def generate_non_tech_questions_v2(
             user_id=current_user.id,
             track=track,
             difficulty=difficulty,
+            job_profile_id=job_profile.id,
         )
         await track_analytics_event(
             interview_repo.async_session,
