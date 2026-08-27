@@ -650,11 +650,6 @@ async def generate_non_tech_questions_v2(
             if resume_context:
                 questions_data[0]["text"] = f"Based on your background, {questions_data[0]['text']}"
 
-        if job_profile.additional_context:
-            context_suffix = job_profile.additional_context.strip()
-            if context_suffix:
-                questions_data[0]["text"] = f"{questions_data[0]['text']} ({context_suffix})"
-
         for idx in range(min(2, len(questions_data))):
             questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
 
