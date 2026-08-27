@@ -342,7 +342,12 @@ class SummaryReportServiceV2:
             question_analysis = []
             for idx, iq in enumerate(all_questions):
                 #feedback
-                question_type = _question_type_label(iq.category)
+                category_map = {
+                    "tech": "Technical question",
+                    "tech_allied": "Technical Allied question", 
+                    "behavioral": "Behavioral question",
+                }
+                question_type = category_map.get(iq.category or "", "Technical question")
                 
                 # Check if attempted
                 if iq.id not in actually_attempted_question_ids:
@@ -455,6 +460,12 @@ class SummaryReportServiceV2:
         question_analysis = []
         for idx, iq in enumerate(all_questions):
             # Map question category to type string
+            category_map = {
+                "tech": "Technical question",
+                "tech_allied": "Technical Allied question", 
+                "behavioral": "Behavioral question",
+            }
+            question_type = category_map.get(iq.category or "", "Technical question")
             question_type = _question_type_label(iq.category)
             attempt = attempts_by_question_id.get(iq.id)
             has_valid_attempt = attempt is not None and (bool(attempt.transcription) or bool(attempt.analysis_json))
@@ -1084,6 +1095,8 @@ class SummaryReportServiceV2:
         # Iterate using 'all_questions' (reordered list where follow-ups come right after parents)
         question_analysis = []
         for idx, iq in enumerate(all_questions):
+            category_map = {"tech": "Technical question", "tech_allied": "Technical Allied question", "behavioral": "Behavioral question"}
+            question_type = category_map.get(iq.category or "", "Technical question")
             question_type = _question_type_label(iq.category)
             
             attempt = attempts_by_question_id.get(iq.id)
