@@ -615,12 +615,35 @@ async def generate_non_tech_questions_v2(
             current_interview_id=interview.id
         )
 
-        questions_data = select_non_tech_interview_questions(
-            role_name=normalized_job_name,
-            company_name=job_profile.company_name,
-            seed=f"{current_user.id}:{job_profile.id}:{interview.id}",
-            past_interview_count=past_interview_count,
-        )
+        questions_data = None
+        if getattr(interview, "job_profile_id", None):
+            difficulty_map = {"easy": 1, "medium": 2, "hard": 3, "expert": 4}
+            mapped_level = difficulty_map.get(interview.difficulty, 2)
+            admin_questions = await job_profile_repo.get_job_profile_questions(interview.job_profile_id)
+            level_questions = [q for q in admin_questions if q.level == mapped_level]
+            if level_questions:
+                # Pick 5 questions sequentially
+                start_idx = (past_interview_count * 5) % len(level_questions)
+                selected = []
+                for i in range(min(5, len(level_questions))):
+                    idx = (start_idx + i) % len(level_questions)
+                    selected.append(level_questions[idx])
+                
+                questions_data = []
+                for q in selected:
+                    questions_data.append({
+                        "text": q.question_text,
+                        "topic": "General",
+                        "category": "general",
+                    })
+
+        if not questions_data:
+            questions_data = select_non_tech_interview_questions(
+                role_name=normalized_job_name,
+                company_name=job_profile.company_name,
+                seed=f"{current_user.id}:{job_profile.id}:{interview.id}",
+                past_interview_count=past_interview_count,
+            )
 
         if payload.use_resume and isinstance(getattr(current_user, "resume_text", None), str):
             resume_context = (getattr(current_user, "resume_text", None) or "").strip()
