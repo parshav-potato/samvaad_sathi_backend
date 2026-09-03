@@ -109,7 +109,7 @@ async def _background_generate_and_upload_tts(questions_to_process: list[dict]):
                 if not text:
                     continue
                     
-                h_id = q_data.get("h_id")
+                h_id = int(q_data.get("h_id", 0))
                 audio_bytes, error, _ = await generate_tts_audio(text=text)
                 if audio_bytes and not error:
                     public_url = await loop.run_in_executor(None, upload_audio_to_s3, audio_bytes, h_id)
@@ -502,8 +502,10 @@ async def generate_questions_v2(
                     "follow_up_strategy": FOLLOW_UP_STRATEGY
                 })
 
-        # Pre-generate TTS audio before inserting into DB
-        await _ensure_audio_for_questions(questions_data, interview.id)
+        # Pre-calculate predictable S3 URLs and enqueue background generation
+        tasks_to_run = _prepare_audio_for_questions(questions_data)
+        if tasks_to_run:
+            background_tasks.add_task(_background_generate_and_upload_tts, tasks_to_run)
 
         # Double check to prevent race condition double-insertion
         existing_again = await question_repo.list_by_interview(interview_id=interview.id)
