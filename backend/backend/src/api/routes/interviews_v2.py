@@ -106,9 +106,9 @@ async def _ensure_audio_for_questions(questions: list[dict], interview_id: int) 
         audio_bytes, error, _ = await generate_tts_audio(text=text)
         if audio_bytes and not error:
             # We don't have the question ID yet because it's pre-insert for batch.
-            # Using a hash of the text + interview_id or just random UUID works.
+            # Using a hash of the text ensures the same question gets the same ID.
             import hashlib
-            h_id = int(hashlib.md5(f"{interview_id}_{text}".encode()).hexdigest()[:8], 16)
+            h_id = int(hashlib.md5(text.encode()).hexdigest()[:12], 16)
             
             # Since boto3 is blocking, ideally run in threadpool, but for simplicity here:
             loop = asyncio.get_event_loop()
