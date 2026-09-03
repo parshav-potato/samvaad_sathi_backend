@@ -125,3 +125,31 @@ def get_presigned_url(object_key: str, expiration: int = 3600) -> Optional[str]:
     except ClientError as e:
         logger.error(f"Failed to generate presigned URL: {e}")
         return None
+
+async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: str, content_type: str):
+    """
+    Background task to upload a resume and save the key to the User profile.
+    """
+    import asyncio
+    import logging
+    from src.repository.database import async_db
+    from src.repository.crud.user import UserCRUDRepository
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        loop = asyncio.get_event_loop()
+        s3_key = await loop.run_in_executor(
+            None, 
+            upload_resume_to_s3, 
+            file_bytes, user_id, filename, content_type
+        )
+        
+        if s3_key:
+            async with async_db.get_session() as session:
+                repo = UserCRUDRepository(session)
+                await repo.update_original_resume_s3_key(user_id=user_id, s3_key=s3_key)
+                logger.info(f"Saved original_resume_s3_key {s3_key} for user {user_id}")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed background S3 resume upload: {e}")

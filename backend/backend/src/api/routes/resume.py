@@ -15,31 +15,7 @@ from src.api.dependencies.auth import get_current_user
 from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
 
 
-async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: str, content_type: str):
-    import asyncio
-    import logging
-    from src.services.s3_service import upload_resume_to_s3
-    from src.repository.database import async_db
-    from src.repository.crud.user import UserCRUDRepository
-
-    logger = logging.getLogger(__name__)
-
-    try:
-        loop = asyncio.get_event_loop()
-        s3_key = await loop.run_in_executor(
-            None, 
-            upload_resume_to_s3, 
-            file_bytes, user_id, filename, content_type
-        )
-        
-        if s3_key:
-            async with async_db.get_session() as session:
-                repo = UserCRUDRepository(session)
-                await repo.update_original_resume_s3_key(user_id=user_id, s3_key=s3_key)
-                logger.info(f"Saved original_resume_s3_key {s3_key} for user {user_id}")
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed background S3 resume upload: {e}")
+from src.services.s3_service import _background_upload_resume
 
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 

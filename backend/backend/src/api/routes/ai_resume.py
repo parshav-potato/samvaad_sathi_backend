@@ -125,9 +125,7 @@ async def analyze_resume(
 
         session.add(db_analysis)
 
-        # Auto-save clean resume text string to user profile
-        stmt = sqlalchemy.update(User).where(User.id == current_user.id).values(resume_text=pure_resume_text)
-        await session.execute(stmt)
+        # Removed: We no longer overwrite the master resume_text for ATS checks
 
         await session.commit()
         await session.refresh(db_analysis)
@@ -140,15 +138,7 @@ async def analyze_resume(
                 target_role=targetRole,
             )
 
-        # Background task for S3 upload
-        from src.api.routes.resume import _background_upload_resume
-        background_tasks.add_task(
-            _background_upload_resume,
-            raw_bytes,
-            current_user.id,
-            resumeFile.filename or "resume.pdf",
-            resumeFile.content_type or "application/pdf"
-        )
+        # Removed: We no longer upload ATS resumes to overwrite the original_resume_s3_key
 
         return analysis_result
 
