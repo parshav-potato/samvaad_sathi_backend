@@ -58,6 +58,8 @@ from src.services.progressive_hints import (
     get_framework_sections,
     get_initial_hint,
 )
+from src.services.elevenlabs_tts import generate_tts_audio
+from src.services.s3_service import upload_audio_to_s3
 from src.services.non_tech_blueprint import (
     NON_TECH_BLUEPRINT_VERSION,
     NON_TECH_FIXED_DIFFICULTY,
@@ -85,6 +87,34 @@ def _normalize_non_tech_job_name(job_name: str | None) -> str:
         return "General Role"
     collapsed = re.sub(r"\s+", " ", raw)
     return collapsed.title()
+
+
+async def _ensure_audio_for_questions(questions: list[dict], interview_id: int) -> None:
+    """Iterates through generated questions and pre-generates TTS audio if missing."""
+    import asyncio
+    
+    # In a real heavy-load scenario, we might want to do this concurrently, 
+    # but ElevenLabs limits concurrency on lower tiers, so sequential is safer.
+    for q_data in questions:
+        if q_data.get("audio_url"):
+            continue
+            
+        text = q_data.get("text", "")
+        if not text:
+            continue
+            
+        audio_bytes, error, _ = await generate_tts_audio(text=text)
+        if audio_bytes and not error:
+            # We don't have the question ID yet because it's pre-insert for batch.
+            # Using a hash of the text + interview_id or just random UUID works.
+            import hashlib
+            h_id = int(hashlib.md5(f"{interview_id}_{text}".encode()).hexdigest()[:8], 16)
+            
+            # Since boto3 is blocking, ideally run in threadpool, but for simplicity here:
+            loop = asyncio.get_event_loop()
+            public_url = await loop.run_in_executor(None, upload_audio_to_s3, audio_bytes, h_id)
+            if public_url:
+                q_data["audio_url"] = public_url
 
 
 def _get_cached_structure_practice_response() -> StructurePracticeQuestionsResponse:
@@ -423,6 +453,9 @@ async def generate_questions_v2(
                     "follow_up_strategy": FOLLOW_UP_STRATEGY
                 })
 
+        # Pre-generate TTS audio before inserting into DB
+        await _ensure_audio_for_questions(questions_data, interview.id)
+
         # Double check to prevent race condition double-insertion
         existing_again = await question_repo.list_by_interview(interview_id=interview.id)
         if existing_again:
@@ -456,6 +489,7 @@ async def generate_questions_v2(
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
                     "supplement": supplements_map.get(question_obj.id),
+                    "audioUrl": question_obj.audio_url,
                 }
             )
         qs = {
@@ -490,6 +524,7 @@ async def generate_questions_v2(
                 "parentQuestionId": q.parent_question_id,
                 "followUpStrategy": q.follow_up_strategy,
                 "supplement": supplements_map.get(q.id),
+                "audioUrl": q.audio_url,
             }
             for q in existing
         ]
@@ -523,6 +558,7 @@ async def generate_questions_v2(
                 parent_question_id=item.get("parentQuestionId"),  # type: ignore
                 follow_up_strategy=item.get("followUpStrategy"),  # type: ignore
                 supplement=item.get("supplement"),  # type: ignore
+                audio_url=item.get("audioUrl"),  # type: ignore
             )
             for item in items_list if isinstance(item, dict)
         ],
@@ -653,6 +689,9 @@ async def generate_non_tech_questions_v2(
         for idx in range(min(2, len(questions_data))):
             questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
 
+        # Pre-generate TTS audio before inserting into DB
+        await _ensure_audio_for_questions(questions_data, interview.id)
+
         persisted = await question_repo.create_batch(
             interview_id=interview.id,
             questions_data=questions_data,
@@ -679,6 +718,7 @@ async def generate_non_tech_questions_v2(
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
                     "supplement": supplements_map.get(question_obj.id),
+                    "audioUrl": question_obj.audio_url,
                 }
             )
         qs = {
@@ -712,6 +752,7 @@ async def generate_non_tech_questions_v2(
                 "parentQuestionId": q.parent_question_id,
                 "followUpStrategy": q.follow_up_strategy,
                 "supplement": supplements_map.get(q.id),
+                "audioUrl": q.audio_url,
             }
             for q in existing
         ]

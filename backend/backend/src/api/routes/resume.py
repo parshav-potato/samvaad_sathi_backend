@@ -15,6 +15,32 @@ from src.api.dependencies.auth import get_current_user
 from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
 
 
+async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: str, content_type: str):
+    import asyncio
+    import logging
+    from src.services.s3_service import upload_resume_to_s3
+    from src.repository.database import async_db
+    from src.repository.crud.user import UserCRUDRepository
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        loop = asyncio.get_event_loop()
+        s3_key = await loop.run_in_executor(
+            None, 
+            upload_resume_to_s3, 
+            file_bytes, user_id, filename, content_type
+        )
+        
+        if s3_key:
+            async with async_db.get_session() as session:
+                repo = UserCRUDRepository(session)
+                await repo.update_original_resume_s3_key(user_id=user_id, s3_key=s3_key)
+                logger.info(f"Saved original_resume_s3_key {s3_key} for user {user_id}")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed background S3 resume upload: {e}")
+
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 
 
@@ -30,6 +56,7 @@ router = fastapi.APIRouter(prefix="", tags=["resume"])
     ),
 )
 async def extract_resume(
+    background_tasks: fastapi.BackgroundTasks,
     file: fastapi.UploadFile = fastapi.File(
         ..., description="Resume file to upload. Allowed types: application/pdf, text/plain (max 5MB)"
     ),
@@ -247,6 +274,15 @@ async def extract_resume(
         response["saved"] = False
         response["save_error"] = str(e)
 
+    # Queue the background task to upload the original PDF to S3
+    background_tasks.add_task(
+        _background_upload_resume,
+        raw_bytes,
+        current_user.id,
+        file.filename or "resume.pdf",
+        content_type
+    )
+
     return response
 
 
@@ -347,3 +383,31 @@ async def get_knowledge_set(
 
     return {"ok": True, "cached": cached, **result}
 
+
+@router.get(
+    path="/download-original",
+    name="resume:download-original",
+    response_model=dict,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Download original resume",
+    description="Returns a short-lived presigned URL to download the user's originally uploaded resume.",
+)
+async def download_original_resume(
+    current_user=fastapi.Depends(get_current_user),
+):
+    if not current_user.original_resume_s3_key:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="No original resume found for this user."
+        )
+        
+    from src.services.s3_service import get_presigned_url
+    url = get_presigned_url(current_user.original_resume_s3_key)
+    
+    if not url:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate download URL."
+        )
+        
+    return {"url": url}
