@@ -413,6 +413,7 @@ async def generate_questions_v2(
                         "topic": "General",
                         "category": "tech",
                         "followUpStrategy": FOLLOW_UP_STRATEGY,
+                        "audioUrl": getattr(q, "audio_url", None),
                     })
 
         if not questions:
@@ -442,6 +443,7 @@ async def generate_questions_v2(
                         "topic": item.get("topic"),
                         "category": item.get("category"),
                         "follow_up_strategy": item.get("followUpStrategy") or FOLLOW_UP_STRATEGY,
+                        "audio_url": item.get("audioUrl"),
                     }
                 )
         else:
@@ -671,6 +673,7 @@ async def generate_non_tech_questions_v2(
                         "text": q.question_text,
                         "topic": "General",
                         "category": "general",
+                        "audio_url": getattr(q, "audio_url", None),
                     })
 
         if not questions_data:
