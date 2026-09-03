@@ -6,6 +6,7 @@ from fastapi import (
     Form,
     Depends,
     HTTPException,
+    BackgroundTasks,
 )
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
@@ -45,6 +46,7 @@ router = fastapi.APIRouter(
     summary="Analyze resume using ATS AI",
 )
 async def analyze_resume(
+    background_tasks: BackgroundTasks,
     resumeFile: UploadFile = File(...),
     targetRole: str = Form(...),
     experienceLevel: str = Form(...),
@@ -76,6 +78,10 @@ async def analyze_resume(
                 status_code=400,
                 detail="Job description is required",
             )
+
+        # Read bytes for S3 upload before passing to extractor
+        raw_bytes = await resumeFile.read()
+        await resumeFile.seek(0)
 
         # 1. Extract rich parser payload (contains text, documentMap, embeddedLinks)
         parser_payload = await extract_resume_text(resumeFile)
@@ -133,6 +139,16 @@ async def analyze_resume(
                 request_id=analysis_id,
                 target_role=targetRole,
             )
+
+        # Background task for S3 upload
+        from src.api.routes.resume import _background_upload_resume
+        background_tasks.add_task(
+            _background_upload_resume,
+            raw_bytes,
+            current_user.id,
+            resumeFile.filename or "resume.pdf",
+            resumeFile.content_type or "application/pdf"
+        )
 
         return analysis_result
 
