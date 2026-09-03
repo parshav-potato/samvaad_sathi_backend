@@ -10,9 +10,11 @@ logger = logging.getLogger(__name__)
 
 # Initialize boto3 client lazily or handle missing creds gracefully
 try:
-    # Boto3 will automatically look for AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment
+    # Explicitly pass credentials from .env via config()
     s3_client = boto3.client(
         's3',
+        aws_access_key_id=config("AWS_ACCESS_KEY_ID", default=None),
+        aws_secret_access_key=config("AWS_SECRET_ACCESS_KEY", default=None),
         region_name=config("AWS_REGION", default="ap-south-1")
     )
     BUCKET_NAME = config("AWS_S3_BUCKET_NAME", default="barabari-edtech-service-staging")
