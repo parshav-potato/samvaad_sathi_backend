@@ -37,11 +37,8 @@ def upload_audio_to_s3(audio_bytes: bytes, question_id: int) -> Optional[str]:
         logger.error("S3 client is not configured. Ensure AWS credentials are in .env.")
         return None
 
-    # Generate a unique filename using the question ID. 
-    # Adding a small uuid ensures we don't accidentally cache a bad generation permanently
-    # without a way to overwrite it safely if needed.
-    unique_suffix = str(uuid.uuid4())[:8]
-    s3_file_path = f"Samvaad-Saathi/tts-audio/question_{question_id}_{unique_suffix}.mp3"
+    # Generate a predictable filename using the text hash ID.
+    s3_file_path = f"Samvaad-Saathi/tts-audio/question_{question_id}.mp3"
 
     try:
         s3_client.put_object(
