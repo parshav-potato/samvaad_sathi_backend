@@ -15,6 +15,8 @@ from src.api.dependencies.auth import get_current_user
 from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
 
 
+from src.services.s3_service import _background_upload_resume
+
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 
 
@@ -30,6 +32,7 @@ router = fastapi.APIRouter(prefix="", tags=["resume"])
     ),
 )
 async def extract_resume(
+    background_tasks: fastapi.BackgroundTasks,
     file: fastapi.UploadFile = fastapi.File(
         ..., description="Resume file to upload. Allowed types: application/pdf, text/plain (max 5MB)"
     ),
@@ -247,6 +250,15 @@ async def extract_resume(
         response["saved"] = False
         response["save_error"] = str(e)
 
+    # Queue the background task to upload the original PDF to S3
+    background_tasks.add_task(
+        _background_upload_resume,
+        raw_bytes,
+        current_user.id,
+        file.filename or "resume.pdf",
+        content_type
+    )
+
     return response
 
 
@@ -347,3 +359,31 @@ async def get_knowledge_set(
 
     return {"ok": True, "cached": cached, **result}
 
+
+@router.get(
+    path="/download-original",
+    name="resume:download-original",
+    response_model=dict,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Download original resume",
+    description="Returns a short-lived presigned URL to download the user's originally uploaded resume.",
+)
+async def download_original_resume(
+    current_user=fastapi.Depends(get_current_user),
+):
+    if not current_user.original_resume_s3_key:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="No original resume found for this user."
+        )
+        
+    from src.services.s3_service import get_presigned_url
+    url = get_presigned_url(current_user.original_resume_s3_key)
+    
+    if not url:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate download URL."
+        )
+        
+    return {"url": url}

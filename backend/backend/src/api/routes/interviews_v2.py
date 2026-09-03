@@ -58,6 +58,8 @@ from src.services.progressive_hints import (
     get_framework_sections,
     get_initial_hint,
 )
+from src.services.elevenlabs_tts import generate_tts_audio
+from src.services.s3_service import upload_audio_to_s3
 from src.services.non_tech_blueprint import (
     NON_TECH_BLUEPRINT_VERSION,
     NON_TECH_FIXED_DIFFICULTY,
@@ -85,6 +87,78 @@ def _normalize_non_tech_job_name(job_name: str | None) -> str:
         return "General Role"
     collapsed = re.sub(r"\s+", " ", raw)
     return collapsed.title()
+
+
+async def _background_generate_and_upload_tts(questions_to_process: list[dict]):
+    """Background task to generate TTS audio and update the master question bank."""
+    import asyncio
+    import logging
+    from src.repository.database import async_db
+    from src.repository.crud.job_profile import JobProfileCRUDRepository
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        loop = asyncio.get_event_loop()
+        needs_db = any(q.get("job_profile_question_id") for q in questions_to_process)
+        
+        async def process_questions(session=None):
+            repo = JobProfileCRUDRepository(session) if session else None
+            for q_data in questions_to_process:
+                text = q_data.get("text", "")
+                if not text:
+                    continue
+                    
+                h_id = int(q_data.get("h_id", 0))
+                audio_bytes, error, _ = await generate_tts_audio(text=text)
+                if audio_bytes and not error:
+                    public_url = await loop.run_in_executor(None, upload_audio_to_s3, audio_bytes, h_id)
+                    if public_url and repo and q_data.get("job_profile_question_id"):
+                        q_obj = await repo.get_question_by_id(q_data["job_profile_question_id"])
+                        if q_obj:
+                            await repo.update_job_profile_question(q_obj, {"audio_url": public_url})
+                            logger.info(f"Updated job_profile_question {q_obj.id} with audio URL {public_url}")
+                            
+        if needs_db:
+            async with async_db.get_session() as session:
+                await process_questions(session)
+        else:
+            await process_questions(None)
+            
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed background TTS generation: {e}")
+
+
+def _prepare_audio_for_questions(questions: list[dict]) -> list[dict]:
+    """
+    Calculates the predictable S3 URL and returns a list of questions that need TTS generation.
+    """
+    import hashlib
+    from decouple import config
+    
+    bucket = config("AWS_S3_BUCKET_NAME", default="barabari-edtech-service-staging")
+    region = config("AWS_REGION", default="ap-south-1")
+    
+    questions_to_process = []
+    
+    for q_data in questions:
+        if q_data.get("audio_url"):
+            continue
+            
+        text = q_data.get("text", "")
+        if not text:
+            continue
+            
+        h_id = int(hashlib.md5(text.encode()).hexdigest()[:12], 16)
+        s3_file_path = f"Samvaad-Saathi/tts-audio/question_{h_id}.mp3"
+        public_url = f"https://{bucket}.s3.{region}.amazonaws.com/{s3_file_path}"
+        
+        q_data["audio_url"] = public_url
+        q_data["h_id"] = h_id
+        questions_to_process.append(q_data)
+        
+    return questions_to_process
 
 
 def _get_cached_structure_practice_response() -> StructurePracticeQuestionsResponse:
@@ -265,6 +339,7 @@ async def create_or_resume_interview_v2(
 )
 async def generate_questions_v2(
     payload: GenerateQuestionsRequest,
+    background_tasks: fastapi.BackgroundTasks,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
@@ -383,6 +458,8 @@ async def generate_questions_v2(
                         "topic": "General",
                         "category": "tech",
                         "followUpStrategy": FOLLOW_UP_STRATEGY,
+                        "audioUrl": getattr(q, "audio_url", None),
+                        "job_profile_question_id": q.id,
                     })
 
         if not questions:
@@ -412,6 +489,8 @@ async def generate_questions_v2(
                         "topic": item.get("topic"),
                         "category": item.get("category"),
                         "follow_up_strategy": item.get("followUpStrategy") or FOLLOW_UP_STRATEGY,
+                        "audio_url": item.get("audioUrl"),
+                        "job_profile_question_id": item.get("job_profile_question_id"),
                     }
                 )
         else:
@@ -422,6 +501,11 @@ async def generate_questions_v2(
                     "category": None, 
                     "follow_up_strategy": FOLLOW_UP_STRATEGY
                 })
+
+        # Pre-calculate predictable S3 URLs and enqueue background generation
+        tasks_to_run = _prepare_audio_for_questions(questions_data)
+        if tasks_to_run:
+            background_tasks.add_task(_background_generate_and_upload_tts, tasks_to_run)
 
         # Double check to prevent race condition double-insertion
         existing_again = await question_repo.list_by_interview(interview_id=interview.id)
@@ -456,6 +540,7 @@ async def generate_questions_v2(
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
                     "supplement": supplements_map.get(question_obj.id),
+                    "audioUrl": question_obj.audio_url,
                 }
             )
         qs = {
@@ -490,6 +575,7 @@ async def generate_questions_v2(
                 "parentQuestionId": q.parent_question_id,
                 "followUpStrategy": q.follow_up_strategy,
                 "supplement": supplements_map.get(q.id),
+                "audioUrl": q.audio_url,
             }
             for q in existing
         ]
@@ -523,6 +609,7 @@ async def generate_questions_v2(
                 parent_question_id=item.get("parentQuestionId"),  # type: ignore
                 follow_up_strategy=item.get("followUpStrategy"),  # type: ignore
                 supplement=item.get("supplement"),  # type: ignore
+                audio_url=item.get("audioUrl"),  # type: ignore
             )
             for item in items_list if isinstance(item, dict)
         ],
@@ -554,6 +641,7 @@ async def generate_questions_v2(
 )
 async def generate_non_tech_questions_v2(
     payload: GenerateNonTechQuestionsRequest,
+    background_tasks: fastapi.BackgroundTasks,
     current_user=fastapi.Depends(get_current_user),
     interview_repo: InterviewCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewCRUDRepository)),
     question_repo: InterviewQuestionCRUDRepository = fastapi.Depends(get_repository(repo_type=InterviewQuestionCRUDRepository)),
@@ -635,6 +723,8 @@ async def generate_non_tech_questions_v2(
                         "text": q.question_text,
                         "topic": "General",
                         "category": "general",
+                        "audio_url": getattr(q, "audio_url", None),
+                        "job_profile_question_id": q.id,
                     })
 
         if not questions_data:
@@ -652,6 +742,11 @@ async def generate_non_tech_questions_v2(
 
         for idx in range(min(2, len(questions_data))):
             questions_data[idx]["follow_up_strategy"] = FOLLOW_UP_STRATEGY
+
+        # Pre-calculate predictable S3 URLs and enqueue background generation
+        tasks_to_run = _prepare_audio_for_questions(questions_data)
+        if tasks_to_run:
+            background_tasks.add_task(_background_generate_and_upload_tts, tasks_to_run)
 
         persisted = await question_repo.create_batch(
             interview_id=interview.id,
@@ -679,6 +774,7 @@ async def generate_non_tech_questions_v2(
                     "parentQuestionId": question_obj.parent_question_id,
                     "followUpStrategy": question_obj.follow_up_strategy,
                     "supplement": supplements_map.get(question_obj.id),
+                    "audioUrl": question_obj.audio_url,
                 }
             )
         qs = {
@@ -712,6 +808,7 @@ async def generate_non_tech_questions_v2(
                 "parentQuestionId": q.parent_question_id,
                 "followUpStrategy": q.follow_up_strategy,
                 "supplement": supplements_map.get(q.id),
+                "audioUrl": q.audio_url,
             }
             for q in existing
         ]

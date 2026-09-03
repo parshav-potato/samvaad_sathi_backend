@@ -57,6 +57,7 @@ class UserCRUDRepository(BaseCRUDRepository):
         degree: str | None = None,
         university: str | None = None,
         company: str | None = None,
+        original_resume_s3_key: str | None = None,
     ) -> User:
         stmt = sqlalchemy.select(User).where(User.id == user_id)
         query = await self.async_session.execute(statement=stmt)
@@ -80,7 +81,21 @@ class UserCRUDRepository(BaseCRUDRepository):
             user.university = university.strip()
         if company is not None and company.strip():
             user.company = company.strip()
+        if original_resume_s3_key is not None:
+            user.original_resume_s3_key = original_resume_s3_key
 
+        await self.async_session.commit()
+        await self.async_session.refresh(user)
+        return user
+
+    async def update_original_resume_s3_key(self, *, user_id: int, s3_key: str) -> User:
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(statement=stmt)
+        user: User | None = query.scalar()  # type: ignore
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+
+        user.original_resume_s3_key = s3_key
         await self.async_session.commit()
         await self.async_session.refresh(user)
         return user

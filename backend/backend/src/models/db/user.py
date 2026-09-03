@@ -39,6 +39,9 @@ class User(Base):  # type: ignore
     name: SQLAlchemyMapped[str] = sqlalchemy_mapped_column(sqlalchemy.String(length=128), nullable=False)
     # Optional resume fields
     resume_text: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.Text, nullable=True)
+    original_resume_s3_key: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(
+        sqlalchemy.String(length=512), nullable=True
+    )
 
     # --- New profile attributes ---
     degree: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(

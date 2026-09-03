@@ -50,6 +50,7 @@ class QuestionItem(BaseSchemaModel):
     parent_question_id: int | None = None
     follow_up_strategy: str | None = None
     supplement: "QuestionSupplementOut | None" = None
+    audio_url: str | None = None
 
 
 class QuestionItemWithHint(BaseSchemaModel):
