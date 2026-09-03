@@ -64,6 +64,7 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
             additional_context=additional_context,
             category=category,
             employment_type=employment_type,
+            status="draft",
         )
         self.async_session.add(new_profile)
         await self.async_session.commit()
@@ -120,6 +121,7 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
             skills=skills,
             additional_context=additional_context,
             created_by=created_by,
+            status="draft",
         )
         self.async_session.add(profile)
         await self.async_session.commit()
