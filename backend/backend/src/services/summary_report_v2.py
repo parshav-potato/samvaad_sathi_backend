@@ -342,18 +342,7 @@ class SummaryReportServiceV2:
             question_analysis = []
             for idx, iq in enumerate(all_questions):
                 question_type = _question_type_label(iq.category)
-                feedback = {
-                    "knowledgeRelated": {
-                        "strengths": [],
-                        "areasOfImprovement": ["Not attempted"],
-                        "actionableInsights": []
-                category_map = {
-                    "tech": "Technical question",
-                    "tech_allied": "Technical Allied question", 
-                    "behavioral": "Behavioral question",
-                }
-                question_type = category_map.get(iq.category or "", "Technical question")
-                
+
                 # Check if attempted
                 if iq.id not in actually_attempted_question_ids:
                     feedback = {
@@ -363,8 +352,15 @@ class SummaryReportServiceV2:
                             "actionableInsights": []
                         }
                     }
-                } if iq.id not in actually_attempted_question_ids else None
-                
+                else:
+                    feedback = {
+                        "knowledgeRelated": {
+                            "strengths": [],
+                            "areasOfImprovement": [],
+                            "actionableInsights": []
+                        }
+                    }
+
                 question_analysis.append({
                     "id": idx + 1,
                     "totalQuestions": total_questions,
@@ -413,7 +409,7 @@ class SummaryReportServiceV2:
             kc_depth_final = round(kc_score_total * (kc_depth_sum / kc_total_from_attempted))
             kc_relevance_final = round(kc_score_total * (kc_relevance_sum / kc_total_from_attempted))
             kc_examples_final = round(kc_score_total * (kc_examples_sum / kc_total_from_attempted))
-            kc_terminology_final = kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final)
+            kc_terminology_final = max(0, kc_score_total - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final))
         else:
             kc_accuracy_final = kc_depth_final = kc_relevance_final = kc_examples_final = kc_terminology_final = 0
 
@@ -421,7 +417,7 @@ class SummaryReportServiceV2:
             ssf_fluency_final = round(ssf_score_total * (ssf_fluency_sum / ssf_total_from_attempted))
             ssf_structure_final = round(ssf_score_total * (ssf_structure_sum / ssf_total_from_attempted))
             ssf_pacing_final = round(ssf_score_total * (ssf_pacing_sum / ssf_total_from_attempted))
-            ssf_grammar_final = ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final)
+            ssf_grammar_final = max(0, ssf_score_total - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final))
         else:
             ssf_fluency_final = ssf_structure_final = ssf_pacing_final = ssf_grammar_final = 0
 
@@ -556,15 +552,15 @@ class SummaryReportServiceV2:
             kc_depth_final = round(kc_score * (kc_depth / kc_total_before_penalty))
             kc_relevance_final = round(kc_score * (kc_relevance / kc_total_before_penalty))
             kc_examples_final = round(kc_score * (kc_examples / kc_total_before_penalty))
-            kc_terminology_final = kc_score - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final)
+            kc_terminology_final = max(0, kc_score - (kc_accuracy_final + kc_depth_final + kc_relevance_final + kc_examples_final))
         else:
             kc_accuracy_final = kc_depth_final = kc_relevance_final = kc_examples_final = kc_terminology_final = 0
-        
+
         if ssf_total_before_penalty > 0:
             ssf_fluency_final = round(ssf_score * (ssf_fluency / ssf_total_before_penalty))
             ssf_structure_final = round(ssf_score * (ssf_structure / ssf_total_before_penalty))
             ssf_pacing_final = round(ssf_score * (ssf_pacing / ssf_total_before_penalty))
-            ssf_grammar_final = ssf_score - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final)
+            ssf_grammar_final = max(0, ssf_score - (ssf_fluency_final + ssf_structure_final + ssf_pacing_final))
         else:
             ssf_fluency_final = ssf_structure_final = ssf_pacing_final = ssf_grammar_final = 0
         
@@ -645,75 +641,6 @@ class SummaryReportServiceV2:
     ) -> Dict[str, Any]:
         logger.info("Generating lite summary report for interview_id=%s, track=%s", interview_id, track)
         """Generate the new restructured summary report (Lite)."""
-        
-        # DEMO HARDCODE: Return mock reports for specific tracks
-        track_lower = track.lower() if track else ""
-        if "hr" in track_lower or "full stack" in track_lower or "node" in track_lower:
-            is_hr = "hr" in track_lower
-            
-            kc_score = 18 if is_hr else 14
-            kc_pct = 72 if is_hr else 56
-            kc_avg = 3.6 if is_hr else 2.8
-            
-            ssf_score = 14 if is_hr else 11
-            ssf_pct = 70 if is_hr else 55
-            ssf_avg = 3.5 if is_hr else 2.75
-            
-            mock_report = {
-                "reportId": str(uuid.uuid4()),
-                "candidateInfo": {
-                    "name": candidate_name or "Candidate",
-                    "interviewDate": datetime.now().strftime("%d %b %Y"),
-                    "roleTopic": track.title(),
-                    "duration": "45 mins" if is_hr else "60 mins",
-                    "durationFeedback": "You managed your time effectively."
-                },
-                "scoreSummary": {
-                    "knowledgeCompetence": {
-                        "score": kc_score, "maxScore": 25, "average": kc_avg, "maxAverage": 5.0, "percentage": kc_pct,
-                        "criteria": {
-                            "accuracy": 4 if is_hr else 3, "depth": 4 if is_hr else 3, "relevance": 4 if is_hr else 3,
-                            "examples": 3 if is_hr else 3, "terminology": 3 if is_hr else 2
-                        }
-                    },
-                    "speechAndStructure": {
-                        "score": ssf_score, "maxScore": 20, "average": ssf_avg, "maxAverage": 5.0, "percentage": ssf_pct,
-                        "criteria": {
-                            "fluency": 4 if is_hr else 3, "structure": 4 if is_hr else 3, "pacing": 3 if is_hr else 3, "grammar": 3 if is_hr else 2
-                        }
-                    }
-                },
-                "questionAnalysis": [
-                    {
-                        "id": 1,
-                        "totalQuestions": 5,
-                        "type": "Behavioral" if is_hr else "Technical",
-                        "question": "Tell me about a time you handled a difficult situation." if is_hr else "Explain the event loop.",
-                        "feedback": {
-                            "strengths": "Great articulation of the problem." if is_hr else "Good baseline understanding.",
-                            "areasOfImprovement": "Could use more specific metrics." if is_hr else "Needed deeper technical examples."
-                        }
-                    }
-                ],
-                "recommendedPractice": {
-                    "title": "Continue practicing these areas", 
-                    "description": "Focus on advanced conflict resolution." if is_hr else "Review advanced asynchronous patterns."
-                },
-                "speechFluencyFeedback": {
-                    "strengths": "Clear voice and great tone.",
-                    "areasOfImprovement": "Slight pacing issues.",
-                    "ratingEmoji": "🌟" if is_hr else "👍",
-                    "ratingTitle": "Excellent Communicator" if is_hr else "Good Communicator",
-                    "ratingDescription": "You express your thoughts very clearly." if is_hr else "You communicate technical concepts well, but work on structure."
-                },
-                "nextSteps": [
-                    {"title": "Review feedback"},
-                    {"title": "Practice mock interviews"},
-                    {"title": "Focus on technical depth" if not is_hr else "Focus on STAR method"}
-                ],
-                "finalTip": {"title": "Stay Confident", "description": "You have a great foundation, keep building on it!"}
-            }
-            return mock_report
 
         question_attempts = list(question_attempts)
         
@@ -874,8 +801,8 @@ class SummaryReportServiceV2:
             qa_items = []
             for idx, iq in enumerate(all_interview_questions):
                 qa = attempts_by_question_id.get(iq.id)
-                strengths_text = "Answer provided and recorded."
-                improvements_text = "Review core concepts for deeper coverage."
+                strengths_text = "Feedback unavailable for this answer."
+                improvements_text = "Detailed feedback could not be generated — please review this question manually."
                 
                 if qa and getattr(qa, "analysis_json", None):
                     analysis = qa.analysis_json or {}
@@ -940,8 +867,8 @@ class SummaryReportServiceV2:
             qa_items = []
             for idx, iq in enumerate(all_interview_questions):
                 qa = attempts_by_question_id.get(iq.id)
-                strengths_text = "Answer provided and recorded."
-                improvements_text = "Review core concepts for deeper coverage."
+                strengths_text = "Feedback unavailable for this answer."
+                improvements_text = "Detailed feedback could not be generated — please review this question manually."
                 
                 if qa and getattr(qa, "analysis_json", None):
                     analysis = qa.analysis_json or {}
@@ -1068,8 +995,8 @@ class SummaryReportServiceV2:
 
         kc_avg = kc_score_total / 5.0
         ssf_avg = ssf_score_total / 4.0
-        kc_pct = int((kc_score_total / 25.0) * 100) if kc_score_total <= 25 else int(kc_score_total)
-        ssf_pct = int((ssf_score_total / 20.0) * 100) if ssf_score_total <= 20 else int(ssf_score_total)
+        kc_pct = int((kc_score_total / 25.0) * 100)
+        ssf_pct = int((ssf_score_total / 20.0) * 100)
 
         score_summary = {
             "knowledgeCompetence": {
@@ -1117,8 +1044,8 @@ class SummaryReportServiceV2:
                 areas = fb_data.get("areasOfImprovement") if isinstance(fb_data, dict) else None
 
                 feedback_item = {
-                    "strengths": strengths or "Answer provided and recorded.",
-                    "areasOfImprovement": areas or "Review topic key concepts for deeper coverage."
+                    "strengths": strengths or "Feedback unavailable for this answer.",
+                    "areasOfImprovement": areas or "Detailed feedback could not be generated — please review this question manually."
                 }
 
             question_analysis.append({
