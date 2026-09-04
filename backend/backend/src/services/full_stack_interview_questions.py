@@ -297,9 +297,15 @@ def get_full_stack_questions(
     years_experience: < 0 = freshers, >= 1 = experienced
     difficulty: easy | medium | hard | expert
     """
+    if domain and domain.strip().lower().startswith("non-tech:"):
+        raise ValueError(
+            f"Domain '{domain}' is a non-tech track — tech questions cannot be generated for it. "
+            "Use the non-tech question generation path instead."
+        )
+
     if seed:
         random.seed(seed)
-    
+
     normalized_domain = (domain or "frontend").lower().strip()
     is_full_stack = False
     
@@ -372,6 +378,12 @@ async def generate_full_stack_questions_with_llm(
     Generate dynamic Full Stack questions using LLM, with reference to the static questions.
     Returns (questions_text_list, error, latency_ms, model, structured_items)
     """
+    if domain and domain.strip().lower().startswith("non-tech:"):
+        raise ValueError(
+            f"Domain '{domain}' is a non-tech track — tech questions cannot be generated for it. "
+            "Use the non-tech question generation path instead."
+        )
+
     model = settings.OPENAI_MODEL
     client = _get_client()
     if not client:
