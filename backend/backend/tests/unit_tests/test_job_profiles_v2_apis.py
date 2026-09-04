@@ -588,7 +588,7 @@ async def extract_skills(
             status_code=422,
             detail="job_description cannot be empty"
         )
-    extracted_skills = extract_skills_from_text(payload.job_description)
+    extracted_skills, _error = await extract_skills_from_text(payload.job_description)
     return JobProfileExtractSkillsResponse(skills=extracted_skills)
 
 
