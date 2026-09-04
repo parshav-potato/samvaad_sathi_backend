@@ -351,12 +351,6 @@ class SummaryReportServiceV2:
                             "areasOfImprovement": ["Not attempted"],
                             "actionableInsights": []
                         }
-                #feedback
-                feedback = {
-                    "knowledgeRelated": {
-                        "strengths": [],
-                        "areasOfImprovement": ["Not attempted"],
-                        "actionableInsights": []
                     }
                 else:
                     feedback = {

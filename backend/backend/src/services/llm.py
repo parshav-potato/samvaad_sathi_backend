@@ -1697,6 +1697,40 @@ async def generate_question_supplements_with_llm(
     return sanitized, error, latency_ms, model
 
 
+MIN_ANSWER_WORD_COUNT = 3  # below this, treat as no real answer rather than scoring it
+
+
+def _is_near_empty_answer(transcription: str | None) -> bool:
+    """True if the transcription has too few words to be a real attempt."""
+    word_count = len((transcription or "").strip().split())
+    return word_count < MIN_ANSWER_WORD_COUNT
+
+
+def _build_non_answer_analysis(kind: str) -> dict[str, Any]:
+    """
+    Deterministic, zero-cost result for a near-empty answer — skips the LLM
+    entirely so scoring never depends on the model correctly guessing that
+    an (almost) blank transcription deserves a zero, rather than a
+    plausible-looking partial-credit score.
+    """
+    base = {
+        "overall_score": 0,
+        "criteria": {},
+        "summary": "No substantial answer was provided for this question.",
+        "strengths": [],
+        "improvements": ["No substantial answer provided — question not answered."],
+        "suggestions": [],
+        "confidence": 1.0,
+    }
+    if kind == "domain":
+        base["misconceptions"] = {"present": False, "notes": []}
+        base["examples"] = {"present": False, "notes": []}
+    else:
+        base["jargon_use"] = {"score": 0, "notes": []}
+        base["tone_empathy"] = {"score": 0, "notes": []}
+    return base
+
+
 async def analyze_domain_with_llm(
     *,
     user_profile: dict[str, Any],
@@ -1715,6 +1749,9 @@ async def analyze_domain_with_llm(
         len(question_text or ""),
         len(transcription or ""),
     )
+    if _is_near_empty_answer(transcription):
+        logger.info("[LLM DOMAIN] SHORT-CIRCUIT | reason=near_empty_answer")
+        return _build_non_answer_analysis("domain"), None, 0, model
     if not api_key:
         logger.warning(
             "[LLM DOMAIN] SKIPPED | reason=missing_openai_api_key"
@@ -1733,7 +1770,11 @@ async def analyze_domain_with_llm(
         "improvements (string[] of areas to improve), confidence (0-1). "
         "IMPORTANT: Always include both strengths and improvements arrays, even if scores are low. "
         "Strengths should highlight what the candidate did well, even if partial. "
-        "Improvements should provide actionable feedback for growth."
+        "Improvements should provide actionable feedback for growth. "
+        "CRITICAL: If the transcript is a refusal or non-answer (e.g. 'I don't know', 'I'm not sure', 'pass'), or "
+        "doesn't actually attempt to address the question at all, give overall_score 0 and every criteria score 0, "
+        "leave strengths empty, and set improvements to state clearly that no substantial answer was given — do not "
+        "invent partial credit or plausible-sounding feedback for content that wasn't actually said."
     )
     user_content = {
         "user_profile": {k: v for k, v in user_profile.items() if v is not None},
@@ -1819,6 +1860,9 @@ async def analyze_communication_with_llm(
         len(transcription or ""),
         len(aux_metrics or ""),
     )
+    if _is_near_empty_answer(transcription):
+        logger.info("[LLM COMM] SHORT-CIRCUIT | reason=near_empty_answer")
+        return _build_non_answer_analysis("communication"), None, 0, model
     if not api_key:
         logger.warning(
             "[LLM COMM] SKIPPED | reason=missing_openai_api_key"
@@ -1837,7 +1881,11 @@ async def analyze_communication_with_llm(
         "improvements (string[] of areas to improve), suggestions (string[] for backward compatibility), confidence (0-1). "
         "Always include both strengths and improvements arrays, even if scores are low. "
         "Strengths should highlight what the candidate did well. Improvements should identify specific areas to work on. "
-        "Heavily penalize short answers that dont have enough nuance and detail"
+        "Heavily penalize short answers that dont have enough nuance and detail. "
+        "CRITICAL: If the transcript is a refusal or non-answer (e.g. 'I don't know', 'I'm not sure', 'pass'), or "
+        "doesn't actually attempt to address the question at all, give overall_score 0 and every criteria score 0, "
+        "leave strengths empty, and set improvements to state clearly that no substantial answer was given — do not "
+        "invent partial credit or plausible-sounding feedback for content that wasn't actually said."
     )
     payload = {
         "user_profile": {k: v for k, v in user_profile.items() if v is not None},
