@@ -351,6 +351,12 @@ class SummaryReportServiceV2:
                             "areasOfImprovement": ["Not attempted"],
                             "actionableInsights": []
                         }
+                #feedback
+                feedback = {
+                    "knowledgeRelated": {
+                        "strengths": [],
+                        "areasOfImprovement": ["Not attempted"],
+                        "actionableInsights": []
                     }
                 else:
                     feedback = {
@@ -673,7 +679,7 @@ class SummaryReportServiceV2:
         result = await self._db.execute(stmt)
         fetched_questions = list(result.scalars().all())
         
-        # 🛠️ CRITICAL FIX: Reorder questions so follow-ups appear immediately after their parent question
+        # Reorder questions so follow-ups appear immediately after their parent question
         all_interview_questions = self._order_questions_with_followups(fetched_questions)
         
         attempts_by_question_id: Dict[int, QuestionAttempt] = {}
