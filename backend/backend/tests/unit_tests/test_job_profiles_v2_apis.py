@@ -588,7 +588,7 @@ async def extract_skills(
             status_code=422,
             detail="job_description cannot be empty"
         )
-    extracted_skills = extract_skills_from_text(payload.job_description)
+    extracted_skills, _error = await extract_skills_from_text(payload.job_description)
     return JobProfileExtractSkillsResponse(skills=extracted_skills)
 
 
@@ -776,20 +776,20 @@ async def get_job_profile_questions_v2(
 
     # 3. Calculate level counts
     level_counts = {
-        "level_1": 0,
-        "level_2": 0,
-        "level_3": 0,
-        "level_4": 0,
+        "level1": 0,
+        "level2": 0,
+        "level3": 0,
+        "level4": 0,
     }
     for q in db_questions:
         if q.level == 1:
-            level_counts["level_1"] += 1
+            level_counts["level1"] += 1
         elif q.level == 2:
-            level_counts["level_2"] += 1
+            level_counts["level2"] += 1
         elif q.level == 3:
-            level_counts["level_3"] += 1
+            level_counts["level3"] += 1
         elif q.level == 4:
-            level_counts["level_4"] += 1
+            level_counts["level4"] += 1
 
     # 4. Map questions to response format
     questions_list = [
@@ -1508,14 +1508,14 @@ def test_generate_questions_success():
         
         assert response.status_code == 200
         data = response.json()
-        assert data["job_profile_id"] == "123"
-        assert data["total_questions"] == 2
-        assert data["questions"][0]["question_id"] == "1"
+        assert data["jobProfileId"] == "123"
+        assert data["totalQuestions"] == 2
+        assert data["questions"][0]["questionId"] == "1"
         assert data["questions"][0]["question"] == "What is Django?"
         assert data["questions"][0]["level"] == 1
         assert data["questions"][0]["difficulty"] == "easy"
         assert data["questions"][0]["type"] == "tech"
-        assert data["questions"][0]["is_ai_generated"] is True
+        assert data["questions"][0]["isAiGenerated"] is True
 
         _mock_repo.get_by_id.assert_called_with(job_profile_id=123)
         mock_generate.assert_called_once()
@@ -1587,18 +1587,18 @@ def test_get_questions_success():
     response = client.get("/api/v2/job-profiles/123/questions")
     assert response.status_code == 200
     data = response.json()
-    assert data["job_profile_id"] == "123"
-    assert data["total_questions"] == 2
-    assert data["level_counts"]["level_1"] == 1
-    assert data["level_counts"]["level_2"] == 1
-    assert data["level_counts"]["level_3"] == 0
-    assert data["level_counts"]["level_4"] == 0
+    assert data["jobProfileId"] == "123"
+    assert data["totalQuestions"] == 2
+    assert data["levelCounts"]["level1"] == 1
+    assert data["levelCounts"]["level2"] == 1
+    assert data["levelCounts"]["level3"] == 0
+    assert data["levelCounts"]["level4"] == 0
     assert len(data["questions"]) == 2
-    assert data["questions"][0]["question_id"] == "1"
+    assert data["questions"][0]["questionId"] == "1"
     assert data["questions"][0]["question"] == "Question 1"
     assert data["questions"][0]["level"] == 1
     assert data["questions"][1]["level"] == 2
-    assert "2026-05-26T10:00:00" in data["questions"][0]["created_at"]
+    assert "2026-05-26T10:00:00" in data["questions"][0]["createdAt"]
 
 
 def test_get_questions_profile_not_found():
@@ -1616,9 +1616,9 @@ def test_get_questions_empty_list():
     response = client.get("/api/v2/job-profiles/123/questions")
     assert response.status_code == 200
     data = response.json()
-    assert data["job_profile_id"] == "123"
-    assert data["total_questions"] == 0
-    assert data["level_counts"]["level_1"] == 0
+    assert data["jobProfileId"] == "123"
+    assert data["totalQuestions"] == 0
+    assert data["levelCounts"]["level1"] == 0
     assert data["questions"] == []
 
 
@@ -1650,13 +1650,13 @@ def test_add_question_success():
     response = client.post("/api/v2/job-profiles/123/questions", json=payload)
     assert response.status_code == 201
     data = response.json()
-    assert data["question_id"] == "51"
-    assert data["job_profile_id"] == "123"
+    assert data["questionId"] == "51"
+    assert data["jobProfileId"] == "123"
     assert data["question"] == "Explain closures in JavaScript."
     assert data["level"] == 2
     assert data["difficulty"] == "medium"
     assert data["type"] == "theoretical"
-    assert data["is_ai_generated"] is False
+    assert data["isAiGenerated"] is False
     assert data["message"] == "Question added successfully"
 
 
@@ -1730,12 +1730,12 @@ def test_update_question_success():
     response = client.patch("/api/v2/job-profile-questions/1", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["question_id"] == "1"
+    assert data["questionId"] == "1"
     assert data["question"] == "Explain closures in JavaScript with examples."
     assert data["level"] == 2
     assert data["difficulty"] == "medium"
     assert data["type"] == "theoretical"
-    assert data["is_ai_generated"] is True
+    assert data["isAiGenerated"] is True
     assert data["message"] == "Question updated successfully"
 
 
@@ -1827,12 +1827,12 @@ def test_regenerate_question_success():
         
         assert response.status_code == 200
         data = response.json()
-        assert data["question_id"] == "1"
+        assert data["questionId"] == "1"
         assert data["question"] == "Explain closures in JavaScript."
         assert data["level"] == 1
         assert data["difficulty"] == "easy"
         assert data["type"] == "tech"
-        assert data["is_ai_generated"] is True
+        assert data["isAiGenerated"] is True
         assert data["message"] == "Question regenerated successfully"
 
         _mock_repo.get_question_by_id.assert_called_once_with(question_id=1)
@@ -1917,7 +1917,7 @@ def test_delete_question_success():
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "Question deleted successfully"
-    assert data["question_id"] == "1"
+    assert data["questionId"] == "1"
 
     _mock_repo.get_question_by_id.assert_called_once_with(question_id=1)
     _mock_repo.delete_job_profile_question.assert_called_once_with(question=existing_q)
@@ -2057,50 +2057,50 @@ def test_get_job_profile_review_success():
     data = response.json()
 
     # 3. Assert JSON structure & keys
-    assert data["job_profile_id"] == 123
+    assert data["jobProfileId"] == 123
     assert data["status"] == "draft"
 
     # 4. Assert role details mapping
-    assert data["role_details"]["role_name"] == "Senior Front-End Developer"
-    assert data["role_details"]["company_name"] == "Amazon"
-    assert data["role_details"]["category"] == "Engineering"
-    assert data["role_details"]["experience_level"] == "4-6 years"
-    assert data["role_details"]["employment_type"] == "Full-time"
-    assert data["role_details"]["description"] == "Own end-to-end frontend architecture..."
+    assert data["roleDetails"]["roleName"] == "Senior Front-End Developer"
+    assert data["roleDetails"]["companyName"] == "Amazon"
+    assert data["roleDetails"]["category"] == "Engineering"
+    assert data["roleDetails"]["experienceLevel"] == "4-6 years"
+    assert data["roleDetails"]["employmentType"] == "Full-time"
+    assert data["roleDetails"]["description"] == "Own end-to-end frontend architecture..."
 
     # 5. Assert JD Summary mapping
-    assert data["jd_summary"]["extracted_skills"] == ["React", "TypeScript", "GraphQL", "Performance"]
-    assert data["jd_summary"]["competencies"] == ["Systems thinking", "Stakeholder communication", "Production ownership"]
+    assert data["jdSummary"]["extractedSkills"] == ["React", "TypeScript", "GraphQL", "Performance"]
+    assert data["jdSummary"]["competencies"] == ["Systems thinking", "Stakeholder communication", "Production ownership"]
 
     # 6. Assert totals
-    assert data["question_summary"]["total_questions"] == 8
-    assert data["question_summary"]["total_levels"] == 3 # Levels 1, 2, 4 have questions
+    assert data["questionSummary"]["totalQuestions"] == 8
+    assert data["questionSummary"]["totalLevels"] == 3 # Levels 1, 2, 4 have questions
 
     # 7. Assert levels details & preview limits
-    levels = data["question_summary"]["levels"]
+    levels = data["questionSummary"]["levels"]
     assert len(levels) == 4 # Always returns 4 levels
 
     # Level 1
     assert levels[0]["level"] == 1
-    assert levels[0]["question_count"] == 5
-    assert len(levels[0]["preview_questions"]) == 3 # Limit to first 3
-    assert levels[0]["preview_questions"][0]["question_id"] == 1
-    assert levels[0]["preview_questions"][0]["question"] == "Q1"
+    assert levels[0]["questionCount"] == 5
+    assert len(levels[0]["previewQuestions"]) == 3 # Limit to first 3
+    assert levels[0]["previewQuestions"][0]["questionId"] == 1
+    assert levels[0]["previewQuestions"][0]["question"] == "Q1"
 
     # Level 2
     assert levels[1]["level"] == 2
-    assert levels[1]["question_count"] == 1
-    assert len(levels[1]["preview_questions"]) == 1
+    assert levels[1]["questionCount"] == 1
+    assert len(levels[1]["previewQuestions"]) == 1
 
     # Level 3
     assert levels[2]["level"] == 3
-    assert levels[2]["question_count"] == 0
-    assert len(levels[2]["preview_questions"]) == 0
+    assert levels[2]["questionCount"] == 0
+    assert len(levels[2]["previewQuestions"]) == 0
 
     # Level 4
     assert levels[3]["level"] == 4
-    assert levels[3]["question_count"] == 2
-    assert len(levels[3]["preview_questions"]) == 2
+    assert levels[3]["questionCount"] == 2
+    assert len(levels[3]["previewQuestions"]) == 2
 
     _mock_repo.get_by_id.assert_called_once_with(job_profile_id=123)
     _mock_repo.get_job_profile_questions.assert_called_once_with(job_profile_id=123)
@@ -2128,11 +2128,11 @@ def test_get_job_profile_review_empty_questions():
     assert response.status_code == 200
     data = response.json()
 
-    assert data["question_summary"]["total_questions"] == 0
-    assert data["question_summary"]["total_levels"] == 0
-    for level_info in data["question_summary"]["levels"]:
-        assert level_info["question_count"] == 0
-        assert level_info["preview_questions"] == []
+    assert data["questionSummary"]["totalQuestions"] == 0
+    assert data["questionSummary"]["totalLevels"] == 0
+    for level_info in data["questionSummary"]["levels"]:
+        assert level_info["questionCount"] == 0
+        assert level_info["previewQuestions"] == []
 
 
 def test_submit_job_profile_success():
@@ -2164,12 +2164,12 @@ def test_submit_job_profile_success():
     data = response.json()
 
     # 4. Assert response payload
-    assert data["job_profile_id"] == 123
-    assert data["job_name"] == "Senior Front-End Developer"
+    assert data["jobProfileId"] == 123
+    assert data["jobName"] == "Senior Front-End Developer"
     assert data["status"] == "under_review"
-    assert data["submitted_at"] == "2026-06-01T12:30:00Z"
-    assert data["total_questions"] == 1
-    assert data["total_levels"] == 1
+    assert data["submittedAt"] == "2026-06-01T12:30:00Z"
+    assert data["totalQuestions"] == 1
+    assert data["totalLevels"] == 1
     assert data["message"] == "Role submitted successfully"
 
     _mock_repo.get_by_id.assert_called_once_with(job_profile_id=123)
@@ -2239,9 +2239,9 @@ def test_get_questions_with_expanded_details():
     assert len(data["questions"]) == 1
     q = data["questions"][0]
     assert q["keywords"] == ["FastAPI", "Uvicorn"]
-    assert q["concepts_covered"] == ["Web server", "ASGI"]
-    assert q["expected_answer"] == "FastAPI is an ASGI framework..."
-    assert q["example_output"] == "{'status': 'ok'}"
+    assert q["conceptsCovered"] == ["Web server", "ASGI"]
+    assert q["expectedAnswer"] == "FastAPI is an ASGI framework..."
+    assert q["exampleOutput"] == "{'status': 'ok'}"
 
 
 def test_add_question_with_expanded_details():
@@ -2292,11 +2292,11 @@ def test_add_question_with_expanded_details():
     response = client.post("/api/v2/job-profiles/123/questions", json=payload)
     assert response.status_code == 201
     data = response.json()
-    assert data["question_id"] == "51"
+    assert data["questionId"] == "51"
     assert data["keywords"] == ["Closures", "Scope"]
-    assert data["concepts_covered"] == ["Lexical environment"]
-    assert data["expected_answer"] == "A closure is a function..."
-    assert data["example_output"] == "function outer() { ... }"
+    assert data["conceptsCovered"] == ["Lexical environment"]
+    assert data["expectedAnswer"] == "A closure is a function..."
+    assert data["exampleOutput"] == "function outer() { ... }"
 
 
 def test_update_question_with_expanded_details():
@@ -2355,11 +2355,11 @@ def test_update_question_with_expanded_details():
     response = client.patch("/api/v2/job-profile-questions/1", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["question_id"] == "1"
+    assert data["questionId"] == "1"
     assert data["keywords"] == ["Closures"]
-    assert data["concepts_covered"] == ["Scope"]
-    assert data["expected_answer"] == "Closure answer"
-    assert data["example_output"] == "Closure output"
+    assert data["conceptsCovered"] == ["Scope"]
+    assert data["expectedAnswer"] == "Closure answer"
+    assert data["exampleOutput"] == "Closure output"
 
 
 def test_generate_questions_with_knowledge_base():
@@ -2405,8 +2405,8 @@ def test_generate_questions_with_knowledge_base():
         
         assert response.status_code == 200
         data = response.json()
-        assert data["job_profile_id"] == "123"
-        assert data["total_questions"] == 2
+        assert data["jobProfileId"] == "123"
+        assert data["totalQuestions"] == 2
         
         mock_generate.assert_called_once()
         call_kwargs = mock_generate.call_args.kwargs

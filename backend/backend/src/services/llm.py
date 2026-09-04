@@ -409,6 +409,10 @@ async def synthesize_summary_sections(
         "4. Each criterion is scored independently on 0-5 scale\n"
         "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
         "6. overallFeedback.speechFluency: Focus ONLY on speech aspects across all attempts (3-4 actionable steps)\n"
+        "   CRITICAL: if most attempts had zero/near-zero pace or pause scores in the provided data (meaning most\n"
+        "   answers were empty or near-empty), do NOT write confident, specific-sounding pacing/fluency commentary\n"
+        "   like 'good strategic pauses' — those numbers reflect negligible speech, not real delivery. Say plainly\n"
+        "   there wasn't enough spoken content across the interview to assess fluency instead.\n"
         "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
         "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
         "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
@@ -661,6 +665,13 @@ async def synthesize_summary_sections_lite(
         "4. Each criterion is scored independently on 0-5 scale\n"
         "5. DO NOT calculate totals, averages, or percentages - code will do this\n"
         "6. speechFluencyFeedback: Focus ONLY on speech aspects across all attempts. ratingEmoji must be EXACTLY one of: 'Excellent', 'Good', 'Average', 'Needs-Improvement', 'Poor'\n"
+        "   CRITICAL: speechFluencyFeedback is about the OVERALL interview, not one lucky question — if most\n"
+        "   attempts had zero/near-zero pace or pause scores in the provided data (meaning most answers were\n"
+        "   empty or near-empty), do NOT write confident, specific-sounding pacing/fluency commentary like\n"
+        "   'good strategic pauses' or 'pacing is often too slow' — those numbers reflect negligible speech, not\n"
+        "   real delivery, so instead say plainly that there wasn't enough spoken content across the interview to\n"
+        "   assess fluency, and ratingEmoji/ratingTitle should reflect that (e.g. 'Needs-Improvement'), not a\n"
+        "   plausible-sounding average rating.\n"
         "7. DO NOT return empty arrays - every question MUST have meaningful, specific feedback\n"
         "8. Keep language simple and actionable - avoid jargon like 'WPM'\n"
         "9. These were all oral interviews so your recommendations should not be about things like writing code\n"
@@ -1415,6 +1426,7 @@ async def generate_interview_questions_with_llm(
     error: str | None = None
     questions: list[str] = []
     structured_items: list[dict[str, Any]] | None = None
+    total = max(1, min(50, count or 3))
 
     sys_prompt = (
         "You are an expert technical interviewer generating a set of exactly {count} interview questions for a candidate in the {track} role.\n\n"
@@ -1449,7 +1461,6 @@ async def generate_interview_questions_with_llm(
     # Prepare a sampled syllabus so we don't send the entire topic bank to the LLM
     topics = syllabus_topics or {}
     r = ratio or {"tech": 2, "tech_allied": 2, "behavioral": 1}
-    total = max(1, min(50, count or 3))
     # Normalize ratio to total questions (we use it only as guidance for sampling size)
     r_tech = max(0, r.get("tech", 0))
     r_allied = max(0, r.get("tech_allied", 0))
