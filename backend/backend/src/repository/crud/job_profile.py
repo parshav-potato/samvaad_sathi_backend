@@ -81,6 +81,20 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
             return True
         return False
 
+    async def update_profile(self, profile_id: int, update_data: dict) -> Optional[JobProfile]:
+        profile = await self.get_by_id(job_profile_id=profile_id)
+        if not profile:
+            return None
+            
+        for key, value in update_data.items():
+            if hasattr(profile, key):
+                setattr(profile, key, value)
+                
+        self.async_session.add(profile)
+        await self.async_session.commit()
+        await self.async_session.refresh(profile)
+        return profile
+
     async def get_recent_activity(self, limit: int = 5) -> List[dict]:
         """
         Derives recent activity from JobProfile records.
@@ -223,7 +237,7 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
 
     async def update_job_profile_question(self, question: JobProfileQuestion, update_data: dict) -> JobProfileQuestion:
         for key, value in update_data.items():
-            if hasattr(question, key) and value is not None:
+            if hasattr(question, key):
                 setattr(question, key, value)
         self.async_session.add(question)
         await self.async_session.commit()
