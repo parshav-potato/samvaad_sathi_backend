@@ -87,7 +87,7 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
             return None
             
         for key, value in update_data.items():
-            if hasattr(profile, key) and value is not None:
+            if hasattr(profile, key):
                 setattr(profile, key, value)
                 
         self.async_session.add(profile)
@@ -237,7 +237,7 @@ class JobProfileCRUDRepository(BaseCRUDRepository):
 
     async def update_job_profile_question(self, question: JobProfileQuestion, update_data: dict) -> JobProfileQuestion:
         for key, value in update_data.items():
-            if hasattr(question, key) and value is not None:
+            if hasattr(question, key):
                 setattr(question, key, value)
         self.async_session.add(question)
         await self.async_session.commit()
