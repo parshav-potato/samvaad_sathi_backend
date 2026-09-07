@@ -8,6 +8,13 @@ from typing import Any, Dict, Tuple
 import fastapi
 import PyPDF2
 
+def _verify_pdf_magic_bytes(raw_bytes: bytes) -> None:
+    if not raw_bytes.startswith(b"%PDF"):
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File content does not appear to be a valid PDF.",
+        )
+
 def _extract_text_from_pdf(raw_bytes: bytes) -> str:
     extracted_text = ""
     try:
@@ -114,6 +121,9 @@ async def extract_resume(
         buffer.extend(chunk)
 
     raw_bytes = bytes(buffer)
+
+    if content_type == "application/pdf":
+        _verify_pdf_magic_bytes(raw_bytes)
 
     # Extract text depending on the content type
     extracted_text = ""
@@ -449,11 +459,7 @@ async def save_final_resume(
         )
 
     # Verify PDF magic bytes
-    if not raw_bytes.startswith(b"%PDF"):
-        raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="File content does not appear to be a valid PDF.",
-        )
+    _verify_pdf_magic_bytes(raw_bytes)
 
     import hashlib
     size_bytes = len(raw_bytes)
