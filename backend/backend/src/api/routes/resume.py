@@ -169,7 +169,7 @@ async def extract_resume(
     normalized_skills: list[str] = []
     seen: set[str] = set()
     for s in skills:
-        s_str = _norm_skill(str(s))
+        s_str = _norm_skill(s)
         if not s_str:
             continue
         if not re.search(r"[a-z]", s_str):
@@ -346,7 +346,7 @@ async def get_knowledge_set(
 
     # Normalize and validate
     def _norm_skill(s: str) -> str:
-        return re.sub(r"\s+", " ", str(s)).strip().lower()
+        return re.sub(r"\s+", " ", s).strip().lower()
 
     normalized_skills: list[str] = []
     seen: set[str] = set()
