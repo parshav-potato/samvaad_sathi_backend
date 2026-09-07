@@ -16,6 +16,10 @@ from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse
 
 
 from src.services.s3_service import _background_upload_and_enforce_limit
+from src.api.dependencies.session import get_async_session
+from sqlalchemy.ext.asyncio import AsyncSession
+import sqlalchemy
+from src.models.db.user_resume import UserResume
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 
 
@@ -245,20 +249,20 @@ async def extract_resume(
             company=company_hint,
         )
         response["saved"] = True
+        
+        # Queue the background task to upload the original PDF to S3 only if DB update succeeds
+        background_tasks.add_task(
+            _background_upload_and_enforce_limit,
+            raw_bytes,
+            current_user.id,
+            file.filename or "resume.pdf",
+            content_type,
+            normalized if normalized else None,
+            "onboarding"
+        )
     except Exception as e:
         response["saved"] = False
         response["save_error"] = str(e)
-
-    # Queue the background task to upload the original PDF to S3
-    background_tasks.add_task(
-        _background_upload_and_enforce_limit,
-        raw_bytes,
-        current_user.id,
-        file.filename or "resume.pdf",
-        content_type,
-        normalized if normalized else None,
-        "onboarding"
-    )
 
     return response
 
@@ -371,15 +375,20 @@ async def get_knowledge_set(
 )
 async def download_original_resume(
     current_user=fastapi.Depends(get_current_user),
+    session: AsyncSession = fastapi.Depends(get_async_session),
 ):
-    if not current_user.original_resume_s3_key:
+    stmt = sqlalchemy.select(UserResume).where(UserResume.user_id == current_user.id).order_by(UserResume.created_at.desc()).limit(1)
+    result = await session.execute(stmt)
+    latest_resume = result.scalar_one_or_none()
+    
+    if not latest_resume:
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_404_NOT_FOUND,
             detail="No original resume found for this user."
         )
         
     from src.services.s3_service import get_presigned_url
-    url = get_presigned_url(current_user.original_resume_s3_key)
+    url = get_presigned_url(latest_resume.s3_key)
     
     if not url:
         raise fastapi.HTTPException(
