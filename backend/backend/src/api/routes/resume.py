@@ -446,15 +446,9 @@ async def save_final_resume(
             detail="File content does not appear to be a valid PDF.",
         )
 
-    # Extract text to keep User.resume_text updated for downstream features (like interviews)
+    # We no longer auto-update User.resume_text here. The user must explicitly set it via /set-active-resume.
     extracted_text = _extract_text_from_pdf(raw_bytes)
     normalized_text = re.sub(r"\s+", " ", extracted_text or "").strip()
-    
-    if normalized_text:
-        try:
-            await user_repo.update_only_resume_text(user_id=current_user.id, resume_text=normalized_text)
-        except Exception as e:
-            print(f"Warning: failed to update User.resume_text from ATS final resume: {e}")
 
     # Await the task directly to ensure it succeeds before returning 201
     try:
@@ -472,3 +466,47 @@ async def save_final_resume(
             status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save resume. Please try again."
         )
+
+from pydantic import BaseModel
+class SetActiveResumeRequest(BaseModel):
+    user_resume_id: int
+
+@router.post(
+    path="/set-active-resume",
+    name="resume:set-active-resume",
+    response_model=dict,
+    status_code=fastapi.status.HTTP_200_OK,
+    summary="Set an explicitly saved resume as the active resume",
+    description="Overrides the main profile resume (used for mock interviews) with a previously saved ATS resume.",
+)
+async def set_active_resume(
+    request: SetActiveResumeRequest,
+    current_user=fastapi.Depends(get_current_user),
+    session: AsyncSession = fastapi.Depends(get_async_session),
+    user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
+):
+    stmt = sqlalchemy.select(UserResume).where(
+        UserResume.id == request.user_resume_id,
+        UserResume.user_id == current_user.id
+    )
+    result = await session.execute(stmt)
+    resume_record = result.scalar_one_or_none()
+    
+    if not resume_record:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Saved resume not found or does not belong to you."
+        )
+        
+    if not resume_record.resume_text:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="This saved resume has no extractable text."
+        )
+        
+    await user_repo.update_only_resume_text(
+        user_id=current_user.id, 
+        resume_text=resume_record.resume_text
+    )
+    
+    return {"message": "Successfully set as the active resume for mock interviews."}
