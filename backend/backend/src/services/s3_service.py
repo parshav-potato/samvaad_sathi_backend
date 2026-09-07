@@ -153,19 +153,27 @@ async def _background_upload_and_enforce_limit(
         
         if s3_key:
             async with async_db.get_session() as session:
+                # Truncate filename to prevent DB insert errors causing S3 object leaks
+                safe_filename = filename[:256] if filename else "resume.pdf"
+
                 # 1. Insert the new resume
                 new_resume = UserResume(
                     user_id=user_id,
                     s3_key=s3_key,
-                    filename=filename,
+                    filename=safe_filename,
                     resume_text=resume_text,
                     source=source
                 )
                 session.add(new_resume)
-                await session.flush() # flush to get an ID if needed, or just proceed
+                await session.flush()
 
-                # 2. Enforce the limit of 3
-                stmt = sqlalchemy.select(UserResume).where(UserResume.user_id == user_id).order_by(UserResume.created_at.desc())
+                # 2. Enforce the limit of 3 with row-level locks to prevent race conditions
+                stmt = (
+                    sqlalchemy.select(UserResume)
+                    .where(UserResume.user_id == user_id)
+                    .order_by(UserResume.created_at.desc(), UserResume.id.desc())
+                    .with_for_update()
+                )
                 result = await session.execute(stmt)
                 user_resumes = result.scalars().all()
 
