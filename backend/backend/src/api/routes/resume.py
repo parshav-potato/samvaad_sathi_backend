@@ -402,12 +402,11 @@ async def download_original_resume(
     path="/save-final-resume",
     name="resume:save-final-resume",
     response_model=dict,
-    status_code=fastapi.status.HTTP_202_ACCEPTED,
+    status_code=fastapi.status.HTTP_201_CREATED,
     summary="Save a final ATS resume",
     description="Uploads a finalized resume from the ATS tool to S3 and enforces the max 3 resume limit.",
 )
 async def save_final_resume(
-    background_tasks: fastapi.BackgroundTasks,
     file: fastapi.UploadFile = fastapi.File(
         ..., description="Resume file to upload. Allowed types: application/pdf (max 5MB)"
     ),
@@ -451,15 +450,19 @@ async def save_final_resume(
             detail="File content does not appear to be a valid PDF.",
         )
 
-    # Queue background task to save to S3 and DB
-    background_tasks.add_task(
-        _background_upload_and_enforce_limit,
-        raw_bytes,
-        current_user.id,
-        file.filename or "ats_final.pdf",
-        file.content_type,
-        None,  # We don't extract text here again if not needed
-        "ats_final"
-    )
-
-    return {"message": "Final resume saved successfully."}
+    # Await the task directly to ensure it succeeds before returning 201
+    try:
+        s3_key = await _background_upload_and_enforce_limit(
+            raw_bytes,
+            current_user.id,
+            file.filename or "ats_final.pdf",
+            file.content_type,
+            None,  # We don't extract text here again if not needed
+            "ats_final"
+        )
+        return {"message": "Final resume saved successfully.", "s3_key": s3_key}
+    except Exception as e:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save resume. Please try again."
+        )

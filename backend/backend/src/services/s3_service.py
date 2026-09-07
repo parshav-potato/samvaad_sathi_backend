@@ -190,6 +190,10 @@ async def _background_upload_and_enforce_limit(
 
                 await session.commit()
                 logger.info(f"Successfully processed _background_upload_and_enforce_limit for user {user_id}")
+                return s3_key
+        else:
+            raise Exception("S3 upload returned None")
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Failed background S3 resume upload: {e}")
+        raise e
