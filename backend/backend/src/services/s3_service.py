@@ -193,8 +193,38 @@ async def _background_upload_and_enforce_limit(
                         size_bytes=size_bytes,
                         file_sha256=file_sha256
                     )
-                    session.add(new_resume)
-                    await session.flush()
+                    try:
+                        session.add(new_resume)
+                        await session.flush()
+                    except sqlalchemy.exc.IntegrityError:
+                        # Raced with another upload of the same file. Treat as deduplication success.
+                        await session.rollback()
+                        logger.info(f"IntegrityError: Concurrent upload detected for user {user_id}. Using existing.")
+                        
+                        # Clean up the orphaned S3 object we just uploaded
+                        if s3_client and BUCKET_NAME:
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                                    s3_key
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to cleanup S3 object {s3_key} after IntegrityError: {e}")
+                        
+                        # Query the existing file that caused the conflict and return its key
+                        dedup_stmt = sqlalchemy.select(UserResume).where(
+                            UserResume.user_id == user_id, 
+                            UserResume.file_sha256 == file_sha256
+                        )
+                        dedup_result = await session.execute(dedup_stmt)
+                        existing_resume = dedup_result.scalar_one_or_none()
+                        if existing_resume:
+                            existing_resume.created_at = datetime.datetime.now(datetime.timezone.utc)
+                            await session.commit()
+                            return existing_resume.s3_key
+                        else:
+                            raise
 
                     # 2. Enforce the limit of 3 with row-level locks to prevent race conditions
                     stmt = (

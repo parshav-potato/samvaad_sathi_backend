@@ -28,6 +28,7 @@ class UserResume(Base):  # type: ignore
     user = relationship("User", back_populates="resumes")
 
     __table_args__ = (
+        sqlalchemy.UniqueConstraint("user_id", "file_sha256", name="uq_user_resume_user_sha256"),
         sqlalchemy.CheckConstraint(
             "source IN ('onboarding', 'ats_final')",
             name="chk_user_resume_source"
