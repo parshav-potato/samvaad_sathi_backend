@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+import datetime
 from typing import Optional
 from decouple import config
 import boto3
@@ -128,19 +129,46 @@ def get_presigned_url(object_key: str, expiration: int = 3600) -> Optional[str]:
         logger.error(f"Failed to generate presigned URL: {e}")
         return None
 
-async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: str, content_type: str):
+async def _background_upload_and_enforce_limit(
+    file_bytes: bytes, 
+    user_id: int, 
+    filename: str, 
+    content_type: str, 
+    resume_text: str | None, 
+    source: str,
+    size_bytes: int | None = None,
+    file_sha256: str | None = None,
+):
     """
-    Background task to upload a resume and save the key to the User profile.
+    Background task to upload a resume and save the key to the UserResume table.
+    Enforces a global limit of 3 resumes per user. Oldest resume is deleted if limit is exceeded.
     """
     import asyncio
     import logging
+    import sqlalchemy
     from src.repository.database import async_db
-    from src.repository.crud.user import UserCRUDRepository
+    from src.models.db.user_resume import UserResume
 
     logger = logging.getLogger(__name__)
 
     try:
-        loop = asyncio.get_event_loop()
+        # Deduplication check before uploading to S3
+        if file_sha256:
+            async with async_db.get_session() as session:
+                dedup_stmt = sqlalchemy.select(UserResume).where(
+                    UserResume.user_id == user_id, 
+                    UserResume.file_sha256 == file_sha256
+                )
+                dedup_result = await session.execute(dedup_stmt)
+                existing_resume = dedup_result.scalar_one_or_none()
+                if existing_resume:
+                    # Dedup: Identical PDF already exists, update timestamp to make it newest
+                    existing_resume.created_at = datetime.datetime.now(datetime.timezone.utc)
+                    await session.commit()
+                    logger.info(f"Dedup matched! Returning existing S3 key for user {user_id}")
+                    return existing_resume.s3_key
+
+        loop = asyncio.get_running_loop()
         s3_key = await loop.run_in_executor(
             None, 
             upload_resume_to_s3, 
@@ -148,10 +176,107 @@ async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: s
         )
         
         if s3_key:
-            async with async_db.get_session() as session:
-                repo = UserCRUDRepository(session)
-                await repo.update_original_resume_s3_key(user_id=user_id, s3_key=s3_key)
-                logger.info(f"Saved original_resume_s3_key {s3_key} for user {user_id}")
+            s3_keys_to_delete = []
+            try:
+                async with async_db.get_session() as session:
+                    # Truncate filename to prevent DB insert errors causing S3 object leaks
+                    safe_filename = filename[:256] if filename else "resume.pdf"
+
+                    # 1. Insert the new resume
+                    new_resume = UserResume(
+                        user_id=user_id,
+                        s3_key=s3_key,
+                        filename=safe_filename,
+                        resume_text=resume_text,
+                        source=source,
+                        content_type=content_type,
+                        size_bytes=size_bytes,
+                        file_sha256=file_sha256
+                    )
+                    try:
+                        session.add(new_resume)
+                        await session.flush()
+                    except sqlalchemy.exc.IntegrityError:
+                        # Raced with another upload of the same file. Treat as deduplication success.
+                        await session.rollback()
+                        logger.info(f"IntegrityError: Concurrent upload detected for user {user_id}. Using existing.")
+                        
+                        # Clean up the orphaned S3 object we just uploaded
+                        if s3_client and BUCKET_NAME:
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                                    s3_key
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to cleanup S3 object {s3_key} after IntegrityError: {e}")
+                        
+                        # Query the existing file that caused the conflict and return its key
+                        dedup_stmt = sqlalchemy.select(UserResume).where(
+                            UserResume.user_id == user_id, 
+                            UserResume.file_sha256 == file_sha256
+                        )
+                        dedup_result = await session.execute(dedup_stmt)
+                        existing_resume = dedup_result.scalar_one_or_none()
+                        if existing_resume:
+                            existing_resume.created_at = datetime.datetime.now(datetime.timezone.utc)
+                            await session.commit()
+                            return existing_resume.s3_key
+                        else:
+                            raise
+
+                    # 2. Enforce the limit of 3 with row-level locks to prevent race conditions
+                    stmt = (
+                        sqlalchemy.select(UserResume)
+                        .where(UserResume.user_id == user_id)
+                        .order_by(UserResume.created_at.desc(), UserResume.id.desc())
+                        .with_for_update()
+                    )
+                    result = await session.execute(stmt)
+                    user_resumes = result.scalars().all()
+
+                    if len(user_resumes) > 3:
+                        # Find all resumes beyond the most recent 3
+                        resumes_to_delete = user_resumes[3:]
+                        for old_resume in resumes_to_delete:
+                            s3_keys_to_delete.append(old_resume.s3_key)
+                            # Delete from database first
+                            await session.delete(old_resume)
+
+                    await session.commit()
+            except Exception as db_err:
+                # DB transaction failed. Clean up the newly uploaded S3 object to prevent leaks.
+                if s3_client and BUCKET_NAME:
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                            s3_key
+                        )
+                        logger.info(f"Cleaned up orphaned S3 object after DB failure: {s3_key}")
+                    except Exception as s3_cleanup_err:
+                        logger.error(f"Failed to clean up orphaned S3 object {s3_key}: {s3_cleanup_err}")
+                raise db_err
+
+            # DB commit succeeded. Now perform best-effort S3 cleanup for old resumes.
+            for old_key in s3_keys_to_delete:
+                if s3_client and BUCKET_NAME and old_key:
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                            old_key
+                        )
+                        logger.info(f"Deleted old resume from S3: {old_key}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete old resume from S3: {e}")
+
+            logger.info(f"Successfully processed _background_upload_and_enforce_limit for user {user_id}")
+            return s3_key
+        else:
+            raise Exception("S3 upload returned None")
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Failed background S3 resume upload: {e}")
+        raise e
