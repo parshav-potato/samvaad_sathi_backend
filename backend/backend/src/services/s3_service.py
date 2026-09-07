@@ -167,7 +167,7 @@ async def _background_upload_and_enforce_limit(
                     logger.info(f"Dedup matched! Returning existing S3 key for user {user_id}")
                     return existing_resume.s3_key
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         s3_key = await loop.run_in_executor(
             None, 
             upload_resume_to_s3, 

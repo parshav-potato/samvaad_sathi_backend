@@ -194,7 +194,7 @@ class UserCRUDRepository(BaseCRUDRepository):
         user_resumes = result.scalars().all()
         
         # 2. Cleanup S3 path to prevent orphaned bucket objects
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for resume in user_resumes:
             if resume.s3_key and s3_client and BUCKET_NAME:
                 try:
