@@ -378,7 +378,10 @@ async def download_original_resume(
     current_user=fastapi.Depends(get_current_user),
     session: AsyncSession = fastapi.Depends(get_async_session),
 ):
-    stmt = sqlalchemy.select(UserResume).where(UserResume.user_id == current_user.id).order_by(UserResume.created_at.desc()).limit(1)
+    stmt = sqlalchemy.select(UserResume).where(
+        UserResume.user_id == current_user.id,
+        UserResume.source == "onboarding"
+    ).order_by(UserResume.created_at.desc()).limit(1)
     result = await session.execute(stmt)
     latest_resume = result.scalar_one_or_none()
     
