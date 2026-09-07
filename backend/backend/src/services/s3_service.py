@@ -129,7 +129,14 @@ def get_presigned_url(object_key: str, expiration: int = 3600) -> Optional[str]:
         return None
 
 async def _background_upload_and_enforce_limit(
-    file_bytes: bytes, user_id: int, filename: str, content_type: str, resume_text: str | None, source: str
+    file_bytes: bytes, 
+    user_id: int, 
+    filename: str, 
+    content_type: str, 
+    resume_text: str | None, 
+    source: str,
+    size_bytes: int | None = None,
+    file_sha256: str | None = None,
 ):
     """
     Background task to upload a resume and save the key to the UserResume table.
@@ -144,6 +151,22 @@ async def _background_upload_and_enforce_limit(
     logger = logging.getLogger(__name__)
 
     try:
+        # Deduplication check before uploading to S3
+        if file_sha256:
+            async with async_db.get_session() as session:
+                dedup_stmt = sqlalchemy.select(UserResume).where(
+                    UserResume.user_id == user_id, 
+                    UserResume.file_sha256 == file_sha256
+                )
+                dedup_result = await session.execute(dedup_stmt)
+                existing_resume = dedup_result.scalar_one_or_none()
+                if existing_resume:
+                    # Dedup: Identical PDF already exists, update timestamp to make it newest
+                    existing_resume.created_at = sqlalchemy_functions.now()
+                    await session.commit()
+                    logger.info(f"Dedup matched! Returning existing S3 key for user {user_id}")
+                    return existing_resume.s3_key
+
         loop = asyncio.get_event_loop()
         s3_key = await loop.run_in_executor(
             None, 
@@ -164,7 +187,10 @@ async def _background_upload_and_enforce_limit(
                         s3_key=s3_key,
                         filename=safe_filename,
                         resume_text=resume_text,
-                        source=source
+                        source=source,
+                        content_type=content_type,
+                        size_bytes=size_bytes,
+                        file_sha256=file_sha256
                     )
                     session.add(new_resume)
                     await session.flush()

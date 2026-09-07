@@ -245,6 +245,10 @@ async def extract_resume(
         )
         response["saved"] = True
         
+        import hashlib
+        size_bytes = len(raw_bytes)
+        file_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+        
         # Queue the background task to upload the original PDF to S3 only if DB update succeeds
         background_tasks.add_task(
             _background_upload_and_enforce_limit,
@@ -253,7 +257,9 @@ async def extract_resume(
             file.filename or "resume.pdf",
             content_type,
             normalized if normalized else None,
-            "onboarding"
+            "onboarding",
+            size_bytes,
+            file_sha256
         )
     except Exception as e:
         response["saved"] = False
@@ -446,6 +452,10 @@ async def save_final_resume(
             detail="File content does not appear to be a valid PDF.",
         )
 
+    import hashlib
+    size_bytes = len(raw_bytes)
+    file_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+
     # We no longer auto-update User.resume_text here. The user must explicitly set it via /set-active-resume.
     extracted_text = _extract_text_from_pdf(raw_bytes)
     normalized_text = re.sub(r"\s+", " ", extracted_text or "").strip()
@@ -458,7 +468,9 @@ async def save_final_resume(
             file.filename or "ats_final.pdf",
             file.content_type,
             normalized_text if normalized_text else None,
-            "ats_final"
+            "ats_final",
+            size_bytes,
+            file_sha256
         )
         return {"message": "Final resume saved successfully.", "s3_key": s3_key}
     except Exception as e:

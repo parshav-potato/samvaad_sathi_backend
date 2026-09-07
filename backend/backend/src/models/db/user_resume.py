@@ -21,7 +21,16 @@ class UserResume(Base):  # type: ignore
     created_at: SQLAlchemyMapped[datetime.datetime] = sqlalchemy_mapped_column(
         sqlalchemy.DateTime(timezone=True), nullable=False, server_default=sqlalchemy_functions.now()
     )
+    content_type: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=128), nullable=True)
+    size_bytes: SQLAlchemyMapped[int | None] = sqlalchemy_mapped_column(sqlalchemy.Integer, nullable=True)
+    file_sha256: SQLAlchemyMapped[str | None] = sqlalchemy_mapped_column(sqlalchemy.String(length=64), nullable=True)
 
     user = relationship("User", back_populates="resumes")
 
+    __table_args__ = (
+        sqlalchemy.CheckConstraint(
+            "source IN ('onboarding', 'ats_final')",
+            name="chk_user_resume_source"
+        ),
+    )
     __mapper_args__ = {"eager_defaults": True}
