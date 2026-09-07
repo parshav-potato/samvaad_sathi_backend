@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+import datetime
 from typing import Optional
 from decouple import config
 import boto3
@@ -162,7 +163,7 @@ async def _background_upload_and_enforce_limit(
                 existing_resume = dedup_result.scalar_one_or_none()
                 if existing_resume:
                     # Dedup: Identical PDF already exists, update timestamp to make it newest
-                    existing_resume.created_at = sqlalchemy_functions.now()
+                    existing_resume.created_at = datetime.datetime.now(datetime.timezone.utc)
                     await session.commit()
                     logger.info(f"Dedup matched! Returning existing S3 key for user {user_id}")
                     return existing_resume.s3_key
