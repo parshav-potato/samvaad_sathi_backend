@@ -15,8 +15,7 @@ from src.api.dependencies.auth import get_current_user
 from src.models.schemas.resume import ResumeExtractionResponse, MyResumeResponse, KnowledgeSetResponse
 
 
-from src.services.s3_service import _background_upload_resume
-
+from src.services.s3_service import _background_upload_and_enforce_limit
 router = fastapi.APIRouter(prefix="", tags=["resume"])
 
 
@@ -252,11 +251,13 @@ async def extract_resume(
 
     # Queue the background task to upload the original PDF to S3
     background_tasks.add_task(
-        _background_upload_resume,
+        _background_upload_and_enforce_limit,
         raw_bytes,
         current_user.id,
         file.filename or "resume.pdf",
-        content_type
+        content_type,
+        normalized if normalized else None,
+        "onboarding"
     )
 
     return response
@@ -387,3 +388,45 @@ async def download_original_resume(
         )
         
     return {"url": url}
+
+@router.post(
+    path="/save-final-resume",
+    name="resume:save-final-resume",
+    response_model=dict,
+    status_code=fastapi.status.HTTP_202_ACCEPTED,
+    summary="Save a final ATS resume",
+    description="Uploads a finalized resume from the ATS tool to S3 and enforces the max 3 resume limit.",
+)
+async def save_final_resume(
+    background_tasks: fastapi.BackgroundTasks,
+    file: fastapi.UploadFile = fastapi.File(
+        ..., description="Resume file to upload. Allowed types: application/pdf (max 5MB)"
+    ),
+    current_user=fastapi.Depends(get_current_user),
+):
+    if file.content_type not in ["application/pdf"]:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only PDF files are supported for saving final resumes.",
+        )
+
+    # Read file content
+    raw_bytes = await file.read()
+    if len(raw_bytes) > 5 * 1024 * 1024:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Uploaded file exceeds 5 MB limit",
+        )
+
+    # Queue background task to save to S3 and DB
+    background_tasks.add_task(
+        _background_upload_and_enforce_limit,
+        raw_bytes,
+        current_user.id,
+        file.filename or "ats_final.pdf",
+        file.content_type,
+        None,  # We don't extract text here again if not needed
+        "ats_final"
+    )
+
+    return {"message": "Final resume saved successfully."}

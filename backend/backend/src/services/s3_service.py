@@ -128,14 +128,18 @@ def get_presigned_url(object_key: str, expiration: int = 3600) -> Optional[str]:
         logger.error(f"Failed to generate presigned URL: {e}")
         return None
 
-async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: str, content_type: str):
+async def _background_upload_and_enforce_limit(
+    file_bytes: bytes, user_id: int, filename: str, content_type: str, resume_text: str | None, source: str
+):
     """
-    Background task to upload a resume and save the key to the User profile.
+    Background task to upload a resume and save the key to the UserResume table.
+    Enforces a global limit of 3 resumes per user. Oldest resume is deleted if limit is exceeded.
     """
     import asyncio
     import logging
+    import sqlalchemy
     from src.repository.database import async_db
-    from src.repository.crud.user import UserCRUDRepository
+    from src.models.db.user_resume import UserResume
 
     logger = logging.getLogger(__name__)
 
@@ -149,9 +153,43 @@ async def _background_upload_resume(file_bytes: bytes, user_id: int, filename: s
         
         if s3_key:
             async with async_db.get_session() as session:
-                repo = UserCRUDRepository(session)
-                await repo.update_original_resume_s3_key(user_id=user_id, s3_key=s3_key)
-                logger.info(f"Saved original_resume_s3_key {s3_key} for user {user_id}")
+                # 1. Insert the new resume
+                new_resume = UserResume(
+                    user_id=user_id,
+                    s3_key=s3_key,
+                    filename=filename,
+                    resume_text=resume_text,
+                    source=source
+                )
+                session.add(new_resume)
+                await session.flush() # flush to get an ID if needed, or just proceed
+
+                # 2. Enforce the limit of 3
+                stmt = sqlalchemy.select(UserResume).where(UserResume.user_id == user_id).order_by(UserResume.created_at.desc())
+                result = await session.execute(stmt)
+                user_resumes = result.scalars().all()
+
+                if len(user_resumes) > 3:
+                    # Find all resumes beyond the most recent 3
+                    resumes_to_delete = user_resumes[3:]
+                    for old_resume in resumes_to_delete:
+                        # Attempt to delete from S3
+                        if s3_client and BUCKET_NAME:
+                            try:
+                                await loop.run_in_executor(
+                                    None,
+                                    lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                                    old_resume.s3_key
+                                )
+                                logger.info(f"Deleted old resume from S3: {old_resume.s3_key}")
+                            except Exception as e:
+                                logger.error(f"Failed to delete old resume from S3: {e}")
+                        
+                        # Delete from database
+                        await session.delete(old_resume)
+
+                await session.commit()
+                logger.info(f"Successfully processed _background_upload_and_enforce_limit for user {user_id}")
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Failed background S3 resume upload: {e}")
