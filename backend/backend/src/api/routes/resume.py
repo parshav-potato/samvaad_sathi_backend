@@ -7,6 +7,51 @@ from typing import Any, Dict, Tuple
 
 import fastapi
 import PyPDF2
+
+def _extract_text_from_pdf(raw_bytes: bytes) -> str:
+    extracted_text = ""
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
+        texts: list[str] = []
+        if len(pdf_reader.pages) > 0:
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        texts.append(page_text)
+                except Exception as page_error:
+                    print(f"Warning: Failed to extract text from page {page_num + 1}: {page_error}")
+                    continue
+            extracted_text = "\n".join(texts)
+            if not extracted_text.strip():
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                        fallback_texts = []
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text and page_text.strip():
+                                fallback_texts.append(page_text)
+                        extracted_text = "\n".join(fallback_texts)
+                except ImportError:
+                    print("Warning: pdfplumber not available for fallback PDF extraction")
+                except Exception as fallback_error:
+                    print(f"Warning: pdfplumber fallback failed: {fallback_error}")
+    except Exception as pdf_error:
+        print(f"PDF extraction error: {pdf_error}")
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                fallback_texts = []
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text and page_text.strip():
+                        fallback_texts.append(page_text)
+                extracted_text = "\n".join(fallback_texts)
+        except Exception:
+            extracted_text = ""
+    return extracted_text
+
 from src.api.dependencies.repository import get_repository
 from src.repository.crud.user import UserCRUDRepository
 from src.services.llm import extract_resume_entities_with_llm, extract_resume_entities_v2_with_llm
@@ -75,57 +120,7 @@ async def extract_resume(
     if content_type == "text/plain":
         extracted_text = raw_bytes.decode("utf-8", errors="ignore")
     elif content_type == "application/pdf":
-        try:
-            # Primary extraction with PyPDF2
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
-            texts: list[str] = []
-            
-            # Check if PDF has pages
-            if len(pdf_reader.pages) == 0:
-                extracted_text = ""
-            else:
-                for page_num, page in enumerate(pdf_reader.pages):
-                    try:
-                        page_text = page.extract_text() or ""
-                        if page_text.strip():  # Only add non-empty pages
-                            texts.append(page_text)
-                    except Exception as page_error:
-                        # Log page extraction error but continue with other pages
-                        print(f"Warning: Failed to extract text from page {page_num + 1}: {page_error}")
-                        continue
-                
-                extracted_text = "\n".join(texts)
-                
-                # If no text extracted, try pdfplumber as fallback
-                if not extracted_text.strip():
-                    try:
-                        import pdfplumber
-                        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
-                            fallback_texts = []
-                            for page in pdf.pages:
-                                page_text = page.extract_text()
-                                if page_text and page_text.strip():
-                                    fallback_texts.append(page_text)
-                            extracted_text = "\n".join(fallback_texts)
-                    except ImportError:
-                        print("Warning: pdfplumber not available for fallback PDF extraction")
-                    except Exception as fallback_error:
-                        print(f"Warning: pdfplumber fallback failed: {fallback_error}")
-                        
-        except Exception as pdf_error:
-            print(f"PDF extraction error: {pdf_error}")
-            # Final fallback: try pdfplumber directly
-            try:
-                import pdfplumber
-                with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
-                    fallback_texts = []
-                    for page in pdf.pages:
-                        page_text = page.extract_text()
-                        if page_text and page_text.strip():
-                            fallback_texts.append(page_text)
-                    extracted_text = "\n".join(fallback_texts)
-            except Exception:
-                extracted_text = ""
+        extracted_text = _extract_text_from_pdf(raw_bytes)
 
     # Normalize whitespace and control characters
     normalized = re.sub(r"\s+", " ", extracted_text or "").strip()
@@ -411,6 +406,7 @@ async def save_final_resume(
         ..., description="Resume file to upload. Allowed types: application/pdf (max 5MB)"
     ),
     current_user=fastapi.Depends(get_current_user),
+    user_repo: UserCRUDRepository = fastapi.Depends(get_repository(repo_type=UserCRUDRepository)),
 ):
     if file.content_type not in ["application/pdf"]:
         raise fastapi.HTTPException(
@@ -450,6 +446,16 @@ async def save_final_resume(
             detail="File content does not appear to be a valid PDF.",
         )
 
+    # Extract text to keep User.resume_text updated for downstream features (like interviews)
+    extracted_text = _extract_text_from_pdf(raw_bytes)
+    normalized_text = re.sub(r"\s+", " ", extracted_text or "").strip()
+    
+    if normalized_text:
+        try:
+            await user_repo.update_only_resume_text(user_id=current_user.id, resume_text=normalized_text)
+        except Exception as e:
+            print(f"Warning: failed to update User.resume_text from ATS final resume: {e}")
+
     # Await the task directly to ensure it succeeds before returning 201
     try:
         s3_key = await _background_upload_and_enforce_limit(
@@ -457,7 +463,7 @@ async def save_final_resume(
             current_user.id,
             file.filename or "ats_final.pdf",
             file.content_type,
-            None,  # We don't extract text here again if not needed
+            normalized_text if normalized_text else None,
             "ats_final"
         )
         return {"message": "Final resume saved successfully.", "s3_key": s3_key}

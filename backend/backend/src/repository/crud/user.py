@@ -100,6 +100,18 @@ class UserCRUDRepository(BaseCRUDRepository):
         await self.async_session.refresh(user)
         return user
 
+    async def update_only_resume_text(self, *, user_id: int, resume_text: str) -> User:
+        stmt = sqlalchemy.select(User).where(User.id == user_id)
+        query = await self.async_session.execute(statement=stmt)
+        user: User | None = query.scalar()  # type: ignore
+        if not user:
+            raise EntityDoesNotExist("User does not exist!")
+
+        user.resume_text = resume_text
+        await self.async_session.commit()
+        await self.async_session.refresh(user)
+        return user
+
     async def set_student_id_if_unset(self, *, user_id: int, student_id: str) -> User:
         """Only sets it if empty, so a duplicate link click can't clobber an existing link."""
         stmt = sqlalchemy.select(User).where(User.id == user_id)
