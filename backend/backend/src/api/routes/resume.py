@@ -419,12 +419,36 @@ async def save_final_resume(
             detail="Only PDF files are supported for saving final resumes.",
         )
 
-    # Read file content
-    raw_bytes = await file.read()
-    if len(raw_bytes) > 5 * 1024 * 1024:
+    # Enforce a max upload size of 5 MB while buffering content in chunks
+    max_bytes = 5 * 1024 * 1024
+    total_size = 0
+    buffer = bytearray()
+    chunk_size = 1024 * 64
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > max_bytes:
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Uploaded file exceeds 5 MB limit",
+            )
+        buffer.extend(chunk)
+
+    raw_bytes = bytes(buffer)
+
+    if total_size == 0:
         raise fastapi.HTTPException(
-            status_code=fastapi.status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Uploaded file exceeds 5 MB limit",
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+
+    # Verify PDF magic bytes
+    if not raw_bytes.startswith(b"%PDF"):
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File content does not appear to be a valid PDF.",
         )
 
     # Queue background task to save to S3 and DB
