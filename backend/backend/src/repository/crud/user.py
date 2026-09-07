@@ -179,4 +179,35 @@ class UserCRUDRepository(BaseCRUDRepository):
         await self.async_session.refresh(user)
         return user
 
+    async def delete_user(self, *, user_id: int) -> None:
+        """Deletes a user and ensures their S3 resumes are cleaned up to prevent orphaned objects."""
+        from src.models.db.user_resume import UserResume
+        from src.services.s3_service import BUCKET_NAME, s3_client
+        import asyncio
+        import logging
+        
+        logger = logging.getLogger(__name__)
 
+        # 1. Fetch user's resumes to delete them from S3
+        stmt = sqlalchemy.select(UserResume).where(UserResume.user_id == user_id)
+        result = await self.async_session.execute(stmt)
+        user_resumes = result.scalars().all()
+        
+        # 2. Cleanup S3 path to prevent orphaned bucket objects
+        loop = asyncio.get_event_loop()
+        for resume in user_resumes:
+            if resume.s3_key and s3_client and BUCKET_NAME:
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                        resume.s3_key
+                    )
+                    logger.info(f"Cleaned up S3 object {resume.s3_key} for deleted user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to clean up S3 object {resume.s3_key} for deleted user {user_id}: {e}")
+        
+        # 3. Now delete the user (DB CASCADE will automatically delete the UserResume rows)
+        del_stmt = sqlalchemy.delete(User).where(User.id == user_id)
+        await self.async_session.execute(del_stmt)
+        await self.async_session.commit()
