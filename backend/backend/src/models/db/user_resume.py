@@ -32,5 +32,6 @@ class UserResume(Base):  # type: ignore
             "source IN ('onboarding', 'ats_final')",
             name="chk_user_resume_source"
         ),
+        sqlalchemy.Index("ix_user_resume_user_id_created_at", "user_id", "created_at"),
     )
     __mapper_args__ = {"eager_defaults": True}
