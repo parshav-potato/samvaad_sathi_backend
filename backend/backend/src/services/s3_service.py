@@ -152,53 +152,71 @@ async def _background_upload_and_enforce_limit(
         )
         
         if s3_key:
-            async with async_db.get_session() as session:
-                # Truncate filename to prevent DB insert errors causing S3 object leaks
-                safe_filename = filename[:256] if filename else "resume.pdf"
+            s3_keys_to_delete = []
+            try:
+                async with async_db.get_session() as session:
+                    # Truncate filename to prevent DB insert errors causing S3 object leaks
+                    safe_filename = filename[:256] if filename else "resume.pdf"
 
-                # 1. Insert the new resume
-                new_resume = UserResume(
-                    user_id=user_id,
-                    s3_key=s3_key,
-                    filename=safe_filename,
-                    resume_text=resume_text,
-                    source=source
-                )
-                session.add(new_resume)
-                await session.flush()
+                    # 1. Insert the new resume
+                    new_resume = UserResume(
+                        user_id=user_id,
+                        s3_key=s3_key,
+                        filename=safe_filename,
+                        resume_text=resume_text,
+                        source=source
+                    )
+                    session.add(new_resume)
+                    await session.flush()
 
-                # 2. Enforce the limit of 3 with row-level locks to prevent race conditions
-                stmt = (
-                    sqlalchemy.select(UserResume)
-                    .where(UserResume.user_id == user_id)
-                    .order_by(UserResume.created_at.desc(), UserResume.id.desc())
-                    .with_for_update()
-                )
-                result = await session.execute(stmt)
-                user_resumes = result.scalars().all()
+                    # 2. Enforce the limit of 3 with row-level locks to prevent race conditions
+                    stmt = (
+                        sqlalchemy.select(UserResume)
+                        .where(UserResume.user_id == user_id)
+                        .order_by(UserResume.created_at.desc(), UserResume.id.desc())
+                        .with_for_update()
+                    )
+                    result = await session.execute(stmt)
+                    user_resumes = result.scalars().all()
 
-                if len(user_resumes) > 3:
-                    # Find all resumes beyond the most recent 3
-                    resumes_to_delete = user_resumes[3:]
-                    for old_resume in resumes_to_delete:
-                        # Attempt to delete from S3
-                        if s3_client and BUCKET_NAME:
-                            try:
-                                await loop.run_in_executor(
-                                    None,
-                                    lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
-                                    old_resume.s3_key
-                                )
-                                logger.info(f"Deleted old resume from S3: {old_resume.s3_key}")
-                            except Exception as e:
-                                logger.error(f"Failed to delete old resume from S3: {e}")
-                        
-                        # Delete from database
-                        await session.delete(old_resume)
+                    if len(user_resumes) > 3:
+                        # Find all resumes beyond the most recent 3
+                        resumes_to_delete = user_resumes[3:]
+                        for old_resume in resumes_to_delete:
+                            s3_keys_to_delete.append(old_resume.s3_key)
+                            # Delete from database first
+                            await session.delete(old_resume)
 
-                await session.commit()
-                logger.info(f"Successfully processed _background_upload_and_enforce_limit for user {user_id}")
-                return s3_key
+                    await session.commit()
+            except Exception as db_err:
+                # DB transaction failed. Clean up the newly uploaded S3 object to prevent leaks.
+                if s3_client and BUCKET_NAME:
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                            s3_key
+                        )
+                        logger.info(f"Cleaned up orphaned S3 object after DB failure: {s3_key}")
+                    except Exception as s3_cleanup_err:
+                        logger.error(f"Failed to clean up orphaned S3 object {s3_key}: {s3_cleanup_err}")
+                raise db_err
+
+            # DB commit succeeded. Now perform best-effort S3 cleanup for old resumes.
+            for old_key in s3_keys_to_delete:
+                if s3_client and BUCKET_NAME and old_key:
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda k: s3_client.delete_object(Bucket=BUCKET_NAME, Key=k),
+                            old_key
+                        )
+                        logger.info(f"Deleted old resume from S3: {old_key}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete old resume from S3: {e}")
+
+            logger.info(f"Successfully processed _background_upload_and_enforce_limit for user {user_id}")
+            return s3_key
         else:
             raise Exception("S3 upload returned None")
     except Exception as e:
